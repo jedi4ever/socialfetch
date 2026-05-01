@@ -662,22 +662,60 @@ func signalContext(timeout time.Duration) (context.Context, context.CancelFunc) 
 // ---- help text --------------------------------------------------------
 
 func printUsage(w io.Writer) {
-	fmt.Fprint(w, `socialfetch — fetch social-media URLs and search queries
+	fmt.Fprint(w, `socialfetch — fetch social-media URLs and run search queries
 
-Usage:
+USAGE
   socialfetch fetch  <url> [<url>...] [flags]
   socialfetch search "<query>" [flags]
-  socialfetch list                     list fetch + search providers
-  socialfetch help [fetch|search]      detailed help for a subcommand
-  socialfetch version                  print version
+  socialfetch list                            list fetch + search providers
+  socialfetch help [fetch|search|list]        same as --help on a subcommand
+  socialfetch version                         print version
 
-Quick examples:
+FETCH FLAGS
+  -f, --format        FMT     markdown (default), json, jsonl
+  -o, --output        PATH    "-" or unset = stdout
+                              FILE          = single file
+                              DIR/          = one file per URL
+  -i, --input         FILE    URLs file, one per line ('-' = stdin)
+                              '#' lines are comments
+  -l, --log           PATH    audit/debug log ('-' or 'stderr' = stderr)
+      --comments              include comment trees (default)
+      --no-comments           skip comment trees (faster, smaller)
+      --max-comments  N       cap total comments per item (0 = no cap)
+      --timeout       DUR     overall timeout, e.g. 60s, 2m (default 60s)
+
+SEARCH FLAGS
+  -p, --provider      NAME    duckduckgo (default) or serpapi
+  -n, --max           N       max results (default 10)
+  -f, --format        FMT     json (default), jsonl, or markdown
+  -o, --output        PATH    stdout or file
+  -l, --log           PATH    audit log destination
+      --timeout       DUR     overall timeout (default 30s)
+
+FETCH SOURCES (auto-detected by URL host)
+  hackernews   https://news.ycombinator.com/item?id=NN  (or bare ID)
+  reddit       https://www.reddit.com/r/<sub>/comments/<id>/<slug>/
+  github       https://github.com/<owner>/<repo>
+  twitter      https://x.com/<user>/status/<id>
+  rss          any URL with /feed, /rss, /atom or .xml in the path
+  article      any other http(s) URL (Medium, Substack, blogs, news)
+
+SEARCH PROVIDERS
+  duckduckgo   no auth (lite endpoint scrape)
+  serpapi      requires SERPAPI_KEY env var
+
+EXAMPLES
   socialfetch fetch https://news.ycombinator.com/item?id=43000000
   socialfetch fetch https://github.com/anthropics/claude-code -f markdown
-  socialfetch fetch -i urls.txt -o out/ -f json
+  socialfetch fetch -i urls.txt -o out/ -f json --no-comments
+  cat urls.txt | socialfetch fetch -i - -f jsonl > all.jsonl
   socialfetch search "vercel ai sdk" -p duckduckgo -n 5
 
-Run 'socialfetch help fetch' or 'socialfetch help search' for full flags.
+NOTES FOR AGENTS
+  - Default fetch format is markdown; use -f json or -f jsonl for machine input.
+  - With multiple URLs and -f json, output is auto-promoted to jsonl.
+  - --log - prints which URL was fetched and any redirects to stderr.
+  - 'socialfetch list' prints the fetch + search providers in machine-friendly form.
 `)
 }
 

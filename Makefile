@@ -1,50 +1,52 @@
 # socialfetch — build and test targets.
-#
-# Common workflows:
-#   make build         # build the binary into ./bin/socialfetch
-#   make test          # run fast (offline) tests
-#   make test-live     # run tests that hit real HN, Reddit, GitHub etc.
-#   make install       # go install into $GOBIN
-#   make run URL=...   # build + run a quick fetch against URL
-#   make demo          # fetch a representative URL from each source
-#   make clean         # delete ./bin
+# Run 'make' with no arguments to see all available targets.
 
 BIN := ./bin/socialfetch
 PKG := ./...
 URL ?= https://news.ycombinator.com/news
 
-.PHONY: all build install test test-live test-cover lint vet fmt run demo clean help
+.PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help
 
-all: build
+all: help  ## Default target: print this help
 
-build:
+help:  ## Show all targets and their purpose
+	@printf "socialfetch Makefile\n"
+	@printf "\nTargets:\n"
+	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@printf "\nVariables (override on the command line):\n"
+	@printf "  URL=<url>       passed to 'make run' (default: %s)\n" "$(URL)"
+	@printf "\nQuick start:\n"
+	@printf "  make build && ./bin/socialfetch --help\n"
+	@printf "  make run URL=https://news.ycombinator.com/item?id=1\n"
+
+build:  ## Build ./bin/socialfetch
 	@mkdir -p bin
 	go build -o $(BIN) ./cmd/socialfetch
 
-install:
+install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch
 
-test:
+test:  ## Run fast (offline) unit tests
 	go test $(PKG)
 
-test-live:
+test-live:  ## Run live tests that hit real network endpoints
 	go test -tags=live $(PKG) -count=1
 
-test-cover:
+test-cover:  ## Offline tests with coverage report
 	go test -cover $(PKG)
 
-vet:
+vet:  ## go vet
 	go vet $(PKG)
 
-fmt:
+fmt:  ## gofmt -s -w .
 	gofmt -s -w .
 
-lint: vet
+lint: vet  ## Alias for vet
 
-run: build
+run: build  ## Build and fetch URL (override with URL=...)
 	$(BIN) fetch $(URL)
 
-demo: build
+demo: build  ## Fetch a representative URL from each source
 	@echo "── HackerNews ──"
 	$(BIN) fetch https://news.ycombinator.com/item?id=1 --no-comments
 	@echo "\n── GitHub ──"
@@ -52,9 +54,8 @@ demo: build
 	@echo "\n── Article ──"
 	$(BIN) fetch https://example.com/
 
-clean:
-	rm -rf bin
+cli-help: build  ## Print the CLI's full --help
+	$(BIN) --help
 
-help:
-	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) || \
-	  awk '/^[a-zA-Z_-]+:/{ sub(/:.*/, "", $$1); print $$1 }' $(MAKEFILE_LIST) | sort -u
+clean:  ## Delete ./bin
+	rm -rf bin
