@@ -10,7 +10,7 @@ URL          ?= https://news.ycombinator.com/news
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
-        skill skill-clean skill-install
+        skill-build skill-install skill-clean
 
 all: help  ## Default target: print this help
 
@@ -24,7 +24,7 @@ help:  ## Show all targets and their purpose
 	@printf "  make build && ./bin/socialfetch --help\n"
 	@printf "  make run URL=https://news.ycombinator.com/item?id=1\n"
 
-build: skill  ## Build ./bin/socialfetch and refresh the bundled skill binary
+build: skill-build  ## Build ./bin/socialfetch and refresh the bundled skill binary
 
 # The skill target depends on every Go source file so the bundled binary
 # is rebuilt whenever the implementation changes — guarantees the skill
@@ -35,9 +35,9 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	go build -o $(BIN) ./cmd/socialfetch
 	cp $(BIN) $(SKILL_BIN)
 
-skill: $(SKILL_BIN)  ## Build and copy the binary into skill/socialfetch/scripts/
+skill-build: $(SKILL_BIN)  ## Build and copy the binary into skill/socialfetch/scripts/
 
-skill-install: skill  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/socialfetch)
+skill-install: skill-build  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/socialfetch)
 	@mkdir -p $(SKILL_INSTALL_DIR)/scripts
 	cp skill/socialfetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
 	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch
