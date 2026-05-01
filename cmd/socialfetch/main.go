@@ -38,8 +38,11 @@ import (
 	"github.com/patrickdebois/social-skills/internal/sources/rss"
 	"github.com/patrickdebois/social-skills/internal/sources/twitter"
 
+	"github.com/patrickdebois/social-skills/internal/search/bing"
 	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
 	"github.com/patrickdebois/social-skills/internal/search/serpapi"
+	"github.com/patrickdebois/social-skills/internal/search/tavily"
+	"github.com/patrickdebois/social-skills/internal/search/xsearch"
 )
 
 // buildRegistries wires up the default fetcher and search registries.
@@ -55,7 +58,10 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 	)
 	searchers := search.NewRegistry(
 		duckduckgo.New(),
+		bing.New(),
 		serpapi.New(),
+		tavily.New(),
+		xsearch.New(),
 	)
 	return fetchers, searchers
 }
@@ -99,6 +105,7 @@ type fetchFlags struct {
 	logFile    string // audit/debug log destination ("-" = stderr)
 	comments   bool
 	maxComment int
+	jobs       int // worker-pool size for batch fetches
 	timeout    time.Duration
 	urls       []string
 }
@@ -107,6 +114,7 @@ func parseFetchFlags(args []string) (*fetchFlags, error) {
 	f := &fetchFlags{
 		format:   "markdown",
 		comments: true,
+		jobs:     4,
 		timeout:  60 * time.Second,
 	}
 	for i := 0; i < len(args); i++ {
@@ -153,6 +161,19 @@ func parseFetchFlags(args []string) (*fetchFlags, error) {
 				return nil, err
 			}
 			f.maxComment = n
+		case "-j", "--jobs":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--jobs needs a value")
+			}
+			n, err := atoi(args[i])
+			if err != nil {
+				return nil, err
+			}
+			if n < 1 {
+				n = 1
+			}
+			f.jobs = n
 		case "--timeout":
 			i++
 			if i >= len(args) {
@@ -212,7 +233,7 @@ func runFetch(args []string) error {
 	// Decide where output goes. For stdout / single file: stream as we go.
 	// For a directory: write one file per URL.
 	if isDirOutput(flags.output) {
-		return fetchToDir(ctx, registry, urls, opts, format, flags.output)
+		return fetchToDir(ctx, registry, urls, opts, format, flags.output, flags.jobs)
 	}
 
 	out, closeOut, err := openOutput(flags.output)
@@ -227,28 +248,63 @@ func runFetch(args []string) error {
 		opts.Audit.Logf("multiple URLs with json format; emitting jsonl")
 	}
 
+	return fetchStreamOrdered(ctx, registry, urls, opts, format, out, flags.jobs)
+}
+
+// fetchStreamOrdered runs fetches concurrently with `jobs` workers but
+// emits output in the original URL order — readers don't have to deal
+// with interleaved or out-of-order results. Each result is emitted to w
+// as soon as its slot in the input order is ready, so streaming consumers
+// see early items without waiting for slow ones at the end.
+func fetchStreamOrdered(ctx context.Context, reg *core.Registry, urls []string, opts core.Options, format render.Format, w io.Writer, jobs int) error {
+	if jobs < 1 {
+		jobs = 1
+	}
+	type result struct {
+		item *core.Item
+		err  error
+	}
+	results := make([]chan result, len(urls))
+	for i := range results {
+		results[i] = make(chan result, 1)
+	}
+
+	sem := make(chan struct{}, jobs)
+	for i, u := range urls {
+		sem <- struct{}{}
+		go func(i int, u string) {
+			defer func() { <-sem }()
+			item, err := reg.Fetch(ctx, u, opts)
+			results[i] <- result{item: item, err: err}
+		}(i, u)
+	}
+
 	var firstErr error
-	for _, u := range urls {
-		item, ferr := registry.Fetch(ctx, u, opts)
-		if ferr != nil {
-			fmt.Fprintf(os.Stderr, "fetch %s: %v\n", u, ferr)
+	for i, u := range urls {
+		r := <-results[i]
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "fetch %s: %v\n", u, r.err)
 			if firstErr == nil {
-				firstErr = ferr
+				firstErr = r.err
 			}
 			continue
 		}
-		if err := render.Item(out, item, format); err != nil {
+		if err := render.Item(w, r.item, format); err != nil {
 			return err
 		}
-		if format == render.FormatMarkdown && len(urls) > 1 {
-			fmt.Fprint(out, "\n---\n\n")
+		if format == render.FormatMarkdown && len(urls) > 1 && i < len(urls)-1 {
+			fmt.Fprint(w, "\n---\n\n")
 		}
 	}
 	return firstErr
 }
 
-// fetchToDir writes one output file per URL into dir.
-func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts core.Options, format render.Format, dir string) error {
+// fetchToDir writes one output file per URL into dir, running up to
+// `jobs` fetches concurrently.
+func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts core.Options, format render.Format, dir string, jobs int) error {
+	if jobs < 1 {
+		jobs = 1
+	}
 	if err := os.MkdirAll(strings.TrimRight(dir, "/"), 0o755); err != nil {
 		return err
 	}
@@ -256,7 +312,7 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(urls))
-	sem := make(chan struct{}, 4) // cap concurrency at 4
+	sem := make(chan struct{}, jobs)
 
 	for _, u := range urls {
 		wg.Add(1)
@@ -311,7 +367,7 @@ func parseSearchFlags(args []string) (*searchFlags, error) {
 	f := &searchFlags{
 		provider: "duckduckgo",
 		max:      10,
-		format:   "json",
+		format:   "markdown",
 		timeout:  30 * time.Second,
 	}
 	var queryParts []string
@@ -514,8 +570,15 @@ func runList() error {
 	fmt.Fprintln(w, "Search providers (query → []Result):")
 	for _, p := range searchers.Providers() {
 		auth := ""
-		if p.Name() == "serpapi" {
+		switch p.Name() {
+		case "serpapi":
 			auth = "(requires SERPAPI_KEY)"
+		case "bing":
+			auth = "(requires BING_API_KEY)"
+		case "tavily":
+			auth = "(requires TAVILY_API_KEY)"
+		case "x":
+			auth = "(requires X_API_KEY + X_API_SECRET; recent 7d)"
 		}
 		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), auth)
 	}
@@ -542,11 +605,23 @@ func exampleFor(name string) string {
 
 // ---- shared helpers ---------------------------------------------------
 
+// collectURLs gathers URLs from positional args and an optional input file.
+// If no positional args and no -i flag are given but stdin is a pipe (not
+// a terminal), URLs are read from stdin automatically — so
+// `cat urls.txt | socialfetch fetch` works without any flag.
 func collectURLs(positional []string, inputFile string) ([]string, error) {
 	urls := append([]string(nil), positional...)
-	if inputFile == "" {
+
+	// Decide where, if anywhere, to read URLs from.
+	switch {
+	case inputFile != "":
+		// explicit -i flag wins
+	case len(positional) == 0 && stdinIsPipe():
+		inputFile = "-"
+	default:
 		return urls, nil
 	}
+
 	var rd io.Reader
 	if inputFile == "-" {
 		rd = os.Stdin
@@ -568,6 +643,16 @@ func collectURLs(positional []string, inputFile string) ([]string, error) {
 		urls = append(urls, line)
 	}
 	return urls, sc.Err()
+}
+
+// stdinIsPipe reports whether stdin is being fed by a pipe or redirect
+// rather than a terminal. Used to auto-enable batch mode.
+func stdinIsPipe() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) == 0
 }
 
 func openOutput(target string) (io.Writer, func(), error) {
@@ -678,6 +763,8 @@ FETCH FLAGS
                               DIR/          = one file per URL
   -i, --input         FILE    URLs file, one per line ('-' = stdin)
                               '#' lines are comments
+                              auto-detected when stdin is a pipe
+  -j, --jobs          N       parallel fetch workers (default 4)
   -l, --log           PATH    audit/debug log ('-' or 'stderr' = stderr)
       --comments              include comment trees (default)
       --no-comments           skip comment trees (faster, smaller)
@@ -685,9 +772,10 @@ FETCH FLAGS
       --timeout       DUR     overall timeout, e.g. 60s, 2m (default 60s)
 
 SEARCH FLAGS
-  -p, --provider      NAME    duckduckgo (default) or serpapi
+  -p, --provider      NAME    duckduckgo (default), bing, serpapi,
+                              tavily, or x (X/Twitter recent search)
   -n, --max           N       max results (default 10)
-  -f, --format        FMT     json (default), jsonl, or markdown
+  -f, --format        FMT     markdown (default), json, or jsonl
   -o, --output        PATH    stdout or file
   -l, --log           PATH    audit log destination
       --timeout       DUR     overall timeout (default 30s)
@@ -702,13 +790,16 @@ FETCH SOURCES (auto-detected by URL host)
 
 SEARCH PROVIDERS
   duckduckgo   no auth (lite endpoint scrape)
+  bing         requires BING_API_KEY env var (Bing Web Search v7 API)
   serpapi      requires SERPAPI_KEY env var
+  tavily       requires TAVILY_API_KEY env var (AI-tuned web search)
+  x            requires X_API_KEY + X_API_SECRET (X recent search, 7 days)
 
 EXAMPLES
   socialfetch fetch https://news.ycombinator.com/item?id=43000000
   socialfetch fetch https://github.com/anthropics/claude-code -f markdown
-  socialfetch fetch -i urls.txt -o out/ -f json --no-comments
-  cat urls.txt | socialfetch fetch -i - -f jsonl > all.jsonl
+  socialfetch fetch -i urls.txt -o out/ -f json -j 8 --no-comments
+  cat urls.txt | socialfetch fetch -f jsonl > all.jsonl   # stdin auto-detected
   socialfetch search "vercel ai sdk" -p duckduckgo -n 5
 
 NOTES FOR AGENTS
@@ -732,7 +823,10 @@ Flags:
   -o, --output   PATH   "-" or unset = stdout; FILE = single file;
                         DIR/ = one file per URL (created if missing)
   -i, --input    FILE   Read URLs from FILE, one per line
-                        ('-' = stdin, '#' lines are comments)
+                        ('-' = stdin, '#' lines are comments).
+                        Stdin is auto-used when piped, even without -i.
+  -j, --jobs     N      Parallel fetch workers (default 4). Output stays
+                        in input order even with concurrency.
   -l, --log      PATH   Audit/debug log destination
                         ('-' or 'stderr' = stderr)
       --no-comments     Skip comment trees (HN, Reddit). Faster, smaller.
@@ -744,13 +838,15 @@ Flags:
 Examples:
   socialfetch fetch https://news.ycombinator.com/item?id=43000000
   socialfetch fetch https://x.com/jane/status/123 -f json
-  socialfetch fetch -i bookmarks.txt -o ./out/ -f markdown --no-comments
-  cat urls.txt | socialfetch fetch -i - -f jsonl > all.jsonl
+  socialfetch fetch -i bookmarks.txt -o ./out/ -f markdown -j 8 --no-comments
+  cat urls.txt | socialfetch fetch -f jsonl > all.jsonl
 
 Notes for agents:
   - Default format is markdown; pass -f json or -f jsonl for machine output.
   - With multiple URLs and -f json, output is automatically promoted to jsonl.
   - Use --log - to see exactly which URL the binary fetched and any redirects.
+  - Output order matches input order even when -j > 1 (results buffered
+    per-slot, written as each slot completes in sequence).
 `)
 }
 
@@ -771,7 +867,10 @@ Flags:
 
 Providers:
   duckduckgo  — no auth, scrapes the lite endpoint
+  bing        — requires BING_API_KEY env var (Bing Web Search v7 API)
   serpapi     — requires SERPAPI_KEY env var
+  tavily      — requires TAVILY_API_KEY (AI-tuned web search, scored)
+  x           — requires X_API_KEY + X_API_SECRET (X recent search, 7d)
 
 Examples:
   socialfetch search "anthropic claude api" -n 5

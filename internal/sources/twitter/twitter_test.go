@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/patrickdebois/social-skills/internal/xauth"
 )
 
 const fakeTweet = `{
@@ -76,6 +77,65 @@ func TestSyndicationToken(t *testing.T) {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')) {
 			t.Errorf("non-base36 char in token: %q", tok)
 		}
+	}
+}
+
+// API v2 happy path: with credentials set, the fetcher hits the official
+// API and uses note_tweet for long-form content. The syndication endpoint
+// is never called when v2 succeeds.
+func TestFetchViaV2API(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token_type":"bearer","access_token":"BEARER"}`))
+	}))
+	defer tokenSrv.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer BEARER" {
+			t.Errorf("missing/wrong bearer: %q", r.Header.Get("Authorization"))
+		}
+		if !strings.Contains(r.URL.Path, "/tweets/77") {
+			t.Errorf("wrong endpoint: %s", r.URL.Path)
+		}
+		fmt.Fprint(w, `{
+		  "data": {
+		    "id": "77", "author_id": "u1",
+		    "text": "stub text",
+		    "created_at": "2026-04-01T12:00:00.000Z",
+		    "lang": "en",
+		    "public_metrics": {"like_count": 99, "retweet_count": 1, "reply_count": 2},
+		    "note_tweet": {"text": "Long-form body that goes past the 280-char limit."},
+		    "entities": {"urls": [{"url":"https://t.co/x","expanded_url":"https://example.com/blog"}]}
+		  },
+		  "includes": {
+		    "users": [{"id":"u1","name":"Jane Doe","username":"jane"}],
+		    "media": [{"media_key":"m1","type":"photo","url":"https://pbs.twimg.com/abc.jpg"}]
+		  }
+		}`)
+	}))
+	defer apiSrv.Close()
+
+	prev := xauth.TokenURL
+	xauth.TokenURL = tokenSrv.URL
+	defer func() { xauth.TokenURL = prev }()
+	xauth.ResetCache()
+
+	f := New()
+	f.APIBaseURL = apiSrv.URL
+	f.BaseURL = "http://127.0.0.1:1" // would fail if used; v2 should win
+	f.Creds = xauth.Credentials{Key: "k", Secret: "s"}
+
+	item, err := f.Fetch(context.Background(), "https://x.com/jane/status/77", core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !strings.Contains(item.Content, "Long-form body") {
+		t.Errorf("note_tweet not used: %q", item.Content)
+	}
+	if item.Author != "Jane Doe" || item.Score != 99 {
+		t.Errorf("unexpected: %+v", item)
+	}
+	if got := item.Extra["via"]; got != "v2_api" {
+		t.Errorf("expected via=v2_api, got %v", got)
 	}
 }
 

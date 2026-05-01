@@ -36,25 +36,34 @@ Run `socialfetch help fetch` or `socialfetch help search` for the full flag refe
 | -- | -- |
 | `-f, --format` | `markdown` (default), `json`, `jsonl` |
 | `-o, --output` | `-` or unset for stdout, `FILE` for a single file, `DIR/` for one file per URL |
-| `-i, --input`  | read URLs from FILE (one per line; `-` = stdin; `#` lines are comments) |
+| `-i, --input`  | read URLs from FILE (one per line; `-` = stdin; `#` lines are comments). Auto-detected when stdin is a pipe. |
+| `-j, --jobs N` | parallel fetch workers (default 4). Output stays in input order even with concurrency. |
 | `-l, --log`    | audit/debug log destination (`-` or `stderr` for stderr) |
 | `--no-comments` / `--comments` | skip / include comment trees (default include) |
 | `--max-comments N` | cap total comments per item |
 | `--timeout DUR` | overall timeout (default `60s`) |
 
-When you pass multiple URLs and `-f json`, the format is automatically promoted to `jsonl` so consumers see one item per line.
+When you pass multiple URLs and `-f json`, the format is automatically promoted to `jsonl` so consumers see one item per line. Pipe a list of URLs in directly with `cat urls.txt | socialfetch fetch -f jsonl` — no `-i` needed.
 
 ### Search
 
 | flag | meaning |
 | -- | -- |
-| `-p, --provider` | `duckduckgo` (default) or `serpapi` |
+| `-p, --provider` | `duckduckgo` (default), `bing`, `serpapi`, `tavily`, or `x` |
 | `-n, --max` | max results (default 10) |
-| `-f, --format` | `json` (default), `jsonl`, or `markdown` |
+| `-f, --format` | `markdown` (default), `json`, or `jsonl` |
 | `-o, --output` | stdout or file |
 | `-l, --log` | audit log destination |
 
-`serpapi` requires the `SERPAPI_KEY` environment variable.
+| provider | auth |
+| -- | -- |
+| `duckduckgo` | none (scrapes the lite endpoint) |
+| `bing`       | `BING_API_KEY` (Bing Web Search v7) |
+| `serpapi`    | `SERPAPI_KEY` |
+| `tavily`     | `TAVILY_API_KEY` (AI-tuned, scored, supports domain include/exclude) |
+| `x`          | `X_API_KEY` + `X_API_SECRET` (X v2 recent search, last 7 days) |
+
+When `X_API_KEY` + `X_API_SECRET` are set, the `twitter` fetch source automatically prefers X's official v2 API over the syndication endpoint, picking up long-form `note_tweet` content for tweets over 280 characters.
 
 ## Sources
 
@@ -83,7 +92,11 @@ internal/htmlmd/        shared HTML→Markdown converter
 internal/render/        JSON / JSONL / Markdown renderers
 internal/search/        Search Provider interface + Registry
    duckduckgo/          lite-endpoint scraper, no auth
+   bing/                Bing Web Search v7 API client (gated on BING_API_KEY)
    serpapi/             SerpAPI client (gated on SERPAPI_KEY)
+   tavily/              Tavily AI-tuned web search (gated on TAVILY_API_KEY)
+   xsearch/             X v2 recent-search via OAuth2 app-only
+internal/xauth/         shared X OAuth 2.0 App-Only token exchange + cache
 internal/sources/       per-source fetchers
    hackernews/          Firebase API
    reddit/              .json endpoint

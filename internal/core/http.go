@@ -19,10 +19,22 @@ const UserAgent = "Mozilla/5.0 (compatible; social-skills/0.1; +https://github.c
 // the BaseURL fields on individual fetchers to point at httptest servers
 // rather than swapping this client out.
 //
-// CheckRedirect captures the redirect chain on the request so callers can
-// see when a URL has moved.
+// The transport is tuned for batch fetches: keep-alive on, generous per-host
+// idle pool so 32 concurrent HN comment fetches reuse the same TCP/TLS
+// session, HTTP/2 enabled. CheckRedirect captures the redirect chain so
+// callers can see when a URL has moved.
 var HTTPClient = &http.Client{
-	Timeout:       30 * time.Second,
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   32,
+		MaxConnsPerHost:       64,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ForceAttemptHTTP2:     true,
+	},
 	CheckRedirect: trackRedirects,
 }
 

@@ -9,8 +9,10 @@ package twitter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -18,17 +20,27 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/patrickdebois/social-skills/internal/xauth"
 )
 
 const defaultBaseURL = "https://cdn.syndication.twimg.com"
 
-// Fetcher pulls a tweet by URL.
+// Fetcher pulls a tweet by URL. When X_API_KEY+X_API_SECRET are set in
+// the environment we use the official v2 API (gives us long-form
+// note_tweet content); otherwise we fall back to the public syndication
+// endpoint, which is auth-free but truncates long tweets.
 type Fetcher struct {
-	BaseURL string
+	BaseURL    string // syndication base
+	APIBaseURL string // v2 base, e.g. https://api.twitter.com/2
+	// Creds optionally overrides $X_API_KEY/$X_API_SECRET. Tests use it.
+	Creds xauth.Credentials
 }
 
 func New() *Fetcher {
-	return &Fetcher{BaseURL: defaultBaseURL}
+	return &Fetcher{
+		BaseURL:    defaultBaseURL,
+		APIBaseURL: "https://api.twitter.com/2",
+	}
 }
 
 func (Fetcher) Name() string { return "twitter" }
@@ -154,10 +166,18 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	}
 	ctx = core.WithAudit(ctx, opts.Audit)
 
-	// The syndication endpoint requires both an id and a token. If our
-	// token derivation is off, the endpoint returns 404 — that's why we
-	// also send a small random "client" param (matches the official embed
-	// widget behavior) for cache busting in tests.
+	// Prefer the official v2 API when credentials are available — gives us
+	// note_tweet for long-form posts. Fall back to the public syndication
+	// endpoint when not.
+	if creds, ok := f.creds(); ok {
+		opts.Audit.Logf("twitter: using v2 API for %s", id)
+		if item, err := f.fetchViaAPI(ctx, id, creds); err == nil {
+			return item, nil
+		} else {
+			opts.Audit.Logf("twitter: v2 API failed (%v), falling back to syndication", err)
+		}
+	}
+
 	tok := syndicationToken(id)
 	endpoint := fmt.Sprintf("%s/tweet-result?id=%s&token=%s&lang=en", f.BaseURL, id, tok)
 
@@ -256,5 +276,178 @@ func firstLine(s string, max int) string {
 		s = s[:max-1] + "…"
 	}
 	return s
+}
+
+// creds picks an explicit Creds field over $X_API_KEY/$X_API_SECRET so
+// tests can wire credentials without poking the environment.
+func (f *Fetcher) creds() (xauth.Credentials, bool) {
+	if f.Creds.Key != "" && f.Creds.Secret != "" {
+		return f.Creds, true
+	}
+	return xauth.FromEnv()
+}
+
+// fetchViaAPI calls X's v2 single-tweet endpoint. Long-form posts use
+// note_tweet; we always read it when available since the regular `text`
+// is a 280-char stub.
+func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds xauth.Credentials) (*core.Item, error) {
+	bearer, err := xauth.BearerToken(ctx, creds)
+	if err != nil {
+		return nil, err
+	}
+
+	q := url.Values{
+		"expansions":   {"author_id,attachments.media_keys"},
+		"tweet.fields": {"created_at,public_metrics,lang,note_tweet,entities"},
+		"user.fields":  {"username,name"},
+		"media.fields": {"url,type,variants"},
+	}
+	endpoint := fmt.Sprintf("%s/tweets/%s?%s", f.APIBaseURL, id, q.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	req.Header.Set("User-Agent", core.UserAgent)
+
+	resp, err := core.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("v2 tweets/%s: HTTP %d", id, resp.StatusCode)
+	}
+
+	var body apiTweet
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	if body.Data.ID == "" {
+		return nil, fmt.Errorf("v2: empty data for %s", id)
+	}
+
+	user := struct {
+		Name, Username string
+	}{}
+	for _, u := range body.Includes.Users {
+		if u.ID == body.Data.AuthorID {
+			user.Name = u.Name
+			user.Username = u.Username
+			break
+		}
+	}
+
+	text := body.Data.Text
+	if body.Data.NoteTweet != nil && body.Data.NoteTweet.Text != "" {
+		text = body.Data.NoteTweet.Text
+	}
+	for _, u := range body.Data.Entities.URLs {
+		if u.URL != "" && u.ExpandedURL != "" {
+			text = strings.ReplaceAll(text, u.URL, u.ExpandedURL)
+		}
+	}
+
+	media := []core.Media{}
+	for _, m := range body.Includes.Media {
+		switch m.Type {
+		case "photo":
+			if m.URL != "" {
+				media = append(media, core.Media{URL: m.URL, Type: "image"})
+			}
+		case "video", "animated_gif":
+			best := pickV2Video(m.Variants)
+			if best != "" {
+				media = append(media, core.Media{URL: best, Type: "video"})
+			}
+		}
+	}
+
+	published := parseTwitterTime(body.Data.CreatedAt)
+	return &core.Item{
+		Source:      "twitter",
+		Kind:        "tweet",
+		URL:         fmt.Sprintf("https://x.com/%s/status/%s", user.Username, body.Data.ID),
+		CanonicalID: body.Data.ID,
+		Title:       firstLine(text, 80),
+		Author:      user.Name,
+		AuthorURL:   "https://x.com/" + user.Username,
+		Published:   published,
+		Content:     text,
+		Score:       body.Data.PublicMetrics.Likes,
+		Media:       media,
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"screen_name":    user.Username,
+			"reply_count":    body.Data.PublicMetrics.Replies,
+			"favorite_count": body.Data.PublicMetrics.Likes,
+			"retweet_count":  body.Data.PublicMetrics.Reposts,
+			"lang":           body.Data.Lang,
+			"via":            "v2_api",
+		},
+	}, nil
+}
+
+// apiTweet models the slice of X v2's payload we use.
+type apiTweet struct {
+	Data struct {
+		ID            string `json:"id"`
+		Text          string `json:"text"`
+		AuthorID      string `json:"author_id"`
+		CreatedAt     string `json:"created_at"`
+		Lang          string `json:"lang"`
+		PublicMetrics struct {
+			Likes   int `json:"like_count"`
+			Reposts int `json:"retweet_count"`
+			Replies int `json:"reply_count"`
+		} `json:"public_metrics"`
+		NoteTweet *struct {
+			Text string `json:"text"`
+		} `json:"note_tweet"`
+		Entities struct {
+			URLs []struct {
+				URL         string `json:"url"`
+				ExpandedURL string `json:"expanded_url"`
+			} `json:"urls"`
+		} `json:"entities"`
+	} `json:"data"`
+	Includes struct {
+		Users []struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Username string `json:"username"`
+		} `json:"users"`
+		Media []struct {
+			Key      string `json:"media_key"`
+			Type     string `json:"type"`
+			URL      string `json:"url"`
+			Variants []struct {
+				Bitrate     int    `json:"bit_rate"`
+				ContentType string `json:"content_type"`
+				URL         string `json:"url"`
+			} `json:"variants"`
+		} `json:"media"`
+	} `json:"includes"`
+}
+
+// pickV2Video returns the highest-bitrate MP4 variant from v2's media list.
+func pickV2Video(variants []struct {
+	Bitrate     int    `json:"bit_rate"`
+	ContentType string `json:"content_type"`
+	URL         string `json:"url"`
+}) string {
+	best := ""
+	bestBR := -1
+	for _, v := range variants {
+		if v.ContentType != "video/mp4" {
+			continue
+		}
+		if v.Bitrate > bestBR {
+			bestBR = v.Bitrate
+			best = v.URL
+		}
+	}
+	return best
 }
 

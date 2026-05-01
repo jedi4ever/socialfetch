@@ -153,7 +153,14 @@ func (f *Fetcher) fetchItem(ctx context.Context, id string) (*hnItem, error) {
 	return &item, nil
 }
 
+// commentWorkers caps the number of comment fetches in flight at once.
+// Empirically 16 saturates the Firebase API without tripping rate limits;
+// going higher just queues TCP connections.
+const commentWorkers = 16
+
 // fetchKids walks the kid IDs in parallel up to MaxDepth, preserving order.
+// Concurrency is bounded by commentWorkers so a 1k-comment thread doesn't
+// spawn 1k goroutines all at once.
 func (f *Fetcher) fetchKids(ctx context.Context, ids []int, depth int) []core.Comment {
 	if depth >= f.MaxDepth || len(ids) == 0 {
 		return nil
@@ -161,10 +168,13 @@ func (f *Fetcher) fetchKids(ctx context.Context, ids []int, depth int) []core.Co
 
 	results := make([]core.Comment, len(ids))
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, commentWorkers)
 	for i, id := range ids {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(i int, id int) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			c, err := f.fetchComment(ctx, id, depth)
 			if err == nil && c != nil {
 				results[i] = *c
