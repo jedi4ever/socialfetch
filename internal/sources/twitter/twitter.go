@@ -597,11 +597,29 @@ func (f *Fetcher) fetchReplies(ctx context.Context, conversationID, rootID, bear
 		byParent[parent] = append(byParent[parent], c)
 	}
 
+	// Cycle/depth protection: high-engagement tweets occasionally come
+	// back with parent refs that form cycles (A→B→A) or self-loops —
+	// usually quote-tweet misclassification or deleted-parent edge
+	// cases. Without this guard, attach() infinite-recurses and blows
+	// the stack. visited tracks IDs already attached on the current
+	// path; once attached, a node is skipped if seen again.
+	const maxAttachDepth = 64
+	visited := make(map[string]bool, len(all)+1)
+	visited[rootID] = true
 	var attach func(parent string, depth int) []core.Comment
 	attach = func(parent string, depth int) []core.Comment {
+		if depth >= maxAttachDepth {
+			opts.Audit.Logf("twitter: reply tree depth cap (%d) hit at parent=%s", maxAttachDepth, parent)
+			return nil
+		}
 		kids := byParent[parent]
 		out := make([]core.Comment, 0, len(kids))
 		for _, c := range kids {
+			if visited[c.ID] {
+				opts.Audit.Logf("twitter: skipped cyclic reply %s under parent=%s", c.ID, parent)
+				continue
+			}
+			visited[c.ID] = true
 			c.Depth = depth
 			c.Replies = attach(c.ID, depth+1)
 			out = append(out, c)

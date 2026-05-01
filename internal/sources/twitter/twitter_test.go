@@ -233,6 +233,86 @@ func TestFetchViaV2APIWithReplies(t *testing.T) {
 	}
 }
 
+// High-engagement tweets occasionally come back with parent refs that
+// form cycles (A→B→A) — typically quote-tweet misclassification or
+// deleted-parent edge cases. Without cycle detection, attach()
+// infinite-recurses and blows the stack. This test feeds a synthetic
+// cycle through the v2 path and asserts Fetch returns cleanly.
+func TestFetchViaV2APIRepliesCycleSafe(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token_type":"bearer","access_token":"BEARER"}`))
+	}))
+	defer tokenSrv.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/tweets/search/recent"):
+			// Models a realistic pagination edge case where the same
+			// reply id (100) shows up twice in the result set with
+			// different replied_to references — this is the failure
+			// shape we've seen on viral threads. The duplicate creates
+			// a cycle reachable from root: 77 → 100 → 200 → 100 → ...
+			//
+			//   record 1: 100 replied_to 77   (legit, attaches under root)
+			//   record 2: 200 replied_to 100
+			//   record 3: 100 replied_to 200  (duplicate id, cycles back)
+			//
+			// Without cycle detection, attach() infinite-recurses.
+			fmt.Fprint(w, `{
+			  "data": [
+			    {"id":"100","author_id":"u2","text":"reply A","created_at":"2026-04-01T12:01:00.000Z","public_metrics":{"like_count":1},"referenced_tweets":[{"type":"replied_to","id":"77"}]},
+			    {"id":"200","author_id":"u3","text":"reply B","created_at":"2026-04-01T12:02:00.000Z","public_metrics":{"like_count":1},"referenced_tweets":[{"type":"replied_to","id":"100"}]},
+			    {"id":"100","author_id":"u2","text":"reply A (paginated dupe)","created_at":"2026-04-01T12:01:00.000Z","public_metrics":{"like_count":1},"referenced_tweets":[{"type":"replied_to","id":"200"}]}
+			  ],
+			  "includes": {"users":[
+			    {"id":"u2","name":"Bob","username":"bob"},
+			    {"id":"u3","name":"Carol","username":"carol"}
+			  ]},
+			  "meta": {"result_count": 3}
+			}`)
+		case strings.Contains(r.URL.Path, "/tweets/77"):
+			fmt.Fprint(w, `{
+			  "data": {"id":"77","author_id":"u1","conversation_id":"77","text":"root","created_at":"2026-04-01T12:00:00.000Z","lang":"en","public_metrics":{"like_count":1,"retweet_count":0,"reply_count":3}},
+			  "includes": {"users":[{"id":"u1","name":"Jane","username":"jane"}]}
+			}`)
+		default:
+			http.Error(w, "unexpected: "+r.URL.Path, 404)
+		}
+	}))
+	defer apiSrv.Close()
+
+	prev := xauth.TokenURL
+	xauth.TokenURL = tokenSrv.URL
+	defer func() { xauth.TokenURL = prev }()
+	xauth.ResetCache()
+
+	f := New()
+	f.APIBaseURL = apiSrv.URL
+	f.BaseURL = "http://127.0.0.1:1"
+	f.Creds = xauth.Credentials{Key: "k", Secret: "s"}
+
+	// The whole point: returns at all (no infinite recursion).
+	item, err := f.Fetch(context.Background(), "https://x.com/jane/status/77", core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	// Cycle nodes should each appear exactly once across the tree.
+	seen := map[string]int{}
+	var walk func([]core.Comment)
+	walk = func(cs []core.Comment) {
+		for _, c := range cs {
+			seen[c.ID]++
+			walk(c.Replies)
+		}
+	}
+	walk(item.Comments)
+	for _, id := range []string{"100", "200"} {
+		if seen[id] != 1 {
+			t.Errorf("comment %s appeared %d times, want 1 (cycle should be deduped)", id, seen[id])
+		}
+	}
+}
+
 // IncludeComments=false should skip the search call entirely.
 func TestFetchViaV2APINoReplies(t *testing.T) {
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
