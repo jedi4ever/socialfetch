@@ -115,7 +115,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("youtube search: HTTP 403 — API key invalid, restricted, or daily quota (10k units, 100/search) exhausted")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("youtube search: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("youtube search: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var data apiResp

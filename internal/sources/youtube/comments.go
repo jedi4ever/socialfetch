@@ -132,7 +132,7 @@ func (f *Fetcher) fetchCommentPage(ctx context.Context, videoID, key, pageToken 
 		return nil, fmt.Errorf("commentThreads: HTTP 403 — comments may be disabled, or the API key is restricted/quota-exhausted")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("commentThreads: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("commentThreads: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	var page commentThreadsResp
 	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickdebois/social-skills/internal/search"
 	"github.com/patrickdebois/social-skills/internal/xauth"
@@ -85,6 +86,54 @@ func TestSearch(t *testing.T) {
 	}
 	if got[1].URL != "https://x.com/bob/status/101" {
 		t.Errorf("second URL: %q", got[1].URL)
+	}
+}
+
+// X v2 recent-search rejects start_time older than 7 days. Catch this
+// at the client so the user gets a clear message instead of HTTP 400.
+func TestSearchRejectsAfterBeyondWindow(t *testing.T) {
+	p := New()
+	p.Creds = xauth.Credentials{Key: "k", Secret: "s"}
+	tooOld := time.Now().UTC().AddDate(0, 0, -14)
+	_, err := p.Search(context.Background(), "x", search.Options{Max: 10, After: &tooOld})
+	if err == nil {
+		t.Fatal("expected error for after > 7 days")
+	}
+	if !strings.Contains(err.Error(), "7 days") {
+		t.Errorf("error should name the 7-day limit: %v", err)
+	}
+}
+
+// Non-2xx responses from X must surface the underlying message
+// (errors[].message or {title,detail}), not just the status code.
+func TestSearchSurfacesErrorBody(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token_type":"bearer","access_token":"BEARER"}`))
+	}))
+	defer tokenSrv.Close()
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Invalid 'start_time': value too old"}]}`))
+	}))
+	defer apiSrv.Close()
+
+	prev := xauth.TokenURL
+	xauth.TokenURL = tokenSrv.URL
+	defer func() { xauth.TokenURL = prev }()
+	xauth.ResetCache()
+
+	p := New()
+	p.BaseURL = apiSrv.URL
+	p.Creds = xauth.Credentials{Key: "k", Secret: "s"}
+
+	_, err := p.Search(context.Background(), "x", search.Options{Max: 10})
+	if err == nil {
+		t.Fatal("expected error from 400 response")
+	}
+	if !strings.Contains(err.Error(), "Invalid 'start_time'") {
+		t.Errorf("error must include API message, got: %v", err)
 	}
 }
 

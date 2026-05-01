@@ -162,6 +162,8 @@ func run(args []string) error {
 		return runFetch(rest)
 	case "search":
 		return runSearch(rest)
+	case "timeline":
+		return runTimeline(rest)
 	case "ask":
 		return runAsk(rest)
 	case "bridge":
@@ -937,6 +939,8 @@ func runHelp(args []string) error {
 		printFetchHelp(os.Stdout)
 	case "search":
 		printSearchHelp(os.Stdout)
+	case "timeline":
+		printTimelineHelp(os.Stdout)
 	case "list":
 		fmt.Fprintln(os.Stdout, "socialfetch list — print available fetch and search providers")
 	default:
@@ -1485,13 +1489,14 @@ func printUsage(w io.Writer) {
 	fmt.Fprint(w, `socialfetch — fetch social-media URLs and run search queries
 
 USAGE
-  socialfetch fetch  <url> [<url>...] [flags]
-  socialfetch search "<query>" [flags]
-  socialfetch ask    "<question>" [flags]    grounded answer engine (perplexity, grok)
-  socialfetch bridge {start|stop|status|run}  control browser-extension bridge
-  socialfetch list                            list fetch + search providers
-  socialfetch help [fetch|search|list]        same as --help on a subcommand
-  socialfetch version                         print version
+  socialfetch fetch    <url> [<url>...] [flags]
+  socialfetch search   "<query>" [flags]
+  socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
+  socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok)
+  socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
+  socialfetch list                              list fetch + search providers
+  socialfetch help     [fetch|search|timeline|list]  same as --help on a subcommand
+  socialfetch version                           print version
 
 FETCH FLAGS
   -f, --format        FMT     markdown (default), json, jsonl

@@ -73,6 +73,7 @@ func buildComment(n *html.Node, depth int) core.Comment {
 
 	// Author name: usually inside an actor/name element.
 	if name := findFirst(n, classContainsAny(
+		"comments-comment-meta__description-title",
 		"comments-post-meta__name-text",
 		"comments-comment-meta__actor-name",
 		"comments-comment-meta__name",

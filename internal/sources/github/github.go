@@ -227,7 +227,7 @@ func (f *Fetcher) api(ctx context.Context, path string, v any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("GET %s: HTTP %d", u, resp.StatusCode)
+		return fmt.Errorf("GET %s: HTTP %d: %s", u, resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }

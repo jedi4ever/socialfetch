@@ -135,7 +135,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bing: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("bing: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var body response

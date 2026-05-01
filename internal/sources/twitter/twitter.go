@@ -317,7 +317,7 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds xauth.Creden
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("v2 tweets/%s: HTTP %d", id, resp.StatusCode)
+		return nil, fmt.Errorf("v2 tweets/%s: HTTP %d: %s", id, resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var body apiTweet
@@ -643,7 +643,7 @@ func (f *Fetcher) searchReplies(ctx context.Context, conversationID, bearer, nex
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("search/recent: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("search/recent: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	var out searchResp
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

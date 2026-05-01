@@ -94,7 +94,7 @@ func fetchTranscriptInnertube(ctx context.Context, videoID string, audit *core.A
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("innertube get_transcript: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("innertube get_transcript: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var data any
@@ -132,7 +132,7 @@ func scrapeTranscriptParams(ctx context.Context, videoID string, audit *core.Aud
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("watch page: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("watch page: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	html := new(bytes.Buffer)
 	if _, err := html.ReadFrom(resp.Body); err != nil {

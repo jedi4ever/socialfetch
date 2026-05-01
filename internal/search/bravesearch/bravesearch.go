@@ -96,7 +96,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("brave search: HTTP 429 — rate limit hit (free tier: ~1 query/sec, 2k/month)")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("brave search: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("brave search: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var data apiResp

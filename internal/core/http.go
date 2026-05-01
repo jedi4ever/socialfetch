@@ -137,3 +137,42 @@ func snippet(b []byte) string {
 	}
 	return string(b)
 }
+
+// HTTPErrorBody reads up to 512 bytes from resp.Body and returns a
+// trimmed, single-line snippet suitable for inclusion in an error
+// message. Use it whenever an HTTP call returns a non-2xx so the user
+// sees the API's actual reason ("rate limit exceeded", "invalid
+// start_time", "expired key") instead of just the status code.
+//
+// The body is consumed and should not be read again by the caller.
+func HTTPErrorBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return "(no body)"
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if len(raw) == 0 {
+		return "(empty body)"
+	}
+	// Collapse whitespace so the message stays on one line.
+	out := make([]byte, 0, len(raw))
+	prevSpace := false
+	for _, c := range raw {
+		if c == '\n' || c == '\r' || c == '\t' {
+			c = ' '
+		}
+		if c == ' ' {
+			if prevSpace {
+				continue
+			}
+			prevSpace = true
+		} else {
+			prevSpace = false
+		}
+		out = append(out, c)
+	}
+	s := string(out)
+	if len(s) > 256 {
+		s = s[:256] + "…"
+	}
+	return s
+}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/patrickdebois/social-skills/internal/core"
+	"golang.org/x/net/html"
 )
 
 func TestMatch(t *testing.T) {
@@ -85,6 +86,62 @@ func TestFetchHappyPath(t *testing.T) {
 	}
 	if len(commands) != 2 || commands[0] != "navigate" || commands[1] != "get_html" {
 		t.Errorf("expected navigate then get_html, got %v", commands)
+	}
+}
+
+// Comment scraper picks up the author name from LinkedIn's current DOM
+// shape (comments-comment-meta__description-title) plus the legacy ones.
+// This locks the selector list against silent regression when LinkedIn
+// renames classes — symptom is every commenter rendering as "anon".
+func TestExtractCommentsAuthor(t *testing.T) {
+	cases := []struct {
+		name     string
+		fragment string
+	}{
+		{
+			name: "current shape (description-title)",
+			fragment: `<div class="comments-comments-list">
+				<article class="comments-comment-entity">
+				  <a href="https://www.linkedin.com/in/janedoe" class="comments-comment-meta__description-container">
+				    <h3 class="comments-comment-meta__description">
+				      <span class="comments-comment-meta__description-title">Jane Doe</span>
+				      <span class="comments-comment-meta__data">1st • Engineer</span>
+				    </h3>
+				  </a>
+				  <div class="comments-comment-item__main-content">hello world</div>
+				</article>
+			</div>`,
+		},
+		{
+			name: "legacy shape (actor-name)",
+			fragment: `<div class="comments-comments-list">
+				<article class="comments-comment-entity">
+				  <a href="https://www.linkedin.com/in/janedoe"><span class="comments-comment-meta__actor-name">Jane Doe</span></a>
+				  <div class="comments-comment-item__main-content">hello world</div>
+				</article>
+			</div>`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, err := html.Parse(strings.NewReader(c.fragment))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			got := extractComments(doc)
+			if len(got) != 1 {
+				t.Fatalf("expected 1 comment, got %d", len(got))
+			}
+			if got[0].Author != "Jane Doe" {
+				t.Errorf("author = %q, want %q", got[0].Author, "Jane Doe")
+			}
+			if !strings.Contains(got[0].ID, "/in/janedoe") {
+				t.Errorf("id = %q, want to contain /in/janedoe", got[0].ID)
+			}
+			if !strings.Contains(got[0].Body, "hello world") {
+				t.Errorf("body = %q, want to contain hello world", got[0].Body)
+			}
+		})
 	}
 }
 

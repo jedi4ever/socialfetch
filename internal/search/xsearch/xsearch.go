@@ -12,14 +12,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/search"
 	"github.com/patrickdebois/social-skills/internal/xauth"
 )
+
+// XSearchMaxAgeDays is X's recent-search window. The free/basic tier of
+// the v2 endpoint rejects start_time older than 7 days with HTTP 400.
+const XSearchMaxAgeDays = 7
 
 // applyXOperators turns search.Options into X v2 search operators.
 // X uses `from:user`, `-from:user`, `domain:host`, `-domain:host`.
@@ -114,7 +120,23 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		"user.fields":  {"username,name"},
 	}
 	if opts.After != nil {
-		q.Set("start_time", opts.After.UTC().Format("2006-01-02T15:04:05Z"))
+		// Allow a small slack: the After time is computed by the CLI
+		// slightly before this check runs, so an exact "7 days ago"
+		// from the user appears a few microseconds older here. Without
+		// slack, --last 7d intermittently rejects.
+		cutoff := time.Now().UTC().Add(-XSearchMaxAgeDays*24*time.Hour - time.Minute)
+		if opts.After.Before(cutoff) {
+			return nil, fmt.Errorf("x search: --after/--last must be within the last %d days (X v2 recent-search tier limit); got %s",
+				XSearchMaxAgeDays, opts.After.UTC().Format("2006-01-02"))
+		}
+		// X also requires start_time to be at least 10s before the
+		// request — clamp to be safe.
+		earliest := time.Now().UTC().Add(-XSearchMaxAgeDays * 24 * time.Hour).Add(time.Minute)
+		start := opts.After.UTC()
+		if start.Before(earliest) {
+			start = earliest
+		}
+		q.Set("start_time", start.Format("2006-01-02T15:04:05Z"))
 	}
 	if opts.Before != nil {
 		q.Set("end_time", opts.Before.UTC().Format("2006-01-02T15:04:05Z"))
@@ -134,7 +156,8 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("x search: HTTP %d", resp.StatusCode)
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("x search: HTTP %d: %s", resp.StatusCode, decodeXError(raw))
 	}
 
 	var body response
@@ -163,12 +186,64 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		if title == "" {
 			title = t.ID
 		}
+		var published *time.Time
+		if t.CreatedAt != "" {
+			if pt, err := time.Parse(time.RFC3339, t.CreatedAt); err == nil {
+				pt = pt.UTC()
+				published = &pt
+			}
+		}
 		out = append(out, search.Result{
-			Title:   "@" + title,
-			URL:     tweetURL,
-			Snippet: text,
-			Source:  "x",
+			Title:     "@" + title,
+			URL:       tweetURL,
+			Snippet:   text,
+			Source:    "x",
+			Published: published,
 		})
 	}
 	return out, nil
+}
+
+// decodeXError extracts a useful message from an X API error response.
+// X returns either {errors:[{message}]} or {title,detail} depending on
+// the error class. Falls back to a trimmed snippet of the raw body so we
+// never swallow context.
+func decodeXError(raw []byte) string {
+	if len(raw) == 0 {
+		return "(empty body)"
+	}
+	var withErrors struct {
+		Errors []struct {
+			Message string `json:"message"`
+			Title   string `json:"title"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &withErrors); err == nil && len(withErrors.Errors) > 0 {
+		e := withErrors.Errors[0]
+		if e.Message != "" {
+			return e.Message
+		}
+		if e.Title != "" {
+			return e.Title
+		}
+	}
+	var problem struct {
+		Title  string `json:"title"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(raw, &problem); err == nil {
+		switch {
+		case problem.Detail != "" && problem.Title != "":
+			return problem.Title + ": " + problem.Detail
+		case problem.Detail != "":
+			return problem.Detail
+		case problem.Title != "":
+			return problem.Title
+		}
+	}
+	snippet := strings.TrimSpace(string(raw))
+	if len(snippet) > 200 {
+		snippet = snippet[:200] + "…"
+	}
+	return snippet
 }

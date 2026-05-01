@@ -102,7 +102,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("google search: HTTP 403 — key invalid, Custom Search API not enabled, or quota exhausted (100/day free)")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("google search: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("google search: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	var data apiResp
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
