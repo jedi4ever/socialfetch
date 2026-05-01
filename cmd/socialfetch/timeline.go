@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/render"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
 	"github.com/patrickdebois/social-skills/internal/timeline"
@@ -168,12 +167,11 @@ func runTimeline(args []string) error {
 		return err
 	}
 
-	auditW, closeAudit, err := openLog(flags.logFile)
+	audit, closeAudit, err := openAudit("timeline", flags.logFile)
 	if err != nil {
 		return err
 	}
 	defer closeAudit()
-	audit := core.NewAuditLogger(auditW)
 
 	reg := timeline.NewRegistry(
 		timeline.NewXProvider(xsearch.New()),

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -35,8 +36,15 @@ func DefaultOptions() Options {
 // AuditLogger writes one line per significant network event so users (and
 // agents) can trace what the fetcher did. It is safe for concurrent use
 // because *log.Logger is.
+//
+// In addition to the user-facing destination (typically stderr or a file
+// passed via -l), the logger optionally tees to a global JSONL writer
+// shared across every socialfetch invocation — see audit_global.go and
+// the `monitor` subcommand. The two destinations are independent so
+// the user's chosen verbosity doesn't constrain the audit trail.
 type AuditLogger struct {
-	l *log.Logger
+	l      *log.Logger
+	global io.Writer
 }
 
 // NewAuditLogger returns a logger that writes timestamped lines to w. Pass
@@ -48,6 +56,16 @@ func NewAuditLogger(w io.Writer) *AuditLogger {
 	return &AuditLogger{l: log.New(w, "", log.LstdFlags|log.LUTC)}
 }
 
+// AttachGlobal sets the JSONL audit sink each Logf call also writes to.
+// Pass nil to detach. The sink is expected to wrap each Write into a
+// JSONL line; see auditJSONLWriter in audit_global.go.
+func (a *AuditLogger) AttachGlobal(w io.Writer) {
+	if a == nil {
+		return
+	}
+	a.global = w
+}
+
 // Stderr is a convenience: logs to os.Stderr.
 func StderrAudit() *AuditLogger { return NewAuditLogger(os.Stderr) }
 
@@ -57,4 +75,9 @@ func (a *AuditLogger) Logf(format string, args ...any) {
 		return
 	}
 	a.l.Printf(format, args...)
+	if a.global != nil {
+		// Global writer expects single-line message text; the JSONL
+		// wrapper adds ts/pid/cmd around it.
+		_, _ = fmt.Fprintf(a.global, format, args...)
+	}
 }

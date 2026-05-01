@@ -168,6 +168,8 @@ func run(args []string) error {
 		return runAsk(rest)
 	case "bridge":
 		return runBridge(rest)
+	case "monitor":
+		return runMonitor(rest)
 	case "list":
 		return runList()
 	case "help", "-h", "--help":
@@ -301,7 +303,7 @@ func runFetch(args []string) error {
 		return errors.New("no URLs given (pass them as arguments or via --input FILE)")
 	}
 
-	auditW, closeAudit, err := openLog(flags.logFile)
+	audit, closeAudit, err := openAudit("fetch", flags.logFile)
 	if err != nil {
 		return err
 	}
@@ -311,7 +313,7 @@ func runFetch(args []string) error {
 		IncludeComments:   flags.comments,
 		MaxComments:       flags.maxComment,
 		GenericExtraction: flags.genericExtract,
-		Audit:             core.NewAuditLogger(auditW),
+		Audit:             audit,
 	}
 
 	registry, _ := buildRegistries()
@@ -610,12 +612,11 @@ func runSearch(args []string) error {
 		return err
 	}
 
-	auditW, closeAudit, err := openLog(flags.logFile)
+	audit, closeAudit, err := openAudit("search", flags.logFile)
 	if err != nil {
 		return err
 	}
 	defer closeAudit()
-	audit := core.NewAuditLogger(auditW)
 
 	_, searchers := buildRegistries()
 	provider, err := searchers.Get(flags.provider)
@@ -752,12 +753,11 @@ func runAsk(args []string) error {
 	if err != nil {
 		return err
 	}
-	auditW, closeAudit, err := openLog(logFile)
+	audit, closeAudit, err := openAudit("ask", logFile)
 	if err != nil {
 		return err
 	}
 	defer closeAudit()
-	audit := core.NewAuditLogger(auditW)
 
 	asker, err := buildAskers().Get(provider)
 	if err != nil {
@@ -941,6 +941,8 @@ func runHelp(args []string) error {
 		printSearchHelp(os.Stdout)
 	case "timeline":
 		printTimelineHelp(os.Stdout)
+	case "monitor":
+		printMonitorHelp(os.Stdout)
 	case "list":
 		fmt.Fprintln(os.Stdout, "socialfetch list — print available fetch and search providers")
 	default:
@@ -1101,6 +1103,40 @@ func openLog(target string) (io.Writer, func(), error) {
 		return nil, nil, err
 	}
 	return f, func() { _ = f.Close() }, nil
+}
+
+// openAudit composes the user-facing audit destination (per -l/--log)
+// with the always-on global audit log every socialfetch invocation
+// appends to. Each Logf call writes to both. Use the returned close
+// func to flush both sinks.
+//
+// cmd is the subcommand name ("fetch" / "search" / "timeline" / ...) —
+// it lands in the global JSONL line so `socialfetch monitor` can
+// distinguish concurrent invocations.
+func openAudit(cmd, target string) (*core.AuditLogger, func(), error) {
+	userW, closeUser, err := openLog(target)
+	if err != nil {
+		return nil, nil, err
+	}
+	globalW, closeGlobal, err := core.OpenGlobalAudit(cmd)
+	if err != nil {
+		// The user explicitly asked for an audit (or didn't disable
+		// it) — surface the open failure but keep the user-facing
+		// audit working so the run isn't abandoned over a cache-dir
+		// hiccup.
+		fmt.Fprintln(os.Stderr, "warning:", err)
+	}
+	audit := core.NewAuditLogger(userW)
+	if globalW != nil {
+		audit.AttachGlobal(globalW)
+	}
+	closeBoth := func() {
+		closeUser()
+		if closeGlobal != nil {
+			closeGlobal()
+		}
+	}
+	return audit, closeBoth, nil
 }
 
 func extFor(f render.Format) string {
@@ -1497,9 +1533,10 @@ USAGE
   socialfetch search   "<query>" [flags]
   socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
   socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok)
+  socialfetch monitor  [flags]                 live tail of the global audit log
   socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
   socialfetch list                              list fetch + search providers
-  socialfetch help     [fetch|search|timeline|list]  same as --help on a subcommand
+  socialfetch help     [fetch|search|timeline|monitor|list]  same as --help on a subcommand
   socialfetch version                           print version
 
 FETCH FLAGS
