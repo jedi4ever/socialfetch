@@ -113,8 +113,8 @@ The CLI consults fetchers in order and stops at the first match — specific sou
 The repo also packages itself as a Claude Code skill at `skill/socialfetch/`. The `SKILL.md` there tells Claude when to invoke the binary; `make build` (and `make skill`) refresh `skill/socialfetch/scripts/socialfetch` so the bundled binary is always in sync with the source.
 
 ```bash
-make install-skill           # copy SKILL.md + binary into ~/.claude/skills/socialfetch/
-INSTALL_SKILL_DIR=./somewhere make install-skill   # or anywhere you want
+make skill-install           # copy SKILL.md + binary into ~/.claude/skills/socialfetch/
+SKILL_INSTALL_DIR=./somewhere make skill-install   # or anywhere you want
 ```
 
 After installing, prompts like *"fetch this HN thread"* or *"search Twitter for X"* will route through `socialfetch` instead of Claude's built-in WebFetch/WebSearch — giving you full structured comment trees, long-form X tweets, scored Tavily results, etc.

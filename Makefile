@@ -5,12 +5,12 @@ BIN          := ./bin/socialfetch
 SKILL_BIN    := ./skill/socialfetch/scripts/socialfetch
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
-# Override INSTALL_SKILL_DIR to copy the skill to a different location:
-#   make install-skill INSTALL_SKILL_DIR=~/.claude/skills/socialfetch
-INSTALL_SKILL_DIR ?= $(HOME)/.claude/skills/socialfetch
+# Override SKILL_INSTALL_DIR to copy the skill to a different location:
+#   make skill-install SKILL_INSTALL_DIR=~/.claude/skills/socialfetch
+SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
-        skill skill-clean install-skill
+        skill skill-clean skill-install
 
 all: help  ## Default target: print this help
 
@@ -37,14 +37,20 @@ $(SKILL_BIN): $(SKILL_DEPS)
 
 skill: $(SKILL_BIN)  ## Build and copy the binary into skill/socialfetch/scripts/
 
-skill-clean:  ## Remove the bundled skill binary
-	rm -f $(SKILL_BIN)
+skill-install: skill  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/socialfetch)
+	@mkdir -p $(SKILL_INSTALL_DIR)/scripts
+	cp skill/socialfetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
+	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch
+	@echo "Installed skill to $(SKILL_INSTALL_DIR)"
 
-install-skill: skill  ## Copy the skill into $(INSTALL_SKILL_DIR) (defaults to ~/.claude/skills/socialfetch)
-	@mkdir -p $(INSTALL_SKILL_DIR)/scripts
-	cp skill/socialfetch/SKILL.md $(INSTALL_SKILL_DIR)/SKILL.md
-	cp $(SKILL_BIN) $(INSTALL_SKILL_DIR)/scripts/socialfetch
-	@echo "Installed skill to $(INSTALL_SKILL_DIR)"
+skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bundled binary
+	@if [ -d "$(SKILL_INSTALL_DIR)" ]; then \
+		rm -rf "$(SKILL_INSTALL_DIR)"; \
+		echo "Uninstalled skill from $(SKILL_INSTALL_DIR)"; \
+	else \
+		echo "No skill at $(SKILL_INSTALL_DIR) (already clean)"; \
+	fi
+	rm -f $(SKILL_BIN)
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch
