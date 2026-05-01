@@ -40,9 +40,12 @@ import (
 	"github.com/patrickdebois/social-skills/internal/sources/github"
 	"github.com/patrickdebois/social-skills/internal/sources/hackernews"
 	"github.com/patrickdebois/social-skills/internal/sources/linkedin"
+	"github.com/patrickdebois/social-skills/internal/sources/medium"
 	"github.com/patrickdebois/social-skills/internal/sources/reddit"
 	"github.com/patrickdebois/social-skills/internal/sources/rss"
+	"github.com/patrickdebois/social-skills/internal/sources/substack"
 	"github.com/patrickdebois/social-skills/internal/sources/twitter"
+	"github.com/patrickdebois/social-skills/internal/sources/youtube"
 
 	"github.com/patrickdebois/social-skills/internal/search/bing"
 	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
@@ -50,6 +53,7 @@ import (
 	"github.com/patrickdebois/social-skills/internal/search/serpapi"
 	"github.com/patrickdebois/social-skills/internal/search/tavily"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
+	"github.com/patrickdebois/social-skills/internal/search/youtubesearch"
 )
 
 // buildRegistries wires up the default fetcher and search registries.
@@ -61,6 +65,13 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		github.New(),
 		twitter.New(),
 		linkedin.New(),
+		youtube.New(),
+		// Medium and Substack come BEFORE the article fallback so they
+		// route through the bridge (paywall-aware) instead of plain
+		// HTTP. Each falls back to direct HTTP automatically when the
+		// bridge isn't running.
+		medium.New(),
+		substack.New(),
 		rss.New(),
 		article.New(), // catch-all — must be last
 	)
@@ -71,6 +82,7 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		tavily.New(),
 		hnsearch.New(),
 		xsearch.New(),
+		youtubesearch.New(),
 	)
 	return fetchers, searchers
 }

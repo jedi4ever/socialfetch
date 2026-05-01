@@ -1,6 +1,17 @@
 ---
 name: socialfetch
-description: Fetch content from social-media URLs (HackerNews, Reddit, GitHub, X/Twitter, RSS, Medium, Substack, generic articles) and run web/social searches (DuckDuckGo, Bing, SerpAPI, Tavily, X, HN) — output as clean markdown or structured JSON. Use whenever the user asks to "pull", "fetch", "download", "summarise", or "search the web/Twitter/HN" for content at a URL or query.
+description: Fetch content from social-media URLs (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Medium, Substack, RSS, generic articles) and run web/social searches (DuckDuckGo, Bing, SerpAPI, Tavily, X, HN) — output as clean markdown or structured JSON. Use whenever the user asks to "pull", "fetch", "download", "summarise", or "search the web/Twitter/HN/YouTube" for content at a URL or query.
+allowed-tools: |
+  Bash(scripts/socialfetch fetch *)
+  Bash(scripts/socialfetch search *)
+  Bash(scripts/socialfetch bridge start)
+  Bash(scripts/socialfetch bridge stop)
+  Bash(scripts/socialfetch bridge status)
+  Bash(scripts/socialfetch bridge status *)
+  Bash(scripts/socialfetch bridge run)
+  Bash(scripts/socialfetch list)
+  Bash(scripts/socialfetch help *)
+  Bash(scripts/socialfetch version)
 ---
 
 # socialfetch skill
@@ -40,6 +51,7 @@ Already-exported shell vars always win over file entries.
   - "search Twitter/X" → `x` (needs `X_API_KEY` + `X_API_SECRET`)
   - "search via Google" → `serpapi` (needs `SERPAPI_KEY`)
   - "search Bing" → `bing` (needs `BING_API_KEY`)
+  - "search YouTube" → `youtube` (needs `YOUTUBE_API_KEY`; supports `--last 7d` / `--after` natively, dates are strict)
 
 ## Flags worth remembering
 
@@ -90,9 +102,19 @@ scripts/socialfetch search "rust async" -p hackernews -n 20
 scripts/socialfetch list
 ```
 
-## LinkedIn (browser bridge)
+## Browser bridge (LinkedIn / Medium / Substack)
 
-LinkedIn requires a logged-in session, so socialfetch fetches it through a small browser-extension bridge instead of a public HTTP request.
+Three sources route through the local browser-extension bridge so the user's logged-in session is reused — that bypasses paywalls and member-only content.
+
+| source | bridge required? | fallback |
+| -- | -- | -- |
+| **LinkedIn** | yes (no anonymous read path) | none — errors out |
+| **Medium** | optional (paywall-aware via bridge) | direct HTTP for public excerpts |
+| **Substack** | optional (paywall-aware via bridge) | direct HTTP for public excerpts |
+
+Each fetched item carries `Extra.via = "bridge"` or `"http"` so you can tell which path produced the content.
+
+### LinkedIn requires the bridge
 
 **Setup once:** load `extension/` (at repo root) as an unpacked Chrome extension.
 
@@ -124,6 +146,27 @@ URLs the LinkedIn fetcher claims: `linkedin.com/posts/…`, `linkedin.com/feed/u
 Errors you may see:
 - `bridge unreachable` → start it (`bridge start`).
 - `no extension connected` → open your browser; the extension reconnects every ~6s.
+
+## YouTube
+
+`scripts/socialfetch fetch <youtube-url>` claims `youtube.com/watch?v=…`, `youtu.be/…`, `youtube.com/shorts/…`, `youtube.com/live/…`, `youtube.com/embed/…`, and `music.youtube.com/…`.
+
+- **Metadata**: pure scraping via `kkdai/youtube/v2` — no auth needed.
+- **Transcript**: configurable provider chain (see below). Appended to `Content` under a `## Transcript` heading; structured timed segments live in `Extra.transcript`.
+- **Comments**: optional, gated on `YOUTUBE_API_KEY` (free Google Cloud key, 10,000 units/day). Without it, comments are skipped silently.
+
+### Transcript provider switching
+
+Set `YOUTUBE_TRANSCRIPT_PROVIDER` to control which transcript backend is used:
+
+| value | behavior |
+| -- | -- |
+| `auto` (default) | yt-dlp if installed → InnerTube (no auth) → kkdai. First success wins. |
+| `ytdlp` | shells out to `yt-dlp` (most reliable; install with `brew install yt-dlp` or `pip install yt-dlp`) |
+| `innertube` | pure-Go scrape via `youtubei/v1/get_transcript` — fragile (YouTube can break it) but no extra runtime dep |
+| `kkdai` | the kkdai library's caption-track endpoint; YouTube has been gating this with HTTP 400s in 2026 |
+
+Set `YOUTUBE_API_KEY` in your shell or `.env` for comments. Some videos have transcripts disabled by the channel — the fetcher logs that case and returns metadata + comments only.
 
 ## Tavily date filter caveat
 

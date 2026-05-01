@@ -5,6 +5,12 @@ BIN          := ./bin/socialfetch
 SKILL_BIN    := ./skill/socialfetch/scripts/socialfetch
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
+
+# -s strips the symbol table; -w strips DWARF debug info. Together they
+# shrink the binary ~40% with no functional loss for a CLI tool — we
+# don't ship a debugger. -trimpath removes local filesystem paths so
+# builds are reproducible and don't leak the developer's home directory.
+GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 # Override SKILL_INSTALL_DIR to copy the skill to a different location:
 #   make skill-install SKILL_INSTALL_DIR=~/.claude/skills/socialfetch
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
@@ -32,7 +38,7 @@ build: skill-build  ## Build ./bin/socialfetch and refresh the bundled skill bin
 SKILL_DEPS := $(shell find cmd internal -type f -name '*.go' 2>/dev/null) go.mod go.sum
 $(SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p bin $(dir $(SKILL_BIN))
-	go build -o $(BIN) ./cmd/socialfetch
+	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/socialfetch
 	cp $(BIN) $(SKILL_BIN)
 
 skill-build: $(SKILL_BIN)  ## Build and copy the binary into skill/socialfetch/scripts/

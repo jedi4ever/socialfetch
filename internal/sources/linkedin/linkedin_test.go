@@ -100,7 +100,7 @@ func TestFetchBridgeNotConnected(t *testing.T) {
 	_, err := f.Fetch(context.Background(),
 		"https://www.linkedin.com/posts/foo-activity-7000000000000000000",
 		core.DefaultOptions())
-	if err == nil || !strings.Contains(err.Error(), "no extension connected") {
+	if err == nil || !strings.Contains(err.Error(), "no extension attached") {
 		t.Errorf("expected helpful 503 error, got %v", err)
 	}
 }

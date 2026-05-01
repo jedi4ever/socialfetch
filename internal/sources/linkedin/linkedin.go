@@ -9,24 +9,22 @@
 package linkedin
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/htmlmd"
 )
 
 // DefaultBridgeURL is the local bridge endpoint the fetcher POSTs to.
 // Override for tests via Fetcher.BridgeURL.
-const DefaultBridgeURL = "http://127.0.0.1:5555/cmd"
+const DefaultBridgeURL = bridge.DefaultEndpoint
 
 type Fetcher struct {
 	BridgeURL string
@@ -51,61 +49,27 @@ func (Fetcher) Match(u *url.URL) bool {
 		strings.HasPrefix(p, "/pulse/")
 }
 
-// reply mirrors the extension's get_html response.
-type reply struct {
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
-	HTML   string `json:"html"`
-	URL    string `json:"url"`
-	Title  string `json:"title"`
-}
-
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
-	endpoint := f.BridgeURL
-	if endpoint == "" {
-		endpoint = DefaultBridgeURL
-	}
-
-	// Two-step: explicit `navigate` first, then `get_html`. The
-	// extension's tab matcher broadens to origin-only patterns, so
-	// `get_html` alone may scrape whichever LinkedIn tab is already
-	// open. Forcing navigate first ensures we read the requested URL.
-	opts.Audit.Logf("linkedin: bridge navigate %s", raw)
-	if _, err := f.bridgeCall(ctx, endpoint, map[string]any{
-		"command": "navigate",
-		"url":     raw,
-	}); err != nil {
-		return nil, err
-	}
-
-	opts.Audit.Logf("linkedin: bridge get_html")
-	respBody, err := f.bridgeCall(ctx, endpoint, map[string]any{
-		"command": "get_html",
-		"url":     raw,
-	})
+	client := &bridge.Client{Endpoint: f.BridgeURL}
+	htmlStr, finalURL, title, err := client.GetHTML(ctx, raw, opts.Audit)
 	if err != nil {
-		return nil, err
+		switch {
+		case errors.Is(err, bridge.ErrBridgeUnreachable):
+			return nil, fmt.Errorf("linkedin: bridge daemon not running — `socialfetch bridge start`: %w", err)
+		case errors.Is(err, bridge.ErrNoExtensionAttached):
+			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the PatAI extension running")
+		default:
+			return nil, fmt.Errorf("linkedin: %w", err)
+		}
 	}
 
-	var r reply
-	if err := json.Unmarshal(respBody, &r); err != nil {
-		return nil, fmt.Errorf("linkedin: decode bridge reply: %w", err)
-	}
-	if r.Status != "ok" {
-		return nil, fmt.Errorf("linkedin: extension error: %s", r.Error)
-	}
-	if r.HTML == "" {
-		return nil, fmt.Errorf("linkedin: extension returned empty HTML for %s", raw)
-	}
-
-	finalURL := r.URL
 	if finalURL == "" {
 		finalURL = raw
 	}
-	cleanedHTML, comments := cleanHTML(r.HTML)
+	cleanedHTML, comments := cleanHTML(htmlStr)
 	body2 := trimBoilerplate(htmlmd.Convert(cleanedHTML))
 
-	author, authorURL := extractAuthor(r.HTML)
+	author, authorURL := extractAuthor(htmlStr)
 	canonical := canonicalID(finalURL)
 
 	return &core.Item{
@@ -113,7 +77,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		Kind:        kindFor(finalURL),
 		URL:         finalURL,
 		CanonicalID: canonical,
-		Title:       firstLine(pickFirst(r.Title, body2), 120),
+		Title:       firstLine(pickFirst(title, body2), 120),
 		Author:      author,
 		AuthorURL:   authorURL,
 		Content:     body2,
@@ -124,35 +88,6 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 			"comment_count": len(comments),
 		},
 	}, nil
-}
-
-// bridgeCall posts a single JSON command to the bridge and returns the
-// raw reply body. Centralizes error mapping so callers don't repeat the
-// 503/timeout/non-2xx handling.
-func (f *Fetcher) bridgeCall(ctx context.Context, endpoint string, payload map[string]any) ([]byte, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := core.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("linkedin: bridge unreachable (start it with `socialfetch bridge` and connect the extension): %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		return nil, fmt.Errorf("linkedin: bridge has no extension connected — open your browser with the PatAI extension running")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("linkedin: bridge returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-	return respBody, nil
 }
 
 // canonicalID pulls the activity / ugcPost numeric id out of a LinkedIn
