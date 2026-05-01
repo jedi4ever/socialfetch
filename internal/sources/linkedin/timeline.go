@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/url"
 	"regexp"
 	"strings"
@@ -40,8 +41,10 @@ type Activity struct {
 // and returns the visible activity cards. Bridge required (LinkedIn
 // only renders the feed for a logged-in viewer).
 //
-// First-page only: LinkedIn lazy-loads further activities on scroll;
-// adding scroll support is a follow-up. Typically returns 5–20 items.
+// LinkedIn lazy-loads further activity as the user scrolls; we drive
+// scroll-and-rescrape until we have `max` items, until two consecutive
+// scrolls produce no new items, or until we hit a hard cap on
+// iterations (avoids hangs on profiles with little activity).
 func FetchTimeline(ctx context.Context, bridgeURL, user string, kind TimelineKind, max int, audit *core.AuditLogger) ([]Activity, string, error) {
 	if user == "" {
 		return nil, "", errors.New("linkedin timeline: empty user")
@@ -53,24 +56,104 @@ func FetchTimeline(ctx context.Context, bridgeURL, user string, kind TimelineKin
 		bridgeURL = bridge.DefaultEndpoint
 	}
 	client := &bridge.Client{Endpoint: bridgeURL}
-	htmlStr, _, _, err := client.GetHTML(ctx, target, audit)
-	if err != nil {
-		switch {
-		case errors.Is(err, bridge.ErrBridgeUnreachable):
-			return nil, target, fmt.Errorf("linkedin timeline: bridge daemon not running — `socialfetch bridge start`: %w", err)
-		case errors.Is(err, bridge.ErrNoExtensionAttached):
-			return nil, target, fmt.Errorf("linkedin timeline: no extension attached — open your browser with the PatAI extension running")
-		default:
-			return nil, target, fmt.Errorf("linkedin timeline: %w", err)
-		}
+
+	if err := client.Navigate(ctx, target, audit); err != nil {
+		return nil, target, wrapBridgeErr(err)
 	}
 
-	doc, err := html.Parse(strings.NewReader(htmlStr))
+	acts, err := scrapeWithScroll(ctx, client, target, max, audit)
 	if err != nil {
-		return nil, target, fmt.Errorf("linkedin timeline: parse: %w", err)
+		return nil, target, wrapBridgeErr(err)
 	}
-	acts := extractActivities(doc, max)
 	return acts, target, nil
+}
+
+// scrapeWithScroll alternates get_html / scroll until we have enough
+// cards or no new ones appear. Hard caps prevent runaway: 12 scroll
+// rounds is enough to surface ~50 cards on most profiles, and every
+// round makes one bridge round-trip (~1-2s).
+//
+// Scroll distance and settle time are randomized per round to avoid a
+// detectable fixed-cadence pattern — a real human scrolls in unequal
+// pulses with unequal pauses. Distances are biased toward the middle
+// of [1200, 3600]px and pauses to [700, 2400]ms.
+func scrapeWithScroll(ctx context.Context, client *bridge.Client, target string, max int, audit *core.AuditLogger) ([]Activity, error) {
+	const maxRounds = 12
+	var acts []Activity
+	prevCount := -1
+	stalled := 0
+
+	for round := 0; round < maxRounds; round++ {
+		htmlStr, _, _, err := client.GetTabHTML(ctx, target, audit)
+		if err != nil {
+			return acts, err
+		}
+		doc, err := html.Parse(strings.NewReader(htmlStr))
+		if err != nil {
+			return acts, fmt.Errorf("linkedin timeline: parse: %w", err)
+		}
+		acts = extractActivities(doc, 0) // collect all visible, cap at the end
+		if max > 0 && len(acts) >= max {
+			break
+		}
+		if len(acts) == prevCount {
+			stalled++
+			if stalled >= 2 {
+				// Two scrolls produced nothing new — assume end of feed.
+				break
+			}
+		} else {
+			stalled = 0
+		}
+		prevCount = len(acts)
+
+		amount := randScrollAmount()
+		if _, err := client.Scroll(ctx, amount, audit); err != nil {
+			return acts, err
+		}
+		select {
+		case <-time.After(randScrollPause()):
+		case <-ctx.Done():
+			return acts, ctx.Err()
+		}
+	}
+	if max > 0 && len(acts) > max {
+		acts = acts[:max]
+	}
+	return acts, nil
+}
+
+// randScrollAmount returns a plausibly-human scroll distance in pixels.
+// Two pulses 60% of the time, single pulse 40% — humans rarely scroll
+// the exact same distance twice in a row.
+func randScrollAmount() int {
+	base := 1200 + rand.IntN(2400) // [1200, 3600]
+	if rand.IntN(10) < 6 {
+		// Add a smaller secondary pulse to vary the centre of mass.
+		base += 300 + rand.IntN(600)
+	}
+	return base
+}
+
+// randScrollPause returns a settle time after a scroll. Long pauses
+// (>1.5s) happen ~30% of the time to mimic a reader skimming a card.
+func randScrollPause() time.Duration {
+	base := 700 + rand.IntN(900) // [700, 1600]
+	if rand.IntN(10) < 3 {
+		base += 600 + rand.IntN(800) // occasional long read
+	}
+	return time.Duration(base) * time.Millisecond
+}
+
+func wrapBridgeErr(err error) error {
+	switch {
+	case errors.Is(err, bridge.ErrBridgeUnreachable):
+		return fmt.Errorf("linkedin timeline: bridge daemon not running — `socialfetch bridge start`: %w", err)
+	case errors.Is(err, bridge.ErrNoExtensionAttached):
+		return fmt.Errorf("linkedin timeline: no extension attached — open your browser with the PatAI extension running")
+	default:
+		return fmt.Errorf("linkedin timeline: %w", err)
+	}
 }
 
 func normaliseKind(k TimelineKind) string {
@@ -104,7 +187,16 @@ func extractActivities(doc *html.Node, max int) []Activity {
 
 		a := Activity{URN: urn, URL: "https://www.linkedin.com/feed/update/urn:li:activity:" + urn + "/"}
 
-		if body := findFirst(c, classContainsAny("update-components-text")); body != nil {
+		// On /recent-activity/comments/ each card holds the original
+		// post AND the user's comment. Prefer the comment content when
+		// present so the timeline shows what the user *said*, not the
+		// post they replied to. Same for inline-show-more variants.
+		if body := findFirst(c, classContainsAny(
+			"comments-comment-item__main-content",
+			"comments-comment-item-content-body",
+		)); body != nil {
+			a.Body = strings.TrimSpace(htmlmd.Convert(renderHTML(body)))
+		} else if body := findFirst(c, classContainsAny("update-components-text")); body != nil {
 			a.Body = strings.TrimSpace(htmlmd.Convert(renderHTML(body)))
 		}
 		if hdr := findFirst(c, classContainsAny("update-components-header")); hdr != nil {

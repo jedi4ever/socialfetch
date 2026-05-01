@@ -123,8 +123,10 @@ func defaultKind(k string) string {
 
 // firstLine clips a snippet to the first newline (or maxRunes if no
 // newline) so timeline children render with a reasonable Title.
+// Markdown link syntax `[text](url)` is collapsed to `text` first so we
+// count visible characters, not URL noise.
 func firstLine(s string, maxRunes int) string {
-	s = strings.TrimSpace(s)
+	s = stripMarkdownLinks(strings.TrimSpace(s))
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		s = s[:i]
 	}
@@ -133,4 +135,37 @@ func firstLine(s string, maxRunes int) string {
 		return string(r[:maxRunes-1]) + "…"
 	}
 	return s
+}
+
+// stripMarkdownLinks collapses `[label](url)` to `label`. Used for
+// title generation so a body full of LinkedIn @-mention links doesn't
+// blow the budget rendering URLs nobody reads in a header.
+func stripMarkdownLinks(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != '[' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		// Find matching `](` and `)` — keep this loose; on no match we
+		// just emit the original `[`.
+		closeBracket := strings.Index(s[i:], "](")
+		if closeBracket < 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		closeBracket += i
+		closeParen := strings.Index(s[closeBracket:], ")")
+		if closeParen < 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		closeParen += closeBracket
+		b.WriteString(s[i+1 : closeBracket])
+		i = closeParen + 1
+	}
+	return b.String()
 }

@@ -976,6 +976,10 @@ func runList() error {
 		}
 		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), auth)
 	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Timeline providers (user → activity feed):")
+	fmt.Fprintln(w, "  x           (requires X_API_KEY + X_API_SECRET; recent 7d, kinds: all|tweets|replies|retweets)")
+	fmt.Fprintln(w, "  linkedin    (requires bridge; kinds: all|posts|comments|reactions)")
 	return nil
 }
 

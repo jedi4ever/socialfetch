@@ -24,9 +24,10 @@ type timelineFlags struct {
 	logFile  string
 	before   *time.Time
 	after    *time.Time
-	timeout  time.Duration
-	expand   bool
-	user     string
+	timeout       time.Duration
+	expand        bool
+	excludeShares bool
+	user          string
 }
 
 func parseTimelineFlags(args []string) (*timelineFlags, error) {
@@ -120,6 +121,10 @@ func parseTimelineFlags(args []string) (*timelineFlags, error) {
 			f.after = &t
 		case "--expand":
 			f.expand = true
+		case "--no-reshares", "--no-reposts":
+			f.excludeShares = true
+		case "--reshares":
+			f.excludeShares = false
 		case "--timeout":
 			i++
 			if i >= len(args) {
@@ -184,12 +189,13 @@ func runTimeline(args []string) error {
 
 	audit.Logf("timeline %s/%s (kind=%s, max=%d)", provider, user, flags.kind, flags.max)
 	item, err := p.Fetch(ctx, user, timeline.Options{
-		Kind:   flags.kind,
-		Max:    flags.max,
-		After:  flags.after,
-		Before: flags.before,
-		Expand: flags.expand,
-		Audit:  audit,
+		Kind:          flags.kind,
+		Max:           flags.max,
+		After:         flags.after,
+		Before:        flags.before,
+		Expand:        flags.expand,
+		ExcludeShares: flags.excludeShares,
+		Audit:         audit,
 	})
 	if err != nil {
 		audit.Logf("timeline FAILED: %v", err)
@@ -228,6 +234,8 @@ Flags:
       --after     DATE   yyyy-mm-dd or RFC3339
       --before    DATE   yyyy-mm-dd or RFC3339
       --expand           (LinkedIn) re-fetch each item via the post fetcher
+      --no-reshares      (LinkedIn) drop reposts/reshares from the timeline
+                         (default includes them, tagged kind=repost)
   -f, --format    FMT    markdown (default), json, jsonl
   -o, --output    PATH   "-" or unset = stdout, FILE = single file
   -l, --log       PATH   audit/debug log destination

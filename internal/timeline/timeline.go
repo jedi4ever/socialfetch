@@ -27,12 +27,13 @@ import (
 // returned and is best-effort: LinkedIn is bounded by what the first
 // page renders, X is bounded by recent-search results.
 type Options struct {
-	Kind   string     // all (default), and provider-specific kinds
-	Max    int        // result cap (default 30)
-	After  *time.Time // earliest item; X enforces 7-day window
-	Before *time.Time // latest item
-	Expand bool       // LinkedIn: re-fetch each item via the post fetcher (slow)
-	Audit  *core.AuditLogger
+	Kind          string     // all (default), and provider-specific kinds
+	Max           int        // result cap (default 30)
+	After         *time.Time // earliest item; X enforces 7-day window
+	Before        *time.Time // latest item
+	Expand        bool       // LinkedIn: re-fetch each item via the post fetcher (slow)
+	ExcludeShares bool       // LinkedIn: drop reposts/reshares (default keeps them)
+	Audit         *core.AuditLogger
 }
 
 // Provider implements timeline lookup for one platform.
