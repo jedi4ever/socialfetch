@@ -17,6 +17,11 @@ type Options struct {
 	// Zero means "no limit"; sources may still apply their own depth caps.
 	MaxComments int
 
+	// GenericExtraction forces the generic article extractor even when a
+	// host-specific one (Medium, Substack, ...) would normally claim the
+	// URL. Default false = use per-host extractors when available.
+	GenericExtraction bool
+
 	// Audit, if non-nil, receives one line per network event: requests,
 	// status codes, redirects, errors. Use NewAuditLogger to wire one up.
 	Audit *AuditLogger

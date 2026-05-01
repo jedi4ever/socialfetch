@@ -16,10 +16,44 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/search"
 )
+
+// applyDomainOps appends site: / -site: operators that virtually every
+// search engine understands. Used by Bing and (loosely) DDG.
+func applyDomainOps(query string, opts search.Options) string {
+	parts := []string{query}
+	for _, d := range opts.IncludeDomains {
+		parts = append(parts, "site:"+d)
+	}
+	for _, d := range opts.ExcludeDomains {
+		parts = append(parts, "-site:"+d)
+	}
+	return strings.Join(parts, " ")
+}
+
+// bingFreshness picks Bing's freshness=Day|Week|Month based on the After
+// bound. Bing only exposes these three coarse buckets; a precise range
+// would need the (paid) "customRange" parameter.
+func bingFreshness(opts search.Options) string {
+	if opts.After == nil {
+		return ""
+	}
+	age := time.Since(*opts.After)
+	switch {
+	case age <= 24*time.Hour:
+		return "Day"
+	case age <= 7*24*time.Hour:
+		return "Week"
+	case age <= 31*24*time.Hour:
+		return "Month"
+	}
+	return ""
+}
 
 // Provider queries Bing's web search API.
 type Provider struct {
@@ -53,7 +87,7 @@ type response struct {
 	} `json:"errors"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("BING_API_KEY")
@@ -61,6 +95,7 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 	if key == "" {
 		return nil, errors.New("bing: BING_API_KEY not set; pass --search-key or set the env var")
 	}
+	max := opts.Max
 	if max <= 0 {
 		max = 10
 	}
@@ -68,14 +103,22 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 		max = 50 // Bing's per-call cap
 	}
 
+	// Bing supports site: / -site: inline operators just like Google,
+	// and "loc:start..end" isn't a real Bing operator — for date
+	// filtering we use the freshness param when After looks like a
+	// recent rolling window, otherwise we leave it off and let Bing
+	// rank by default.
 	q := url.Values{
-		"q":         {query},
-		"count":     {fmt.Sprint(max)},
+		"q":               {applyDomainOps(query, opts)},
+		"count":           {fmt.Sprint(max)},
 		"textDecorations": {"false"},
-		"textFormat": {"Raw"},
+		"textFormat":      {"Raw"},
 	}
 	if p.Market != "" {
 		q.Set("mkt", p.Market)
+	}
+	if fr := bingFreshness(opts); fr != "" {
+		q.Set("freshness", fr)
 	}
 	endpoint := p.BaseURL + "?" + q.Encode()
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/patrickdebois/social-skills/internal/search"
 	"github.com/patrickdebois/social-skills/internal/xauth"
 )
 
@@ -68,7 +69,7 @@ func TestSearch(t *testing.T) {
 	p.BaseURL = apiSrv.URL
 	p.Creds = xauth.Credentials{Key: "k", Secret: "s"}
 
-	got, err := p.Search(context.Background(), "vibe coding", 10)
+	got, err := p.Search(context.Background(), "vibe coding", search.Options{Max: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -90,7 +91,7 @@ func TestSearch(t *testing.T) {
 func TestSearchRequiresCreds(t *testing.T) {
 	t.Setenv("X_API_KEY", "")
 	t.Setenv("X_API_SECRET", "")
-	if _, err := New().Search(context.Background(), "x", 10); err == nil {
+	if _, err := New().Search(context.Background(), "x", search.Options{Max: 10}); err == nil {
 		t.Errorf("expected creds error")
 	}
 }

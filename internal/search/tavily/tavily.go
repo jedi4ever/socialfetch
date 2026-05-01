@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/search"
@@ -65,7 +66,7 @@ type response struct {
 	} `json:"results"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("TAVILY_API_KEY")
@@ -73,12 +74,30 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 	if key == "" {
 		return nil, errors.New("tavily: TAVILY_API_KEY not set; pass --search-key or set the env var")
 	}
+	max := opts.Max
 	if max <= 0 {
 		max = 10
 	}
 	if max > 20 {
 		max = 20 // Tavily's per-call cap
 	}
+
+	// Tavily exposes "days" as a rolling-window filter. If the caller
+	// asks for After=T, we approximate as "last N days" since today.
+	// Provider.Days remains as a per-Provider default; per-call options
+	// win when set.
+	days := p.Days
+	if opts.After != nil {
+		d := int(time.Since(*opts.After).Hours()/24) + 1
+		if d > 0 {
+			days = d
+		}
+	}
+
+	include := append([]string{}, p.IncludeDomains...)
+	include = append(include, opts.IncludeDomains...)
+	exclude := append([]string{}, p.ExcludeDomains...)
+	exclude = append(exclude, opts.ExcludeDomains...)
 
 	body, err := json.Marshal(request{
 		APIKey:         key,
@@ -87,9 +106,9 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 		Topic:          pickFirst(p.Topic, "general"),
 		MaxResults:     max,
 		IncludeAnswer:  false,
-		Days:           p.Days,
-		IncludeDomains: p.IncludeDomains,
-		ExcludeDomains: p.ExcludeDomains,
+		Days:           days,
+		IncludeDomains: include,
+		ExcludeDomains: exclude,
 	})
 	if err != nil {
 		return nil, err

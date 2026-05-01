@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 const fakeJSON = `{
@@ -18,7 +20,7 @@ const fakeJSON = `{
 func TestSearchRequiresKey(t *testing.T) {
 	t.Setenv("SERPAPI_KEY", "")
 	p := New()
-	if _, err := p.Search(context.Background(), "anything", 10); err == nil {
+	if _, err := p.Search(context.Background(), "anything", search.Options{Max: 10}); err == nil {
 		t.Errorf("expected missing-key error")
 	}
 }
@@ -40,7 +42,7 @@ func TestSearch(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "secret"
 
-	got, err := p.Search(context.Background(), "anthropic claude", 5)
+	got, err := p.Search(context.Background(), "anthropic claude", search.Options{Max: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -63,7 +65,7 @@ func TestSearchPropagatesAPIError(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "bad"
 
-	_, err := p.Search(context.Background(), "x", 5)
+	_, err := p.Search(context.Background(), "x", search.Options{Max: 5})
 	if err == nil || !strings.Contains(err.Error(), "Invalid API key") {
 		t.Errorf("want API error, got %v", err)
 	}

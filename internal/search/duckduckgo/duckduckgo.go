@@ -31,10 +31,42 @@ func New() *Provider {
 
 func (Provider) Name() string { return "duckduckgo" }
 
-func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.Result, error) {
+// applyDDGOperators turns search.Options into DDG-lite query operators.
+// Date filters use a `:daterange:start..end` token DDG accepts on lite.
+// Include/exclude domains use `site:` and `-site:` operators.
+func applyDDGOperators(query string, opts search.Options) string {
+	parts := []string{query}
+	for _, d := range opts.IncludeDomains {
+		parts = append(parts, "site:"+d)
+	}
+	for _, d := range opts.ExcludeDomains {
+		parts = append(parts, "-site:"+d)
+	}
+	if opts.After != nil || opts.Before != nil {
+		// DDG's date range operator format: 2024-01-01..2024-12-31.
+		// Missing bound is replaced with a wide-open one.
+		from := "1970-01-01"
+		to := "2099-12-31"
+		if opts.After != nil {
+			from = opts.After.UTC().Format("2006-01-02")
+		}
+		if opts.Before != nil {
+			to = opts.Before.UTC().Format("2006-01-02")
+		}
+		parts = append(parts, "daterange:"+from+".."+to)
+	}
+	return strings.Join(parts, " ")
+}
+
+func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+	max := opts.Max
 	if max <= 0 {
 		max = 10
 	}
+	// DDG lite supports inline operators: site:example.com, -site:foo.com,
+	// and a limited daterange filter via :daterange. We translate the
+	// portable Options into those operators where possible.
+	query = applyDDGOperators(query, opts)
 	u := p.BaseURL + "?" + url.Values{"q": {query}, "kl": {"us-en"}}.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(""))

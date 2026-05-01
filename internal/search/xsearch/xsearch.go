@@ -14,11 +14,26 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/search"
 	"github.com/patrickdebois/social-skills/internal/xauth"
 )
+
+// applyXOperators turns search.Options into X v2 search operators.
+// X uses `from:user`, `-from:user`, `domain:host`, `-domain:host`.
+// We use `domain:` for domain filters since site: isn't a thing on X.
+func applyXOperators(query string, opts search.Options) string {
+	parts := []string{query}
+	for _, d := range opts.IncludeDomains {
+		parts = append(parts, "domain:"+d)
+	}
+	for _, d := range opts.ExcludeDomains {
+		parts = append(parts, "-domain:"+d)
+	}
+	return strings.Join(parts, " ")
+}
 
 // Provider queries the X v2 recent search endpoint.
 type Provider struct {
@@ -62,7 +77,7 @@ type response struct {
 	} `json:"errors"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
 	creds := p.Creds
 	if creds.Key == "" || creds.Secret == "" {
 		c, ok := xauth.FromEnv()
@@ -76,6 +91,7 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 		return nil, err
 	}
 
+	max := opts.Max
 	// X recent-search bounds max_results between 10 and 100.
 	switch {
 	case max <= 0:
@@ -86,12 +102,22 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 		max = 100
 	}
 
+	// X v2 recent-search supports inline operators; map portable
+	// Options into them. Date bounds use start_time/end_time as
+	// dedicated query params (more precise than the from:/until:
+	// inline operators which are date-granular).
 	q := url.Values{
-		"query":        {query},
+		"query":        {applyXOperators(query, opts)},
 		"max_results":  {fmt.Sprint(max)},
 		"expansions":   {"author_id"},
 		"tweet.fields": {"created_at,public_metrics,lang,note_tweet"},
 		"user.fields":  {"username,name"},
+	}
+	if opts.After != nil {
+		q.Set("start_time", opts.After.UTC().Format("2006-01-02T15:04:05Z"))
+	}
+	if opts.Before != nil {
+		q.Set("end_time", opts.Before.UTC().Format("2006-01-02T15:04:05Z"))
 	}
 	endpoint := p.BaseURL + "?" + q.Encode()
 

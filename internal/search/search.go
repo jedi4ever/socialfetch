@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Result is one search hit.
@@ -17,10 +18,25 @@ type Result struct {
 	Source  string `json:"source"`
 }
 
+// Options shape a single search call. Date and domain filters are
+// best-effort: providers that don't support a native filter ignore it;
+// providers with coarse granularity (Tavily's "last N days") round to
+// the closest supported window.
+type Options struct {
+	Max            int        // max results; <=0 means provider default
+	Before         *time.Time // only results published before this time
+	After          *time.Time // only results published after this time
+	IncludeDomains []string   // allowlist; if non-empty, restrict to these
+	ExcludeDomains []string   // denylist
+}
+
+// DefaultOptions returns options with the provider's own defaults.
+func DefaultOptions() Options { return Options{} }
+
 // Provider performs queries against a backend.
 type Provider interface {
 	Name() string
-	Search(ctx context.Context, query string, max int) ([]Result, error)
+	Search(ctx context.Context, query string, opts Options) ([]Result, error)
 }
 
 // Registry holds the known search providers.

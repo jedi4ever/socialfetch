@@ -1,5 +1,7 @@
 # Build artifacts
 /bin/
+# The bundled skill binary is a build product; SKILL.md stays committed.
+skill/socialfetch/scripts/socialfetch
 
 # Go test outputs
 *.test
@@ -11,8 +13,11 @@ coverage.out
 .idea/
 .vscode/
 
-# Local environment
+# Local environment — never commit credentials
 .env
+.env.*
+**/.env
+**/.env.*
 *.local
 
 # Output / scratch

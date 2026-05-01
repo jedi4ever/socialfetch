@@ -11,10 +11,44 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/search"
 )
+
+func applyDomainOpsSerp(query string, opts search.Options) string {
+	parts := []string{query}
+	for _, d := range opts.IncludeDomains {
+		parts = append(parts, "site:"+d)
+	}
+	for _, d := range opts.ExcludeDomains {
+		parts = append(parts, "-site:"+d)
+	}
+	return strings.Join(parts, " ")
+}
+
+func serpDateRange(opts search.Options) string {
+	if opts.After == nil && opts.Before == nil {
+		return ""
+	}
+	min := ""
+	max := ""
+	if opts.After != nil {
+		min = opts.After.UTC().Format("01/02/2006")
+	}
+	if opts.Before != nil {
+		max = opts.Before.UTC().Format("01/02/2006")
+	}
+	parts := []string{"cdr:1"}
+	if min != "" {
+		parts = append(parts, "cd_min:"+min)
+	}
+	if max != "" {
+		parts = append(parts, "cd_max:"+max)
+	}
+	return strings.Join(parts, ",")
+}
 
 // Provider queries SerpAPI's google engine.
 type Provider struct {
@@ -41,7 +75,7 @@ type response struct {
 	Error string `json:"error"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("SERPAPI_KEY")
@@ -49,6 +83,7 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 	if key == "" {
 		return nil, errors.New("serpapi: SERPAPI_KEY not set; pass --search-key or set the env var")
 	}
+	max := opts.Max
 	if max <= 0 {
 		max = 10
 	}
@@ -59,10 +94,15 @@ func (p *Provider) Search(ctx context.Context, query string, max int) ([]search.
 	}
 
 	q := url.Values{
-		"q":       {query},
+		"q":       {applyDomainOpsSerp(query, opts)},
 		"engine":  {engine},
 		"api_key": {key},
 		"num":     {fmt.Sprint(max)},
+	}
+	// Google supports a `tbs=cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY`
+	// custom-date-range filter that SerpAPI passes through unchanged.
+	if tbs := serpDateRange(opts); tbs != "" {
+		q.Set("tbs", tbs)
 	}
 	endpoint := p.BaseURL + "?" + q.Encode()
 

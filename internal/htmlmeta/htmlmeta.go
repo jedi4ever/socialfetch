@@ -18,11 +18,12 @@ import (
 
 // Page holds everything extracted from one HTML document.
 type Page struct {
+	Doc          *html.Node        // parsed root, exposed for host-specific extractors
 	Meta         map[string]string // both `name=` and `property=` keyed
 	Title        string
 	CanonicalURL string
 	LDJSON       []map[string]any
-	ArticleHTML  string // raw inner HTML of the best article container
+	ArticleHTML  string // raw inner HTML of the best article container — generic selectors
 }
 
 // Parse reads an HTML document from r and extracts all metadata. It never
@@ -33,11 +34,45 @@ func Parse(r io.Reader) (*Page, error) {
 		return nil, err
 	}
 
-	p := &Page{Meta: map[string]string{}}
+	p := &Page{Doc: doc, Meta: map[string]string{}}
 	walk(doc, p)
-	p.ArticleHTML = pickArticle(doc)
+	p.ArticleHTML = pickArticleFrom(doc, articleSelectors)
 	return p, nil
 }
+
+// PickArticleHTML returns the inner HTML of the first matching selector
+// with non-trivial text content. Host-specific extractors call this with
+// their own selector list (e.g. Substack's ".body.markup" first).
+func PickArticleHTML(doc *html.Node, selectors []string) string {
+	return pickArticleFrom(doc, selectors)
+}
+
+// SelectFirst walks doc depth-first and returns the first node matching
+// sel. Returns nil when nothing matches. Useful for grabbing host-specific
+// elements (subtitles, byline avatars, comment counters).
+//
+// Supported selectors: "tag", ".class", "#id", "tag.class",
+// "[attr=val]", "[attr]". For tag-with-multiple-classes, write
+// "tag.class1.class2" (matches when both classes are present).
+func SelectFirst(doc *html.Node, sel string) *html.Node {
+	return find(doc, sel)
+}
+
+// SelectInnerHTML returns the inner HTML of the first match for sel, or
+// the empty string when nothing matches.
+func SelectInnerHTML(doc *html.Node, sel string) string {
+	n := find(doc, sel)
+	if n == nil {
+		return ""
+	}
+	return innerHTML(n)
+}
+
+// TextOf returns the concatenated visible text of n.
+func TextOf(n *html.Node) string { return textOf(n) }
+
+// Attr returns n's attribute value for key, or "" if absent.
+func Attr(n *html.Node, key string) string { return getAttr(n, key) }
 
 // articleSelectors lists CSS-ish selectors in priority order: more specific
 // containers first, falling back to <body> if nothing else hits.
@@ -105,13 +140,16 @@ func parseLDJSON(s string) []map[string]any {
 	return nil
 }
 
-// pickArticle returns the inner HTML of the first matching article-ish
-// container with a meaningful amount of content.
-func pickArticle(doc *html.Node) string {
-	for _, sel := range articleSelectors {
+// pickArticleFrom returns the inner HTML of the first selector with a
+// non-trivial amount of text. The 50-char threshold rejects empty
+// containers and tiny "Read more" wrappers without rejecting genuinely
+// short notes (Substack often has 2-paragraph posts). Falls back to
+// <body> when nothing matches.
+func pickArticleFrom(doc *html.Node, selectors []string) string {
+	for _, sel := range selectors {
 		if node := find(doc, sel); node != nil {
 			h := innerHTML(node)
-			if visibleLen(h) > 200 {
+			if visibleLen(h) >= 50 {
 				return h
 			}
 		}
@@ -123,13 +161,14 @@ func pickArticle(doc *html.Node) string {
 }
 
 // find walks the tree depth-first and returns the first node matching sel.
-// Supported selectors: "tag", ".class", "#id", "tag.class", "[role=main]".
-// Multiple class names per element are honored.
+// Supported selectors: "tag", ".class", "#id", "tag.class",
+// "tag.class1.class2" (all classes must be present), "[role=main]",
+// "[attr]" (just-presence).
 func find(n *html.Node, sel string) *html.Node {
-	tag, class, id, attrKey, attrVal := parseSelector(sel)
+	tag, classes, id, attrKey, attrVal := parseSelector(sel)
 	var visit func(*html.Node) *html.Node
 	visit = func(n *html.Node) *html.Node {
-		if n.Type == html.ElementNode && matchNode(n, tag, class, id, attrKey, attrVal) {
+		if n.Type == html.ElementNode && matchNode(n, tag, classes, id, attrKey, attrVal) {
 			return n
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -142,38 +181,44 @@ func find(n *html.Node, sel string) *html.Node {
 	return visit(n)
 }
 
-func parseSelector(sel string) (tag, class, id, attrKey, attrVal string) {
+// parseSelector returns the components of a CSS-ish selector. Multiple
+// classes are supported via "tag.a.b" or ".a.b".
+func parseSelector(sel string) (tag string, classes []string, id, attrKey, attrVal string) {
 	if strings.HasPrefix(sel, "[") && strings.HasSuffix(sel, "]") {
 		body := sel[1 : len(sel)-1]
 		if i := strings.Index(body, "="); i >= 0 {
-			return "", "", "", body[:i], strings.Trim(body[i+1:], `"`)
+			return "", nil, "", body[:i], strings.Trim(body[i+1:], `"`)
 		}
-		return "", "", "", body, ""
+		return "", nil, "", body, ""
 	}
 	switch {
-	case strings.HasPrefix(sel, "."):
-		class = sel[1:]
 	case strings.HasPrefix(sel, "#"):
 		id = sel[1:]
-	default:
-		// tag or tag.class
-		if i := strings.Index(sel, "."); i >= 0 {
-			tag = sel[:i]
-			class = sel[i+1:]
-		} else {
-			tag = sel
-		}
+		return
+	case strings.HasPrefix(sel, "."):
+		classes = strings.Split(sel[1:], ".")
+		return
+	}
+	// tag or tag.class.class
+	if i := strings.Index(sel, "."); i >= 0 {
+		tag = sel[:i]
+		classes = strings.Split(sel[i+1:], ".")
+	} else {
+		tag = sel
 	}
 	return
 }
 
-func matchNode(n *html.Node, tag, class, id, attrKey, attrVal string) bool {
+func matchNode(n *html.Node, tag string, classes []string, id, attrKey, attrVal string) bool {
 	if tag != "" && n.Data != tag {
 		return false
 	}
-	if class != "" {
-		if !hasClass(getAttr(n, "class"), class) {
-			return false
+	if len(classes) > 0 {
+		classAttr := getAttr(n, "class")
+		for _, c := range classes {
+			if !hasClass(classAttr, c) {
+				return false
+			}
 		}
 	}
 	if id != "" && getAttr(n, "id") != id {

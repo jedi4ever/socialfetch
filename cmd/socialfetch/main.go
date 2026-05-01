@@ -40,6 +40,7 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/search/bing"
 	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
+	"github.com/patrickdebois/social-skills/internal/search/hnsearch"
 	"github.com/patrickdebois/social-skills/internal/search/serpapi"
 	"github.com/patrickdebois/social-skills/internal/search/tavily"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
@@ -61,6 +62,7 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		bing.New(),
 		serpapi.New(),
 		tavily.New(),
+		hnsearch.New(),
 		xsearch.New(),
 	)
 	return fetchers, searchers
@@ -99,15 +101,16 @@ func run(args []string) error {
 
 // fetchFlags is parsed from the args after `socialfetch fetch`.
 type fetchFlags struct {
-	format     string
-	output     string // "" = stdout, file, or dir/
-	inputFile  string // file with one URL per line
-	logFile    string // audit/debug log destination ("-" = stderr)
-	comments   bool
-	maxComment int
-	jobs       int // worker-pool size for batch fetches
-	timeout    time.Duration
-	urls       []string
+	format         string
+	output         string // "" = stdout, file, or dir/
+	inputFile      string // file with one URL per line
+	logFile        string // audit/debug log destination ("-" = stderr)
+	comments       bool
+	maxComment     int
+	jobs           int // worker-pool size for batch fetches
+	genericExtract bool
+	timeout        time.Duration
+	urls           []string
 }
 
 func parseFetchFlags(args []string) (*fetchFlags, error) {
@@ -151,6 +154,8 @@ func parseFetchFlags(args []string) (*fetchFlags, error) {
 			f.comments = false
 		case "--comments":
 			f.comments = true
+		case "--generic-extraction":
+			f.genericExtract = true
 		case "--max-comments":
 			i++
 			if i >= len(args) {
@@ -221,9 +226,10 @@ func runFetch(args []string) error {
 	defer closeAudit()
 
 	opts := core.Options{
-		IncludeComments: flags.comments,
-		MaxComments:     flags.maxComment,
-		Audit:           core.NewAuditLogger(auditW),
+		IncludeComments:   flags.comments,
+		MaxComments:       flags.maxComment,
+		GenericExtraction: flags.genericExtract,
+		Audit:             core.NewAuditLogger(auditW),
 	}
 
 	registry, _ := buildRegistries()
@@ -354,13 +360,17 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 
 // searchFlags is parsed from `socialfetch search` args.
 type searchFlags struct {
-	provider string
-	max      int
-	format   string
-	output   string
-	logFile  string
-	timeout  time.Duration
-	query    string
+	provider       string
+	max            int
+	format         string
+	output         string
+	logFile        string
+	before         *time.Time
+	after          *time.Time
+	includeDomains []string
+	excludeDomains []string
+	timeout        time.Duration
+	query          string
 }
 
 func parseSearchFlags(args []string) (*searchFlags, error) {
@@ -421,6 +431,54 @@ func parseSearchFlags(args []string) (*searchFlags, error) {
 				return nil, err
 			}
 			f.timeout = d
+		case "--after":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--after needs a value")
+			}
+			t, err := parseDateFlag(args[i])
+			if err != nil {
+				return nil, fmt.Errorf("--after: %w", err)
+			}
+			f.after = &t
+		case "--before":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--before needs a value")
+			}
+			t, err := parseDateFlag(args[i])
+			if err != nil {
+				return nil, fmt.Errorf("--before: %w", err)
+			}
+			f.before = &t
+		case "--last":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--last needs a value")
+			}
+			d, err := time.ParseDuration(args[i])
+			if err != nil {
+				// Allow shorthand like "7d" / "30d" that ParseDuration rejects.
+				if dd, derr := parseDaysDuration(args[i]); derr == nil {
+					d = dd
+				} else {
+					return nil, fmt.Errorf("--last: %w", err)
+				}
+			}
+			t := time.Now().Add(-d)
+			f.after = &t
+		case "--site":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--site needs a value")
+			}
+			f.includeDomains = append(f.includeDomains, args[i])
+		case "--exclude-site":
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--exclude-site needs a value")
+			}
+			f.excludeDomains = append(f.excludeDomains, args[i])
 		default:
 			if strings.HasPrefix(a, "-") {
 				return nil, fmt.Errorf("unknown flag %q", a)
@@ -430,6 +488,29 @@ func parseSearchFlags(args []string) (*searchFlags, error) {
 	}
 	f.query = strings.Join(queryParts, " ")
 	return f, nil
+}
+
+// parseDateFlag accepts either a yyyy-mm-dd date or any RFC3339 timestamp
+// so callers can be loose ("--after 2024-01-01") or precise.
+func parseDateFlag(s string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02T15:04:05Z"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("date %q must be yyyy-mm-dd or RFC3339", s)
+}
+
+// parseDaysDuration handles "Nd" (days) which time.ParseDuration rejects.
+func parseDaysDuration(s string) (time.Duration, error) {
+	if !strings.HasSuffix(s, "d") {
+		return 0, fmt.Errorf("not a days value")
+	}
+	n, err := atoi(strings.TrimSuffix(s, "d"))
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(n) * 24 * time.Hour, nil
 }
 
 func runSearch(args []string) error {
@@ -464,7 +545,13 @@ func runSearch(args []string) error {
 	defer cancel()
 
 	audit.Logf("search %q via %s (max=%d)", flags.query, provider.Name(), flags.max)
-	results, err := provider.Search(ctx, flags.query, flags.max)
+	results, err := provider.Search(ctx, flags.query, search.Options{
+		Max:            flags.max,
+		Before:         flags.before,
+		After:          flags.after,
+		IncludeDomains: flags.includeDomains,
+		ExcludeDomains: flags.excludeDomains,
+	})
 	if err != nil {
 		audit.Logf("search FAILED: %v", err)
 		return err
@@ -579,6 +666,8 @@ func runList() error {
 			auth = "(requires TAVILY_API_KEY)"
 		case "x":
 			auth = "(requires X_API_KEY + X_API_SECRET; recent 7d)"
+		case "hackernews":
+			auth = "(no auth, Algolia)"
 		}
 		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), auth)
 	}
@@ -769,15 +858,22 @@ FETCH FLAGS
       --comments              include comment trees (default)
       --no-comments           skip comment trees (faster, smaller)
       --max-comments  N       cap total comments per item (0 = no cap)
+      --generic-extraction    force the catch-all article extractor even
+                              for Medium/Substack URLs (debug aid)
       --timeout       DUR     overall timeout, e.g. 60s, 2m (default 60s)
 
 SEARCH FLAGS
   -p, --provider      NAME    duckduckgo (default), bing, serpapi,
-                              tavily, or x (X/Twitter recent search)
+                              tavily, hackernews, or x
   -n, --max           N       max results (default 10)
   -f, --format        FMT     markdown (default), json, or jsonl
   -o, --output        PATH    stdout or file
   -l, --log           PATH    audit log destination
+      --after         DATE    yyyy-mm-dd or RFC3339; only newer hits
+      --before        DATE    yyyy-mm-dd or RFC3339; only older hits
+      --last          DUR     sugar for --after (e.g. 7d, 24h, 1m)
+      --site          DOMAIN  restrict to domain (repeatable)
+      --exclude-site  DOMAIN  exclude domain (repeatable)
       --timeout       DUR     overall timeout (default 30s)
 
 FETCH SOURCES (auto-detected by URL host)
@@ -832,6 +928,10 @@ Flags:
       --no-comments     Skip comment trees (HN, Reddit). Faster, smaller.
       --comments        Include comment trees (default)
       --max-comments N  Cap total comments per item (0 = no cap)
+      --generic-extraction
+                        Force the generic article extractor even for
+                        Medium/Substack URLs. Useful when a host-specific
+                        extractor's output looks wrong.
       --timeout DUR     Overall timeout, e.g. 60s, 2m (default 60s)
   -h, --help            Show this help
 

@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 func TestSearchRequiresKey(t *testing.T) {
 	t.Setenv("TAVILY_API_KEY", "")
-	if _, err := New().Search(context.Background(), "x", 5); err == nil {
+	if _, err := New().Search(context.Background(), "x", search.Options{Max: 5}); err == nil {
 		t.Errorf("expected missing-key error")
 	}
 }
@@ -54,7 +56,7 @@ func TestSearchPostsJSONAndDecodesResults(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "secret"
 
-	got, err := p.Search(context.Background(), "anthropic claude", 3)
+	got, err := p.Search(context.Background(), "anthropic claude", search.Options{Max: 3})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -77,7 +79,7 @@ func TestSearchTruncatesLongContent(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "any"
 
-	got, err := p.Search(context.Background(), "x", 5)
+	got, err := p.Search(context.Background(), "x", search.Options{Max: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
