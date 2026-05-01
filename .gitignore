@@ -1,0 +1,21 @@
+# Build artifacts
+/bin/
+
+# Go test outputs
+*.test
+*.out
+coverage.out
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment
+.env
+*.local
+
+# Output / scratch
+/out/
+*.log
+/socialfetch
