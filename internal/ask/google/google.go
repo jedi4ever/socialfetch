@@ -1,0 +1,162 @@
+// Package google implements an ask.Asker backed by Google's Gemini
+// API with the built-in `google_search` tool — Gemini synthesizes an
+// answer grounded in live Google Search results, returning the answer
+// plus a `groundingMetadata` block with the supporting URLs.
+//
+// Auth: GOOGLE_API_KEY (or GEMINI_API_KEY). Same key works as for
+// the YouTube Data API; just enable Generative Language API in your
+// Google Cloud project. Free tier covers casual use.
+//
+// Default model: gemini-2.5-flash — fast, cheap, web-grounded.
+package google
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/patrickdebois/social-skills/internal/ask"
+	"github.com/patrickdebois/social-skills/internal/core"
+)
+
+const (
+	defaultBase  = "https://generativelanguage.googleapis.com/v1beta"
+	defaultModel = "gemini-2.5-flash"
+)
+
+type Provider struct {
+	BaseURL string
+	Key     string
+}
+
+func New() *Provider { return &Provider{BaseURL: defaultBase} }
+
+func (*Provider) Name() string { return "google" }
+
+type request struct {
+	Contents []content `json:"contents"`
+	Tools    []tool    `json:"tools,omitempty"`
+}
+
+type content struct {
+	Parts []part `json:"parts"`
+	Role  string `json:"role,omitempty"`
+}
+
+type part struct {
+	Text string `json:"text"`
+}
+
+// tool turns on Gemini's web-grounding tool. The empty struct payload
+// is intentional: Google enables the tool by its mere presence in the
+// `tools` array.
+type tool struct {
+	GoogleSearch struct{} `json:"google_search"`
+}
+
+type response struct {
+	Candidates []struct {
+		Content struct {
+			Parts []part `json:"parts"`
+		} `json:"content"`
+		GroundingMetadata struct {
+			GroundingChunks []struct {
+				Web struct {
+					URI   string `json:"uri"`
+					Title string `json:"title"`
+				} `json:"web,omitempty"`
+			} `json:"groundingChunks"`
+		} `json:"groundingMetadata"`
+	} `json:"candidates"`
+}
+
+func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+	key := p.Key
+	if key == "" {
+		for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"} {
+			if v := os.Getenv(k); v != "" {
+				key = v
+				break
+			}
+		}
+	}
+	if key == "" {
+		return nil, errors.New("google ask: GOOGLE_API_KEY (or GEMINI_API_KEY) not set")
+	}
+
+	model := opts.Model
+	if model == "" {
+		model = defaultModel
+	}
+
+	body, err := json.Marshal(request{
+		Contents: []content{
+			{Role: "user", Parts: []part{{Text: question}}},
+		},
+		Tools: []tool{{}}, // empty struct — google_search tool enabled
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, model, key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", core.UserAgent)
+
+	resp, err := core.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("google ask: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("google ask: HTTP 403 — key invalid, restricted, or Generative Language API not enabled in your project")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("google ask: HTTP %d", resp.StatusCode)
+	}
+
+	var data response
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("google ask: decode: %w", err)
+	}
+	if len(data.Candidates) == 0 {
+		return nil, fmt.Errorf("google ask: no candidates returned")
+	}
+	cand := data.Candidates[0]
+
+	var b strings.Builder
+	for _, p := range cand.Content.Parts {
+		b.WriteString(p.Text)
+	}
+	answer := strings.TrimSpace(b.String())
+
+	sources := make([]ask.Source, 0, len(cand.GroundingMetadata.GroundingChunks))
+	for _, c := range cand.GroundingMetadata.GroundingChunks {
+		if c.Web.URI == "" {
+			continue
+		}
+		sources = append(sources, ask.Source{
+			Title: c.Web.Title,
+			URL:   c.Web.URI,
+		})
+	}
+
+	return &ask.Answer{
+		Question: question,
+		Provider: "google",
+		Model:    model,
+		Text:     answer,
+		Sources:  sources,
+		Asked:    time.Now().UTC(),
+	}, nil
+}

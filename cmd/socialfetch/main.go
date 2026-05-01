@@ -30,6 +30,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/patrickdebois/social-skills/internal/ask"
+	googleask "github.com/patrickdebois/social-skills/internal/ask/google"
+	"github.com/patrickdebois/social-skills/internal/ask/grok"
+	"github.com/patrickdebois/social-skills/internal/ask/perplexity"
+	"github.com/patrickdebois/social-skills/internal/ask/serpapiask"
+	"github.com/patrickdebois/social-skills/internal/ask/tavilyask"
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/dotenv"
@@ -37,6 +43,8 @@ import (
 	"github.com/patrickdebois/social-skills/internal/search"
 
 	"github.com/patrickdebois/social-skills/internal/sources/article"
+	"github.com/patrickdebois/social-skills/internal/sources/arxiv"
+	"github.com/patrickdebois/social-skills/internal/sources/bluesky"
 	"github.com/patrickdebois/social-skills/internal/sources/github"
 	"github.com/patrickdebois/social-skills/internal/sources/hackernews"
 	"github.com/patrickdebois/social-skills/internal/sources/linkedin"
@@ -47,14 +55,31 @@ import (
 	"github.com/patrickdebois/social-skills/internal/sources/twitter"
 	"github.com/patrickdebois/social-skills/internal/sources/youtube"
 
+	"github.com/patrickdebois/social-skills/internal/search/arxivsearch"
 	"github.com/patrickdebois/social-skills/internal/search/bing"
+	bskysearch "github.com/patrickdebois/social-skills/internal/search/bluesky"
+	"github.com/patrickdebois/social-skills/internal/search/bravesearch"
 	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
+	googlesearch "github.com/patrickdebois/social-skills/internal/search/google"
 	"github.com/patrickdebois/social-skills/internal/search/hnsearch"
 	"github.com/patrickdebois/social-skills/internal/search/serpapi"
 	"github.com/patrickdebois/social-skills/internal/search/tavily"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
 	"github.com/patrickdebois/social-skills/internal/search/youtubesearch"
 )
+
+// buildAskers returns the registry of "answer engines" used by the
+// `ask` subcommand. Kept separate from search because the conceptual
+// shape (synthesized answer + sources) differs from a flat result list.
+func buildAskers() *ask.Registry {
+	return ask.NewRegistry(
+		perplexity.New(),
+		grok.New(),
+		googleask.New(),
+		tavilyask.New(),
+		serpapiask.New(),
+	)
+}
 
 // buildRegistries wires up the default fetcher and search registries.
 // The fetcher order matters: specific sources first, generic article last.
@@ -66,6 +91,8 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		twitter.New(),
 		linkedin.New(),
 		youtube.New(),
+		bluesky.New(),
+		arxiv.New(),
 		// Medium and Substack come BEFORE the article fallback so they
 		// route through the bridge (paywall-aware) instead of plain
 		// HTTP. Each falls back to direct HTTP automatically when the
@@ -77,12 +104,16 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 	)
 	searchers := search.NewRegistry(
 		duckduckgo.New(),
+		googlesearch.New(),
 		bing.New(),
+		bravesearch.New(),
 		serpapi.New(),
 		tavily.New(),
 		hnsearch.New(),
 		xsearch.New(),
 		youtubesearch.New(),
+		bskysearch.New(),
+		arxivsearch.New(),
 	)
 	return fetchers, searchers
 }
@@ -131,6 +162,8 @@ func run(args []string) error {
 		return runFetch(rest)
 	case "search":
 		return runSearch(rest)
+	case "ask":
+		return runAsk(rest)
 	case "bridge":
 		return runBridge(rest)
 	case "list":
@@ -612,6 +645,223 @@ func runSearch(args []string) error {
 	defer closeOut()
 
 	return renderSearchResults(out, results, format, flags.query, provider.Name())
+}
+
+// runAsk dispatches a question to one of the answer-engine providers
+// (perplexity, grok) and renders the synthesized answer plus sources.
+//
+// Usage:
+//
+//	socialfetch ask "<question>" [-p perplexity|grok] [-m MODEL] [--last week|day|month|year]
+func runAsk(args []string) error {
+	var (
+		question  string
+		provider  = "perplexity"
+		model     string
+		recency   string
+		formatStr = "markdown"
+		output    = "-"
+		logFile   = ""
+		maxTokens int
+		timeout   = 60 * time.Second
+	)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "-h", "--help":
+			printAskHelp(os.Stdout)
+			return nil
+		case "-p", "--provider":
+			i++
+			if i >= len(args) {
+				return errors.New("--provider needs a value")
+			}
+			provider = args[i]
+		case "-m", "--model":
+			i++
+			if i >= len(args) {
+				return errors.New("--model needs a value")
+			}
+			model = args[i]
+		case "--last":
+			i++
+			if i >= len(args) {
+				return errors.New("--last needs a value")
+			}
+			recency = args[i]
+		case "-f", "--format":
+			i++
+			if i >= len(args) {
+				return errors.New("--format needs a value")
+			}
+			formatStr = args[i]
+		case "-o", "--output":
+			i++
+			if i >= len(args) {
+				return errors.New("--output needs a value")
+			}
+			output = args[i]
+		case "-l", "--log":
+			i++
+			if i >= len(args) {
+				return errors.New("--log needs a value")
+			}
+			logFile = args[i]
+		case "--max-tokens":
+			i++
+			if i >= len(args) {
+				return errors.New("--max-tokens needs a value")
+			}
+			n, err := atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("--max-tokens: %w", err)
+			}
+			maxTokens = n
+		case "--timeout":
+			i++
+			if i >= len(args) {
+				return errors.New("--timeout needs a value")
+			}
+			d, err := time.ParseDuration(args[i])
+			if err != nil {
+				return fmt.Errorf("--timeout: %w", err)
+			}
+			timeout = d
+		default:
+			if strings.HasPrefix(a, "-") {
+				return fmt.Errorf("ask: unknown flag %q", a)
+			}
+			// First non-flag positional arg is the question; subsequent
+			// ones are concatenated with spaces so users don't have to
+			// quote multi-word questions on the shell.
+			if question == "" {
+				question = a
+			} else {
+				question += " " + a
+			}
+		}
+	}
+	if question == "" {
+		printAskHelp(os.Stderr)
+		return errors.New("no question given")
+	}
+
+	format, err := render.ParseFormat(formatStr)
+	if err != nil {
+		return err
+	}
+	auditW, closeAudit, err := openLog(logFile)
+	if err != nil {
+		return err
+	}
+	defer closeAudit()
+	audit := core.NewAuditLogger(auditW)
+
+	asker, err := buildAskers().Get(provider)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := signalContext(timeout)
+	defer cancel()
+
+	audit.Logf("ask %q via %s (model=%s, recency=%s)", question, asker.Name(), model, recency)
+	answer, err := asker.Ask(ctx, question, ask.Options{
+		Model:     model,
+		Recency:   recency,
+		MaxTokens: maxTokens,
+	})
+	if err != nil {
+		audit.Logf("ask FAILED: %v", err)
+		return err
+	}
+	audit.Logf("ask returned answer (%d chars, %d sources)", len(answer.Text), len(answer.Sources))
+
+	out, closeOut, err := openOutput(output)
+	if err != nil {
+		return err
+	}
+	defer closeOut()
+	return renderAnswer(out, answer, format)
+}
+
+// renderAnswer writes an Answer in the requested format. Markdown gets
+// the question as an H1, the synthesized text as the body, and a
+// numbered Sources list at the bottom.
+func renderAnswer(w io.Writer, a *ask.Answer, format render.Format) error {
+	switch format {
+	case render.FormatJSON, render.FormatJSONL:
+		// Reuse the search rendering envelope shape for consistency
+		// with the rest of the CLI's JSON output.
+		env := map[string]any{
+			"written_at": time.Now().UTC(),
+			"answer":     a,
+		}
+		body, err := json.MarshalIndent(env, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(body)
+		return err
+	case render.FormatMarkdown:
+		fmt.Fprintf(w, "# Q: %s\n\n*Provider: %s", a.Question, a.Provider)
+		if a.Model != "" {
+			fmt.Fprintf(w, " (%s)", a.Model)
+		}
+		fmt.Fprintf(w, " · %d sources · %s*\n\n", len(a.Sources), a.Asked.Format(time.RFC3339))
+		fmt.Fprintln(w, a.Text)
+		if len(a.Sources) > 0 {
+			fmt.Fprint(w, "\n## Sources\n\n")
+			for i, s := range a.Sources {
+				title := s.Title
+				if title == "" {
+					title = s.URL
+				}
+				fmt.Fprintf(w, "%d. [%s](%s)", i+1, title, s.URL)
+				if s.Published != nil {
+					fmt.Fprintf(w, " · *%s*", s.Published.Format("2006-01-02"))
+				}
+				fmt.Fprintln(w)
+				if s.Snippet != "" {
+					fmt.Fprintf(w, "   %s\n", s.Snippet)
+				}
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown format %q", format)
+}
+
+func printAskHelp(w io.Writer) {
+	fmt.Fprint(w, `socialfetch ask — pose a question to a grounded answer engine
+
+Usage:
+  socialfetch ask "<question>" [flags]
+
+Flags:
+  -p, --provider  NAME    perplexity (default), grok, google, tavily, serpapi
+  -m, --model     MODEL   override the provider's default
+      --last      W       restrict the search horizon: day, week, month, year
+      --max-tokens N      cap response length
+  -f, --format    FMT     markdown (default) or json
+  -o, --output    PATH    -, FILE, or unset for stdout
+  -l, --log       PATH    audit log destination
+      --timeout   DUR     overall timeout (default 60s)
+  -h, --help              show this help
+
+Auth:
+  perplexity   PERPLEXITY_API_KEY (or PPLX_API_KEY)
+  grok         XAI_API_KEY (or GROK_API_KEY)
+
+Output (markdown):
+  # Q: ...
+  *Provider: perplexity (sonar) · 5 sources · 2026-...*
+  <synthesized answer>
+
+  ## Sources
+  1. [title](url)
+  ...
+`)
 }
 
 func renderSearchResults(w io.Writer, results []search.Result, format render.Format, query, providerName string) error {
@@ -1237,6 +1487,7 @@ func printUsage(w io.Writer) {
 USAGE
   socialfetch fetch  <url> [<url>...] [flags]
   socialfetch search "<query>" [flags]
+  socialfetch ask    "<question>" [flags]    grounded answer engine (perplexity, grok)
   socialfetch bridge {start|stop|status|run}  control browser-extension bridge
   socialfetch list                            list fetch + search providers
   socialfetch help [fetch|search|list]        same as --help on a subcommand

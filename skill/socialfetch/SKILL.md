@@ -1,6 +1,6 @@
 ---
 name: socialfetch
-description: Fetch content from social-media URLs (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Medium, Substack, RSS, generic articles) and run web/social searches (DuckDuckGo, Bing, SerpAPI, Tavily, X, HN) — output as clean markdown or structured JSON. Use whenever the user asks to "pull", "fetch", "download", "summarise", or "search the web/Twitter/HN/YouTube" for content at a URL or query.
+description: Fetch content from social-media URLs (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic articles) and run web/social searches (DuckDuckGo, Bing, Brave, SerpAPI, Tavily, X, HN, YouTube, Bluesky, arXiv) — output as clean markdown or structured JSON. Use whenever the user asks to "pull", "fetch", "download", "summarise", or "search the web/Twitter/HN/YouTube/Bluesky/arxiv" for content at a URL or query.
 allowed-tools: |
   Bash(scripts/socialfetch fetch *)
   Bash(scripts/socialfetch search *)
@@ -46,7 +46,10 @@ Already-exported shell vars always win over file entries.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A query → search.** Pick the provider that matches the user's intent:
   - "search the web" / unspecified → `duckduckgo` (no auth)
+  - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
   - "high-quality web search for AI agents" → `tavily` (needs `TAVILY_API_KEY`)
+  - "search Bluesky" → `bluesky` (no auth, native date filter)
+  - "search arXiv" / academic papers → `arxiv` (no auth, sorted newest-first)
   - "search HN" → `hackernews`
   - "search Twitter/X" → `x` (needs `X_API_KEY` + `X_API_SECRET`)
   - "search via Google" → `serpapi` (needs `SERPAPI_KEY`)

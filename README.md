@@ -49,7 +49,7 @@ When you pass multiple URLs and `-f json`, the format is automatically promoted 
 
 | flag | meaning |
 | -- | -- |
-| `-p, --provider` | `duckduckgo` (default), `bing`, `serpapi`, `tavily`, `x`, `youtube`, or `hackernews` |
+| `-p, --provider` | `duckduckgo` (default), `bing`, `brave`, `serpapi`, `tavily`, `x`, `youtube`, `bluesky`, `arxiv`, or `hackernews` |
 | `-n, --max` | max results (default 10) |
 | `-f, --format` | `markdown` (default), `json`, or `jsonl` |
 | `-o, --output` | stdout or file |
@@ -59,47 +59,25 @@ When you pass multiple URLs and `-f json`, the format is automatically promoted 
 | -- | -- |
 | `duckduckgo` | none (scrapes the lite endpoint) |
 | `bing`       | `BING_API_KEY` (Bing Web Search v7) |
+| `brave`      | `BRAVE_API_KEY` (free tier 2,000 q/mo; supports native `--last 7d` via the `freshness` parameter) |
 | `serpapi`    | `SERPAPI_KEY` |
 | `tavily`     | `TAVILY_API_KEY` (AI-tuned, scored, supports domain include/exclude) |
 | `x`          | `X_API_KEY` + `X_API_SECRET` (X v2 recent search, last 7 days) |
 | `youtube`    | `YOUTUBE_API_KEY` (Data API v3 search.list — 100 units per call, ~100 searches/day on free tier; supports native `--last 7d` / `--after` filters) |
+| `bluesky`    | none (public AppView search; native `since`/`until` for date filters) |
+| `arxiv`      | none (Atom search API; results client-side filtered by `--last 7d` / `--after` since the API has no date param) |
 | `hackernews` | none (Algolia public search) |
 
 When `X_API_KEY` + `X_API_SECRET` are set, the `twitter` fetch source automatically prefers X's official v2 API over the syndication endpoint, picking up long-form `note_tweet` content for tweets over 280 characters.
 
 ## Credentials
 
-Every API key is optional — features gated on a missing key just degrade gracefully (e.g. Tavily search errors with a clear message, YouTube comments are skipped, the X fetcher falls back to the syndication endpoint). Set the keys you need either in your shell or in a `.env` file the binary auto-loads on startup.
+All API keys are **optional** — features gated on a missing key degrade gracefully. The binary auto-loads `.env` files on startup (no override of shell-exported vars):
 
-### .env loading
-
-`socialfetch` reads, in order, without overriding values already exported in the shell:
-
-1. `./.env` — the directory you're running the command from
+1. `./.env` — current working directory
 2. `<binary_dir>/.env` — next to the installed binary (typically `~/.claude/skills/socialfetch/.env`)
 
-Drop a `.env` in either location:
-
-```
-X_API_KEY=...
-X_API_SECRET=...
-TAVILY_API_KEY=...
-BING_API_KEY=...
-SERPAPI_KEY=...
-YOUTUBE_API_KEY=...
-TAVILY_TOPIC=news      # optional: switch Tavily to news topic for stricter recency filtering
-```
-
-### Where to get each key
-
-| key | how to get it |
-| -- | -- |
-| **`X_API_KEY` + `X_API_SECRET`** | [developer.x.com](https://developer.x.com/) → Apps → create a v2 app → copy the API Key and API Secret. Free tier covers `recent search` (last 7 days). |
-| **`TAVILY_API_KEY`** | [tavily.com](https://tavily.com/) → sign up → Dashboard. Free tier: 1,000 searches/month. |
-| **`BING_API_KEY`** | Microsoft Azure → Cognitive Services → "Bing Search v7" resource → Keys. |
-| **`SERPAPI_KEY`** | [serpapi.com](https://serpapi.com/) → sign up → Dashboard → API key. Free tier: 100 searches/month. |
-| **`YOUTUBE_API_KEY`** | [console.cloud.google.com](https://console.cloud.google.com/) → New Project → APIs & Services → Library → enable **"YouTube Data API v3"** → Credentials → **Create Credentials → API key** → optionally restrict to YouTube Data API v3. Free quota: 10,000 units/day; metadata and comments calls are 1 unit each. |
-| **`GITHUB_TOKEN`** | [github.com/settings/tokens](https://github.com/settings/tokens) → fine-grained or classic PAT, no scopes needed for public repos (raises the 60 → 5,000 req/h rate limit). |
+**See [API_KEYS.md](./API_KEYS.md)** for step-by-step setup instructions per provider — where to sign up, what scope to grant, what's in the free tier, and which env var to set.
 
 ## Sources
 
@@ -111,6 +89,8 @@ TAVILY_TOPIC=news      # optional: switch Tavily to news topic for stricter rece
 | `twitter` | `https://x.com/<user>/status/<id>` | syndication endpoint by default; X v2 API + replies when `X_API_KEY`/`X_API_SECRET` are set |
 | `linkedin` | `linkedin.com/posts/...`, `/feed/update/...`, `/in/<user>`, `/pulse/...` | requires the browser bridge — see below |
 | `youtube` | `youtube.com/watch?v=...`, `youtu.be/...`, `/shorts/...`, `/live/...`, `/embed/...` | metadata + transcript via scraping; transcript provider configurable (see below); comments via Data API v3 when `YOUTUBE_API_KEY` is set |
+| `bluesky` | `bsky.app/profile/<handle-or-did>/post/<rkey>` | resolves handle → DID, fetches the post + nested reply thread via the public AppView (no auth) |
+| `arxiv` | `arxiv.org/abs/<id>`, `/pdf/<id>`, `/html/<id>` | metadata + abstract + categories via the export API (no auth) |
 | `medium` | `medium.com` / `*.medium.com` | bridge-first (paywall-aware via your logged-in session); HTTP fallback for public excerpts |
 | `substack` | `*.substack.com` | bridge-first (member-only posts) with HTTP fallback |
 | `rss` | any URL whose path mentions `/feed`, `/rss`, `/atom` or ends in `.xml` | parses both RSS 2.0 and Atom |
