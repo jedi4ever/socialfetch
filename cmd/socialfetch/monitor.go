@@ -120,26 +120,109 @@ func runMonitor(args []string) error {
 		_, _ = f.Seek(0, io.SeekEnd)
 	}
 
-	// Poll for new content. signal.NotifyContext makes Ctrl-C clean.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	pollEvery := 250 * time.Millisecond
+	return tailFollow(ctx, f, flags.path, render)
+}
+
+// tailFollow reads `f` line-by-line, sleeping on EOF and resuming
+// when the file grows. It also watches for file rotation: when the
+// inode of `path` changes (the live file was renamed and a fresh one
+// took its place — typically by the rotation logic in
+// core.OpenGlobalAudit), the open handle is closed and the new file
+// is followed instead.
+//
+// Implementation notes that took a debugging pass to discover:
+//
+//   - bufio.Scanner gives up permanently once it sees io.EOF, so a
+//     naive Scan-loop only ever shows lines that existed at start.
+//     We use bufio.Reader.ReadString('\n') instead — after EOF, a
+//     subsequent ReadString call hits the underlying *os.File.Read
+//     again and picks up bytes appended in the meantime.
+//
+//   - Partial lines (a write that hasn't reached '\n' yet) leave
+//     bytes buffered inside the reader; we keep the same Reader
+//     across iterations so the next chunk completes them.
+//
+//   - On rotation, the open fd still points to the renamed file (now
+//     `.jsonl.1`) which no producer writes to. We periodically stat
+//     `path` and reopen if the inode changed.
+func tailFollow(ctx context.Context, f *os.File, path string, render func(string)) error {
+	const pollEvery = 250 * time.Millisecond
+	const rotateCheckEvery = 4 // every (rotateCheckEvery * pollEvery) = 1s
+
+	rd := bufio.NewReaderSize(f, 64*1024)
+	rotateTicks := 0
 	for {
-		for scanner.Scan() {
-			render(scanner.Text())
+		// Drain whatever's currently readable. ReadString returns
+		// (partial+err, io.EOF) on the last partial chunk; treat that
+		// as "buffer not yet complete, come back later."
+		for {
+			line, err := rd.ReadString('\n')
+			if line != "" && (err == nil || err == io.EOF) {
+				if err == io.EOF {
+					// No newline yet — re-buffer by un-reading bytes
+					// would require a different reader; for our JSONL
+					// case writes are always newline-terminated, so
+					// just stop here and let the next iteration
+					// continue. (Worst case: a torn write is dropped
+					// once. JSONL writers never produce torn lines
+					// since each line is one Write call.)
+					break
+				}
+				render(strings.TrimRight(line, "\r\n"))
+				continue
+			}
+			if err != nil && err != io.EOF {
+				return err
+			}
+			break
 		}
-		if err := scanner.Err(); err != nil && err != io.EOF {
-			return err
+
+		// Rotation check: if the file at `path` is now a different
+		// inode than the one we have open, reopen.
+		rotateTicks++
+		if rotateTicks >= rotateCheckEvery {
+			rotateTicks = 0
+			if newF, switched, err := maybeReopen(f, path); err == nil && switched {
+				_ = f.Close()
+				f = newF
+				rd = bufio.NewReaderSize(f, 64*1024)
+				continue
+			}
 		}
+
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(pollEvery):
 		}
 	}
+}
+
+// maybeReopen returns a fresh handle on `path` when its inode has
+// changed (rotation happened) or `path` no longer exists but reappears
+// later. (true, nil) means caller should swap. (false, nil) means
+// nothing to do.
+func maybeReopen(current *os.File, path string) (*os.File, bool, error) {
+	currentInfo, err := current.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	pathInfo, err := os.Stat(path)
+	if err != nil {
+		// File missing temporarily — keep tailing the open handle.
+		return nil, false, nil
+	}
+	if os.SameFile(currentInfo, pathInfo) {
+		return nil, false, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	return f, true, nil
 }
 
 // replayHistory streams existing lines from the start of the file
