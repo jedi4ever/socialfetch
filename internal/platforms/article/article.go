@@ -13,11 +13,15 @@ package article
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/render/htmlmd"
 	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
@@ -85,10 +89,55 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		}, nil
 	}
 
-	body, err := core.GetBytes(ctx, raw)
-	if err != nil {
+	// Direct fetch first. We do the GET ourselves (rather than
+	// core.GetBytes) so we can inspect headers + status before
+	// committing to the response body — needed for CF detection.
+	body, cfBlocked, err := directFetch(ctx, raw)
+	via := "http"
+	if err != nil && !cfBlocked {
 		return nil, fmt.Errorf("article: %w", err)
 	}
+	if cfBlocked {
+		// Try the browser bridge. Real Chromium with the user's
+		// session cookies passes the JS challenge that our HTTP
+		// client cannot.
+		opts.Audit.Logf("article: cloudflare challenge detected, trying bridge")
+		c := &bridge.Client{Endpoint: bridge.DefaultEndpoint}
+		htmlStr, _, _, berr := c.GetHTML(ctx, raw, opts.Audit)
+		switch {
+		case berr == nil:
+			body = []byte(htmlStr)
+			via = "bridge"
+		case errors.Is(berr, bridge.ErrBridgeUnreachable) || errors.Is(berr, bridge.ErrNoExtensionAttached):
+			// Bridge isn't running. Last-resort fallback: route the
+			// URL through Jina Reader, which has its own anti-CF
+			// infrastructure and returns markdown directly. We bypass
+			// the htmlmeta+extractor chain since Jina's output is
+			// already clean.
+			opts.Audit.Logf("article: bridge unavailable (%v), trying Jina Reader", berr)
+			md, jerr := htmlmd.NewJinaReader().Read(ctx, raw)
+			if jerr != nil {
+				return nil, fmt.Errorf("article: cloudflare blocked + bridge unavailable + jina failed: %w", jerr)
+			}
+			return &core.Item{
+				Source:      "article",
+				Kind:        "article",
+				URL:         raw,
+				CanonicalID: raw,
+				Content:     strings.TrimSpace(md),
+				FetchedAt:   time.Now().UTC(),
+				Extra: map[string]any{
+					"requested_url": raw,
+					"via":           "jina-cf-fallback",
+				},
+			}, nil
+		default:
+			// Bridge gave a real error (timeout, navigation failure).
+			// Surface it.
+			return nil, fmt.Errorf("article: cloudflare blocked, bridge fetch failed: %w", berr)
+		}
+	}
+
 	page, err := htmlmeta.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("article: parse: %w", err)
@@ -103,9 +152,51 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	if opts.GenericExtraction {
 		opts.Audit.Logf("article: forced generic extractor (host=%s)", host)
 	} else {
-		opts.Audit.Logf("article: %s extractor", f.extractor.Name())
+		opts.Audit.Logf("article: %s extractor (via=%s)", f.extractor.Name(), via)
 	}
-	return f.extractor.Extract(raw, page)
+	item, err := f.extractor.Extract(raw, page)
+	if err != nil {
+		return nil, err
+	}
+	if item.Extra == nil {
+		item.Extra = map[string]any{}
+	}
+	item.Extra["via"] = via
+	return item, nil
+}
+
+// directFetch performs a plain HTTP GET and inspects the response for
+// Cloudflare challenges before returning. Three return cases:
+//
+//   - (body, false, nil)  — 2xx success, body is the page bytes
+//   - (nil,  true,  nil)  — CF challenge detected, caller should retry via bridge/Jina
+//   - (nil,  false, err)  — real network or HTTP-level error, no recovery
+//
+// We read the response body even on non-2xx so we can fingerprint the
+// challenge HTML — the headers alone aren't always enough. Capped at
+// 2 KiB for the snippet to bound memory; the full body is returned
+// only on 2xx.
+func directFetch(ctx context.Context, raw string) ([]byte, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("User-Agent", core.UserAgent)
+	resp, err := core.HTTPClient.Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		body, rerr := io.ReadAll(resp.Body)
+		return body, false, rerr
+	}
+	// Non-2xx: read a snippet for CF detection, decide, then surface.
+	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	if core.IsCloudflareBlocked(resp, snippet) {
+		return nil, true, nil
+	}
+	return nil, false, fmt.Errorf("GET %s: HTTP %d: %s", raw, resp.StatusCode, core.HTTPErrorBody(resp))
 }
 
 func hostOf(raw string) string {
