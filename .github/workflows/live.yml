@@ -1,0 +1,77 @@
+name: live
+
+# Live tests hit real upstream services and consume API quota. We
+# don't run them on every push — too expensive — but we do want
+# them on a regular cadence so provider drift (renamed JSON fields,
+# changed auth flows, deprecated endpoints) surfaces here instead
+# of in a user's terminal.
+#
+# Triggers:
+#   - Mondays 06:00 UTC (weekly cadence; aligns with most providers'
+#     billing cycles starting on Monday so we burn quota at the
+#     beginning of the window)
+#   - workflow_dispatch (manual button on Actions tab — useful right
+#     after touching a provider's code path)
+#   - release.published (every GitHub Release runs live so a tag
+#     never ships without provider compatibility verified end-to-end)
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  release:
+    types: [published]
+
+concurrency:
+  group: live-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  live-tests:
+    name: live tests (-tags=live)
+    runs-on: ubuntu-latest
+    # Each provider package's *_live_test.go does its own
+    # `if os.Getenv("FOO_API_KEY") == "" { t.Skip(...) }`, so missing
+    # secrets just skip individual tests rather than failing the
+    # workflow. Set whichever subset of secrets you have in repo
+    # settings → Secrets and variables → Actions; the rest skip
+    # silently.
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      X_API_KEY: ${{ secrets.X_API_KEY }}
+      X_API_SECRET: ${{ secrets.X_API_SECRET }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      # secrets.GITHUB_TOKEN is auto-provided per-workflow with read
+      # access to this repo — enough to lift github/ tests' rate
+      # limit from 60/hr to 5000/hr. No need to provision a PAT.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+      BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test -tags=live
+        # -count=1 disables the test cache (live tests must always
+        # rerun against the actual upstream, never replay cached
+        # results). -timeout=10m gives slow providers room without
+        # letting a hung connection hold the runner forever. -v
+        # surfaces which tests skipped vs ran in the workflow log so
+        # we can tell at a glance which providers were exercised.
+        run: go test -tags=live ./... -count=1 -timeout=10m -v
