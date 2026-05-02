@@ -47,6 +47,7 @@ import (
 	"github.com/patrickdebois/social-skills/internal/platforms/hackernews"
 	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
 	"github.com/patrickdebois/social-skills/internal/platforms/medium"
+	"github.com/patrickdebois/social-skills/internal/platforms/openai"
 	"github.com/patrickdebois/social-skills/internal/platforms/perplexity"
 	"github.com/patrickdebois/social-skills/internal/platforms/reddit"
 	"github.com/patrickdebois/social-skills/internal/platforms/rss"
@@ -64,6 +65,7 @@ func buildAskers() *core.AskRegistry {
 	return core.NewAskRegistry(
 		perplexity.New(),
 		grok.New(),
+		openai.New(),
 		google.NewAsker(),
 		tavily.NewAsker(),
 		serpapi.NewAsker(),
@@ -873,7 +875,7 @@ Usage:
   socialfetch ask "<question>" [flags]
 
 Flags:
-  -p, --provider     NAME    perplexity (default), grok, google, tavily, serpapi
+  -p, --provider     NAME    perplexity (default), grok, openai, google, tavily, serpapi
   -m, --model        MODEL   override the provider's default; empty lets the
                              provider's API pick (recommended)
       --last         W       restrict the search horizon: day, week, month, year
@@ -890,6 +892,10 @@ Flags:
 Auth:
   perplexity   PERPLEXITY_API_KEY (or PPLX_API_KEY)
   grok         XAI_API_KEY (or GROK_API_KEY)
+  openai       OPENAI_API_KEY
+  google       GEMINI_API_KEY (or GOOGLE_API_KEY)
+  tavily       TAVILY_API_KEY
+  serpapi      SERPAPI_KEY
 
 Output (markdown):
   # Q: ...
@@ -1632,7 +1638,7 @@ USAGE
   socialfetch fetch    <url> [<url>...] [flags]
   socialfetch search   "<query>" [flags]
   socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
-  socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok)
+  socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok, openai, google, tavily, serpapi)
   socialfetch monitor  [flags]                 live tail of the global audit log
   socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
   socialfetch list                              list fetch + search providers

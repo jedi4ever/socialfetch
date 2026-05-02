@@ -87,8 +87,22 @@ to obtain each one. Free tier coverage:
   key needed.
 - **YouTube** metadata — no key needed; transcripts via `yt-dlp` if
   installed; comments need `YOUTUBE_API_KEY`.
-- **Tavily / Brave / Bing / SerpAPI / Google / Perplexity / Grok / X /
-  Bluesky** — each needs its own key (free tiers exist for most).
+- **Tavily / Brave / Bing / SerpAPI / Google (Gemini) / Perplexity /
+  Grok / OpenAI / X / Bluesky** — each needs its own key (free tiers
+  exist for most; OpenAI requires a paid account, no free tier).
+
+### Ask providers at a glance
+
+| provider | env var | pricing |
+|---|---|---|
+| `perplexity` | `PERPLEXITY_API_KEY` (or `PPLX_API_KEY`) | pay-per-token; small payment method required |
+| `grok` | `XAI_API_KEY` (or `GROK_API_KEY`) | pay-per-token + per-tool fee |
+| `openai` | `OPENAI_API_KEY` | pay-per-token + per-tool fee; no free tier |
+| `google` | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | free tier: 1,500 req/day on `gemini-flash-latest` |
+| `tavily` | `TAVILY_API_KEY` | free: 1,000 searches/month |
+| `serpapi` | `SERPAPI_KEY` | free: 100 searches/month |
+
+See [API_KEYS.md](API_KEYS.md) for sign-up walkthroughs per provider.
 
 ## Bridge (LinkedIn, Medium, Substack paywalls, X bookmarks)
 

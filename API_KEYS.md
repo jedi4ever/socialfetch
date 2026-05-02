@@ -21,6 +21,8 @@ SERPAPI_KEY=...
 BRAVE_API_KEY=...
 PERPLEXITY_API_KEY=...
 XAI_API_KEY=...
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...                   # for `google` ask provider (or reuse GOOGLE_API_KEY)
 GOOGLE_API_KEY=...
 GOOGLE_CSE_ID=...
 
@@ -112,7 +114,27 @@ Add a small payment method to enable API access (pay-per-token from Sonar prices
 1. Go to **[console.x.ai](https://console.x.ai/)** → sign in with X.
 2. **API Keys** → create one → copy.
 
-Live Search is enabled per-request by socialfetch (`search_parameters.mode: "on"`); it costs a small per-source fee on top of token usage.
+Grounding goes through the Agent Tools API on `/v1/responses` with the
+`web_search` tool enabled. xAI bills per-token plus a small per-tool
+invocation fee. `GROK_API_KEY` is accepted as an alias.
+
+---
+
+## OpenAI — `OPENAI_API_KEY`
+
+**Used by:** `openai` ask provider (Responses API + built-in `web_search`
+tool).
+
+1. Go to **[platform.openai.com/api-keys](https://platform.openai.com/api-keys)** → sign in.
+2. **+ Create new secret key** → copy.
+3. Make sure your account has billing enabled — the Responses API is
+   pay-per-token, with an extra per-call fee for hosted tools like
+   `web_search`.
+
+Default model: account default (we omit the `model` field so OpenAI
+picks the current latest GPT-tier model). Override with `-m gpt-5.5`
+(or whichever you want). Web search works with GPT-4-tier and later
+— older 3.5 models don't support the tool.
 
 ---
 

@@ -96,3 +96,22 @@ behaviour it has, what other code it interacts with.
 Reading the file with comments only should leave you with a working
 mental model. Reading the code without comments should leave you
 guessing. Aim for the former.
+
+## Keep `SKILL.md` and `INSTALL.md` in lockstep with the binary
+
+Whenever you add or change user-visible functionality — new subcommand,
+new provider, new flag, new env var, removed flag — update the matching
+sections in:
+
+- **`skill/socialfetch/SKILL.md`** (provider lists, flag tables, examples,
+  decision rules, the `allowed-tools` frontmatter when a new
+  subcommand is added). Claude Desktop / Claude Code load this file
+  verbatim — stale entries here mean the agent recommends commands the
+  binary no longer accepts, or misses ones it now does.
+- **`INSTALL.md`** + **`API_KEYS.md`** (auth/env-var docs, install
+  steps, free-tier notes). New providers without a matching API_KEYS
+  section leave users guessing where to get the key.
+
+Same rule for the in-binary help text in `cmd/socialfetch/main.go`
+(`printAskHelp`, `printSearchHelp`, etc.) — `socialfetch help` is the
+authoritative reference, so a feature with no help text is invisible.

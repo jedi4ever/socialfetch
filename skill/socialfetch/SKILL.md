@@ -28,7 +28,7 @@ Wraps the `socialfetch` Go binary at `scripts/socialfetch` (relative to this ski
 scripts/socialfetch fetch    <url> [<url>...]    [flags]
 scripts/socialfetch search   "<query>"           [flags]
 scripts/socialfetch timeline <user-or-url>       [flags]   recent activity for a user (X / LinkedIn)
-scripts/socialfetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / google / tavily / serpapi)
+scripts/socialfetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / google / tavily / serpapi)
 scripts/socialfetch bridge   {start|stop|status|run}
 ```
 
@@ -36,7 +36,7 @@ Run `scripts/socialfetch --help` for the full reference. Output defaults to **ma
 
 ## Credentials (.env support)
 
-Provider keys (`X_API_KEY`, `X_API_SECRET`, `TAVILY_API_KEY`, `BING_API_KEY`, `SERPAPI_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY`, `GOOGLE_API_KEY`/`GOOGLE_CSE_ID`, `YOUTUBE_API_KEY`, `BLUESKY_HANDLE`/`BLUESKY_APP_PASSWORD`, `GITHUB_TOKEN`) can be set in the shell **or** placed in a `.env` file. At startup the binary loads, in order:
+Provider keys (`X_API_KEY`, `X_API_SECRET`, `TAVILY_API_KEY`, `BING_API_KEY`, `SERPAPI_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`/`GOOGLE_CSE_ID`, `YOUTUBE_API_KEY`, `BLUESKY_HANDLE`/`BLUESKY_APP_PASSWORD`, `GITHUB_TOKEN`) can be set in the shell **or** placed in a `.env` file. At startup the binary loads, in order:
 
 1. `./.env` (current working directory)
 2. `<binary_dir>/.env` (sits next to the installed binary — typically `~/.claude/skills/socialfetch/.env`)
@@ -49,7 +49,7 @@ Already-exported shell vars always win over file entries.
 - **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | scripts/socialfetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `scripts/socialfetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
-- **A grounded question → ask.** `scripts/socialfetch ask "<question>" -p perplexity|grok|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
+- **A grounded question → ask.** `scripts/socialfetch ask "<question>" -p perplexity|grok|openai|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
 - **A query → search.** Pick the provider that matches the user's intent:
   - "search the web" / unspecified → `duckduckgo` (no auth)
   - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
@@ -145,10 +145,13 @@ scripts/socialfetch timeline matthewskelton -p linkedin --expand -n 10
 
 ```
 scripts/socialfetch ask "<question>" [flags]
-  -p PROVIDER     perplexity (default), grok, google, tavily, serpapi
-  -m MODEL        override the provider's default
+  -p PROVIDER     perplexity (default), grok, openai, google, tavily, serpapi
+  -m MODEL        override the provider's default (empty = provider picks)
   --last WINDOW   day | week | month | year (provider-dependent)
   --max-tokens N  cap response length
+  --instructions  system-prompt-style preamble (alias: --system)
+                  honored by perplexity / grok / openai / google;
+                  ignored by tavily / serpapi (no system-prompt support)
 ```
 
 Returns a synthesized answer plus a numbered Sources list. Auth needed per provider — see Credentials above.
