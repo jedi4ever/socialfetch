@@ -50,7 +50,7 @@ Already-exported shell vars always win over file entries.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `scripts/socialfetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
 - **A grounded question → ask.** `scripts/socialfetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
-- **A query → search.** Pick the provider that matches the user's intent:
+- **A query → search.** Pick the provider that matches the user's intent. `-p auto` walks `tavily → brave → serpapi → duckduckgo`; comma-lists like `-p tavily,duckduckgo` define a custom fallback order. Each falls through on missing key / error / 0 results.
   - "search the web" / unspecified → `duckduckgo` (no auth)
   - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
   - "high-quality web search for AI agents" → `tavily` (needs `TAVILY_API_KEY`)
@@ -145,6 +145,11 @@ scripts/socialfetch timeline matthewskelton -p linkedin --expand -n 10
 ```
 scripts/socialfetch ask "<question>" [flags]
   -p PROVIDER     perplexity (default), grok, openai, anthropic, google, tavily, serpapi
+                  special values:
+                    auto             try the built-in chain in order
+                                     (perplexity → grok → openai → anthropic →
+                                      google → tavily → serpapi)
+                    name1,name2,…    comma-list to try in order
   -m MODEL        override the provider's default (empty = provider picks where supported)
   --last WINDOW   day | week | month | year (provider-dependent)
   --max-tokens N  cap response length
@@ -155,9 +160,13 @@ scripts/socialfetch ask "<question>" [flags]
 
 Returns a synthesized answer plus a numbered Sources list. Auth needed per provider — see Credentials above.
 
+When `-p auto` or a comma-list is given, each provider in turn falls through on (a) missing API key, (b) upstream error, or (c) empty answer — the next provider gets a try, and the first non-empty response wins. The audit log records which provider answered.
+
 ```bash
 scripts/socialfetch ask "what changed in the openai-microsoft revenue share clause" -p grok
 scripts/socialfetch ask "best agent harness papers in the last month" -p perplexity --last month
+scripts/socialfetch ask "what's the weather in NYC" -p auto                             # try the default chain
+scripts/socialfetch ask "what's the weather in NYC" -p perplexity,anthropic,duckduckgo  # custom chain
 ```
 
 ## Listing supported sources/providers
