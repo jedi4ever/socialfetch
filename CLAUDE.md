@@ -116,6 +116,13 @@ Same rule for the in-binary help text in `cmd/socialfetch/main.go`
 (`printAskHelp`, `printSearchHelp`, etc.) — `socialfetch help` is the
 authoritative reference, so a feature with no help text is invisible.
 
+**Add `mcpb-extension/manifest.json` to that list whenever a new
+provider/env-var lands.** The Claude Desktop Extension installer
+shows users every entry in `user_config` as a form field; if a new
+key (e.g. `NEW_API_KEY`) doesn't get an entry there, users won't
+know to set it during install. Keep `user_config` parallel with
+`API_KEYS.md` — both should list the same env vars.
+
 ## Versioning
 
 `cmd/socialfetch/main.go` declares a `Version` constant that's

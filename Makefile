@@ -16,7 +16,7 @@ GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
-        skill-build skill-install skill-clean skill-package
+        skill-build skill-install skill-clean skill-package extension-package
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -62,6 +62,29 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 		echo "No skill at $(SKILL_INSTALL_DIR) (already clean)"; \
 	fi
 	rm -f $(SKILL_BIN)
+
+# extension-package builds a Claude Desktop Extension (.mcpb) for
+# darwin/arm64. The .mcpb format is just a zip with a manifest at root
+# + the binary at scripts/. Output:
+# bin/socialfetch-extension-<version>-darwin-arm64.mcpb.
+#
+# Phase 1 is darwin/arm64 only (the developer's platform). Phase 2
+# will fan this out to darwin-amd64 / linux-amd64 / windows-amd64 via
+# additional targets — Go cross-compilation is one GOOS=… GOARCH=…
+# go build per target.
+EXTENSION_STAGE := $(CURDIR)/bin/.extension-stage
+
+extension-package:  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
+	@rm -rf $(EXTENSION_STAGE)
+	@mkdir -p $(EXTENSION_STAGE)/scripts
+	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
+	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
+	@VERSION=$$($(EXTENSION_STAGE)/scripts/socialfetch version 2>/dev/null | awk '{print $$2}' || echo unknown); \
+	OUT="$(CURDIR)/bin/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"; \
+	rm -f "$$OUT"; \
+	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
+	rm -rf $(EXTENSION_STAGE); \
+	echo "Packaged: bin/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"
 
 # skill-package builds a self-contained zip of the skill ready to
 # upload (skills marketplace, file share, attached to a release). The

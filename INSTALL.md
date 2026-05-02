@@ -1,4 +1,65 @@
-# Installing the `socialfetch` skill
+# Installing socialfetch
+
+socialfetch ships in two flavors: a **skill** (file-based, manual
+`.env`) and a **Claude Desktop Extension (.mcpb)** (drag-into-Settings
+installer with key prompts). Both wrap the same Go binary; pick
+whichever matches your install style.
+
+## Option A — Claude Desktop Extension (.mcpb)
+
+Recommended if you want one-click install with API-key prompts
+stored in the macOS Keychain.
+
+### Build
+
+```bash
+git clone https://github.com/jedi4ever/socialfetch.git
+cd social-skills
+make extension-package
+```
+
+Produces `bin/socialfetch-extension-<version>-darwin-arm64.mcpb`
+(macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
+/ Windows builds).
+
+### Install
+
+1. **Open Claude Desktop → Settings → Extensions.**
+2. **Drag the `.mcpb` file** onto the Extensions panel (or
+   double-click it).
+3. Claude Desktop opens an install dialog showing every supported
+   API key + routing hint as a form field. **Fill in whichever keys
+   you have**; leave the rest blank — every provider is optional and
+   the chain falls through gracefully.
+4. Click **Install**. The extension registers as an MCP server and
+   six tools become available: `fetch`, `search`, `ask`, `timeline`,
+   `list_providers`, `bridge_status`.
+5. **Verify**: in a Claude conversation ask *"use socialfetch to
+   fetch https://news.ycombinator.com/item?id=1"* — Claude should
+   call the `fetch` tool and return the parsed thread.
+
+Sensitive fields are stored in the macOS Keychain, not in plain
+config. Routing hints (`HTML2MD_PROVIDER`, `HTML2MD_READER`,
+`TAVILY_TOPIC`) live in plain Claude Desktop config.
+
+### Update / uninstall
+
+Re-run `make extension-package` after a `git pull` and re-drag the
+new `.mcpb` — Claude Desktop replaces the previous install. Remove
+via **Settings → Extensions → ...→ Remove**.
+
+### Validate the manifest before shipping
+
+Anthropic ships a validation CLI:
+
+```bash
+npm install -g @anthropic-ai/mcpb
+mcpb validate bin/socialfetch-extension-*.mcpb
+```
+
+---
+
+# Installing the `socialfetch` skill (Option B)
 
 This guide walks through installing the bundled skill (`skill/socialfetch/`)
 so it's discoverable by **Claude Desktop** and **Claude Code**. Both apps

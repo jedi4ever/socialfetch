@@ -313,6 +313,8 @@ func run(args []string) error {
 		return runBridge(rest)
 	case "monitor":
 		return runMonitor(rest)
+	case "mcp":
+		return runMCP(rest)
 	case "list":
 		return runList()
 	case "help", "-h", "--help":
@@ -1767,6 +1769,7 @@ USAGE
   socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
   socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok, openai, anthropic, google, tavily, serpapi)
   socialfetch monitor  [flags]                 live tail of the global audit log
+  socialfetch mcp                              run as MCP server on stdio (Claude Desktop Extension entry)
   socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
   socialfetch list                              list fetch + search providers
   socialfetch help     [fetch|search|timeline|monitor|list]  same as --help on a subcommand
