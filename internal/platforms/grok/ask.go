@@ -1,18 +1,24 @@
-// Package grok implements an core.Asker backed by xAI's Grok models
-// with Live Search enabled. The API speaks the OpenAI Chat Completions
-// shape. We turn on web grounding by including a search_parameters
-// block in the request body — without it, Grok answers from its
-// training data only.
+// Package grok implements a core.Asker backed by xAI's Grok models
+// with web grounding via the Agent Tools API on the /v1/responses
+// endpoint. xAI deprecated the older Live-Search-on-/v1/chat/completions
+// path in 2026; the new path uses the OpenAI-Responses-compatible
+// schema (model + input array + tools array) and returns a top-level
+// `citations` URL list plus structured `output[]` messages.
 //
 // Auth: XAI_API_KEY (or GROK_API_KEY). Sign up at
-// https://console.x.ai. Live Search costs a small per-source fee on
-// top of token usage.
+// https://console.x.ai. Tool use is billed as token usage plus a
+// per-tool-invocation fee — see https://docs.x.ai/developers/models.
 //
-// Default model: grok-4-fast — fastest grounded variant. Override:
+// Model: optional. We omit `model` from the request body unless the
+// caller passes one via opts.Model — xAI then picks an account-level
+// default (currently grok-4-0709). This avoids the chore of bumping
+// a hardcoded "latest" string every time xAI ships a new flagship.
+// Pass `-m grok-4.3` (or whichever version you want) to override.
 //
-//	grok-3              standard chat
-//	grok-4-fast         fast, web-grounded
-//	grok-4              full Grok 4 with reasoning
+// Refs:
+//   - https://docs.x.ai/docs/guides/tools/overview
+//   - https://docs.x.ai/developers/tools/web-search
+//   - https://docs.x.ai/developers/tools/citations
 package grok
 
 import (
@@ -29,8 +35,15 @@ import (
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
-const defaultBase = "https://api.x.ai/v1/chat/completions"
-const defaultModel = "grok-4-fast"
+const defaultBase = "https://api.x.ai/v1/responses"
+
+// longTimeoutClient is used for Ask() requests because xAI's
+// Agent-Tools loop can spend 30-90s browsing sources before returning.
+// Reuses core.HTTPClient.Transport so audit events still emit.
+var longTimeoutClient = &http.Client{
+	Timeout:   3 * time.Minute,
+	Transport: core.HTTPClient.Transport,
+}
 
 type Provider struct {
 	BaseURL string
@@ -41,40 +54,69 @@ func New() *Provider { return &Provider{BaseURL: defaultBase} }
 
 func (*Provider) Name() string { return "grok" }
 
+// request mirrors xAI's /v1/responses body. Only the fields we set
+// are present here; the API has many more (top_logprobs, truncation,
+// service_tier, etc.) which all default sensibly.
+//
+// Model is omitempty so an empty opts.Model leaves the field out of
+// the body entirely — xAI then picks an account default. Same for
+// Instructions: only present when the caller asked for it.
 type request struct {
-	Model            string             `json:"model"`
-	Messages         []chatMsg          `json:"messages"`
-	MaxTokens        int                `json:"max_tokens,omitempty"`
-	SearchParameters *searchParameters  `json:"search_parameters,omitempty"`
+	Model           string         `json:"model,omitempty"`
+	Input           []inputMessage `json:"input"`
+	Instructions    string         `json:"instructions,omitempty"`
+	Tools           []tool         `json:"tools,omitempty"`
+	MaxOutputTokens int            `json:"max_output_tokens,omitempty"`
 }
 
-type searchParameters struct {
-	// Mode "auto" lets Grok decide whether to search; "on" forces it.
-	// We always force it for the ask subcommand — the whole point is
-	// grounded answers.
-	Mode    string `json:"mode"`
-	FromDate string `json:"from_date,omitempty"` // YYYY-MM-DD
-	ToDate   string `json:"to_date,omitempty"`
-	// ReturnCitations controls whether the response includes a
-	// `citations` array. Always on for our use.
-	ReturnCitations bool `json:"return_citations"`
-}
-
-type chatMsg struct {
+type inputMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
+// tool is the JSON shape xAI accepts for built-in tools. Only
+// `web_search` is wired in here; future capabilities (x_search,
+// code_interpreter, collections_search) plug in at the same level.
+type tool struct {
+	Type    string            `json:"type"`
+	Filters *webSearchFilters `json:"filters,omitempty"`
+}
+
+type webSearchFilters struct {
+	AllowedDomains  []string `json:"allowed_domains,omitempty"`
+	ExcludedDomains []string `json:"excluded_domains,omitempty"`
+}
+
+// response models the subset of /v1/responses we read. The full
+// schema includes id / status / created_at / usage / etc. — we
+// intentionally ignore those.
+//
+// `output` is an array of items; for our purposes only `type=message`
+// items matter, and each carries a `content` array of text blocks.
+// `citations` is a flat list of URLs the agent visited during the
+// query — always returned by default.
 type response struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	// xAI returns citations as a flat URL list at the top level of
-	// the response when search_parameters.return_citations=true.
-	Citations []string `json:"citations,omitempty"`
+	Model     string         `json:"model"`
+	Status    string         `json:"status"`
+	Output    []outputItem   `json:"output"`
+	Citations []string       `json:"citations,omitempty"`
+	Error     *responseError `json:"error,omitempty"`
+}
+
+type outputItem struct {
+	Type    string         `json:"type"`
+	Role    string         `json:"role,omitempty"`
+	Content []contentBlock `json:"content,omitempty"`
+}
+
+type contentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+type responseError struct {
+	Message string `json:"message,omitempty"`
+	Type    string `json:"type,omitempty"`
 }
 
 func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
@@ -85,23 +127,16 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 	if key == "" {
 		return nil, errors.New("grok: XAI_API_KEY not set")
 	}
-	model := opts.Model
-	if model == "" {
-		model = defaultModel
-	}
-
-	sp := &searchParameters{Mode: "on", ReturnCitations: true}
-	if opts.Recency != "" {
-		sp.FromDate = recencyToFromDate(opts.Recency)
-	}
-
 	body, err := json.Marshal(request{
-		Model: model,
-		Messages: []chatMsg{
+		Model: opts.Model, // omitempty drops it when empty so xAI picks
+		Input: []inputMessage{
 			{Role: "user", Content: question},
 		},
-		MaxTokens:        opts.MaxTokens,
-		SearchParameters: sp,
+		Instructions: opts.Instructions,
+		Tools: []tool{
+			{Type: "web_search"},
+		},
+		MaxOutputTokens: opts.MaxTokens,
 	})
 	if err != nil {
 		return nil, err
@@ -115,7 +150,11 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("User-Agent", core.UserAgent)
 
-	resp, err := core.HTTPClient.Do(req)
+	// xAI's Agent Tools loop (web_search → browse → reason) regularly
+	// exceeds the default 30s HTTPClient timeout. Use a longer-timeout
+	// client that reuses the audit-instrumented transport so events
+	// still land in the global audit log.
+	resp, err := longTimeoutClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("grok: %w", err)
 	}
@@ -134,11 +173,12 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("grok: decode: %w", err)
 	}
-
-	answer := ""
-	if len(data.Choices) > 0 {
-		answer = strings.TrimSpace(data.Choices[0].Message.Content)
+	if data.Error != nil && data.Error.Message != "" {
+		return nil, fmt.Errorf("grok: %s", data.Error.Message)
 	}
+
+	answer := extractText(data.Output)
+
 	sources := make([]core.Source, 0, len(data.Citations))
 	for _, u := range data.Citations {
 		if strings.TrimSpace(u) != "" {
@@ -156,22 +196,23 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 	}, nil
 }
 
-// recencyToFromDate maps "day"/"week"/"month"/"year" to an absolute
-// from_date string. Anything else is passed through verbatim (so users
-// can supply a YYYY-MM-DD literal directly).
-func recencyToFromDate(r string) string {
-	now := time.Now().UTC()
-	switch strings.ToLower(strings.TrimSpace(r)) {
-	case "day":
-		return now.AddDate(0, 0, -1).Format("2006-01-02")
-	case "week":
-		return now.AddDate(0, 0, -7).Format("2006-01-02")
-	case "month":
-		return now.AddDate(0, -1, 0).Format("2006-01-02")
-	case "year":
-		return now.AddDate(-1, 0, 0).Format("2006-01-02")
+// extractText walks every text block in every message-typed output
+// item and returns the concatenation. The Responses API can interleave
+// reasoning blocks, tool-call traces, and final text; we only surface
+// the text the user is meant to read.
+func extractText(items []outputItem) string {
+	var b strings.Builder
+	for _, it := range items {
+		if it.Type != "message" && it.Type != "" {
+			continue
+		}
+		for _, c := range it.Content {
+			if c.Type == "output_text" || c.Type == "text" {
+				b.WriteString(c.Text)
+			}
+		}
 	}
-	return r
+	return strings.TrimSpace(b.String())
 }
 
 func firstEnv(keys ...string) string {

@@ -681,15 +681,16 @@ func runSearch(args []string) error {
 //	socialfetch ask "<question>" [-p perplexity|grok] [-m MODEL] [--last week|day|month|year]
 func runAsk(args []string) error {
 	var (
-		question  string
-		provider  = "perplexity"
-		model     string
-		recency   string
-		formatStr = "markdown"
-		output    = "-"
-		logFile   = ""
-		maxTokens int
-		timeout   = 60 * time.Second
+		question     string
+		provider     = "perplexity"
+		model        string
+		recency      string
+		instructions string
+		formatStr    = "markdown"
+		output       = "-"
+		logFile      = ""
+		maxTokens    int
+		timeout      = 60 * time.Second
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -743,6 +744,12 @@ func runAsk(args []string) error {
 				return fmt.Errorf("--max-tokens: %w", err)
 			}
 			maxTokens = n
+		case "--instructions", "--system":
+			i++
+			if i >= len(args) {
+				return errors.New("--instructions needs a value")
+			}
+			instructions = args[i]
 		case "--timeout":
 			i++
 			if i >= len(args) {
@@ -793,9 +800,10 @@ func runAsk(args []string) error {
 
 	audit.Logf("ask %q via %s (model=%s, recency=%s)", question, asker.Name(), model, recency)
 	answer, err := asker.Ask(ctx, question, core.AskOptions{
-		Model:     model,
-		Recency:   recency,
-		MaxTokens: maxTokens,
+		Model:        model,
+		Recency:      recency,
+		MaxTokens:    maxTokens,
+		Instructions: instructions,
 	})
 	if err != nil {
 		audit.Logf("ask FAILED: %v", err)
@@ -865,15 +873,19 @@ Usage:
   socialfetch ask "<question>" [flags]
 
 Flags:
-  -p, --provider  NAME    perplexity (default), grok, google, tavily, serpapi
-  -m, --model     MODEL   override the provider's default
-      --last      W       restrict the search horizon: day, week, month, year
-      --max-tokens N      cap response length
-  -f, --format    FMT     markdown (default) or json
-  -o, --output    PATH    -, FILE, or unset for stdout
-  -l, --log       PATH    audit log destination
-      --timeout   DUR     overall timeout (default 60s)
-  -h, --help              show this help
+  -p, --provider     NAME    perplexity (default), grok, google, tavily, serpapi
+  -m, --model        MODEL   override the provider's default; empty lets the
+                             provider's API pick (recommended)
+      --last         W       restrict the search horizon: day, week, month, year
+      --max-tokens   N       cap response length
+      --instructions S       system-prompt-like preamble; persistent guidance
+                             ("always cite your sources", etc.).
+                             Alias: --system
+  -f, --format       FMT     markdown (default) or json
+  -o, --output       PATH    -, FILE, or unset for stdout
+  -l, --log          PATH    audit log destination
+      --timeout      DUR     overall timeout (default 60s)
+  -h, --help                 show this help
 
 Auth:
   perplexity   PERPLEXITY_API_KEY (or PPLX_API_KEY)

@@ -37,7 +37,11 @@ func TestLiveGrokAsk(t *testing.T) {
 		t.Skip("XAI_API_KEY / GROK_API_KEY not set — skipping live grok ask test")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// xAI's Agent Tools loop (web_search → browse → reason) regularly
+	// runs 30-90s on questions that require multiple sources. Allow up
+	// to 3 minutes; the underlying HTTP client is configured with a
+	// matching timeout in ask.go.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	answer, err := New().Ask(ctx, "What is the latest version of the Claude API as of this week?", core.AskOptions{})

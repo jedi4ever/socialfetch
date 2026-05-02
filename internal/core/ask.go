@@ -38,7 +38,10 @@ type Source struct {
 type AskOptions struct {
 	// Model overrides the provider's default. Examples:
 	//   perplexity: "sonar", "sonar-pro", "sonar-reasoning"
-	//   grok:       "grok-3", "grok-4-fast"
+	//   grok:       "grok-4.3", "grok-4-fast-reasoning"
+	// Empty string means: let the provider (or its API) pick. Some
+	// providers send no `model` field at all in that case so the
+	// upstream account default applies — see grok.ask.
 	Model string
 
 	// MaxTokens caps the response length. Zero means provider default.
@@ -47,6 +50,16 @@ type AskOptions struct {
 	// Recency narrows the search horizon when the provider supports
 	// it ("day", "week", "month", "year"). Empty means no filter.
 	Recency string
+
+	// Instructions is a system-prompt-like preamble passed to the
+	// provider. Use it for persistent, query-independent guidance —
+	// "always cite your sources", "prefer authoritative outlets",
+	// "reject sources older than 12 months". Maps to:
+	//   grok:       request.instructions
+	//   perplexity: a system-role message prepended to messages
+	//   google:     systemInstruction on the Gemini request
+	// Empty means no extra instruction.
+	Instructions string
 }
 
 // Asker is implemented by every backend.
