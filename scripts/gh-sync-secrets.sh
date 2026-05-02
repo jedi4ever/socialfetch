@@ -67,11 +67,24 @@ read_env_value() {
   [[ -z "$line" ]] && return 0
   # Strip leading whitespace and the KEY= prefix.
   local val="${line#*=}"
-  # Drop surrounding double or single quotes.
+  # Drop surrounding double or single quotes — handle these BEFORE
+  # the inline-comment strip below, because a `#` inside quotes is
+  # literal data, not a comment.
   if [[ "$val" =~ ^\".*\"$ ]]; then
     val="${val#\"}"; val="${val%\"}"
   elif [[ "$val" =~ ^\'.*\'$ ]]; then
     val="${val#\'}"; val="${val%\'}"
+  else
+    # Unquoted value — strip inline comment ` #...` (whitespace
+    # then #), matching Go's dotenv loader. Without this we'd ship
+    # the comment text as part of the secret. Real-world hit:
+    # `BLUESKY_HANDLE=jedi.be   # or your custom handle/domain`
+    # was uploaded as the full string + comment, breaking Bluesky
+    # auth in CI while the Go binary's loader handled it locally.
+    val="${val%%[[:space:]]\#*}"
+    # Trim trailing whitespace left after the strip (or already
+    # present at the end of an unquoted value).
+    val="${val%"${val##*[![:space:]]}"}"
   fi
   printf '%s' "$val"
 }
