@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmd"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmd"
 )
 
 const defaultBaseURL = "https://hacker-news.firebaseio.com/v0"

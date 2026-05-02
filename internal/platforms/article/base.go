@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmd"
-	"github.com/patrickdebois/social-skills/internal/htmlmeta"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmd"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
 )
 
 // baseFromPage builds the part of an Item that's identical across all

@@ -32,7 +32,7 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/dotenv"
+	"github.com/patrickdebois/social-skills/internal/util/dotenv"
 	"github.com/patrickdebois/social-skills/internal/render"
 
 	"github.com/patrickdebois/social-skills/internal/platforms/article"

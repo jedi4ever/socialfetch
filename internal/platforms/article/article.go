@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmeta"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
 )
 
 // Extractor turns a parsed HTML page into a populated *core.Item. Each

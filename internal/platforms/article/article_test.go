@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmeta"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
 )
 
 const mediumPage = `<!DOCTYPE html>

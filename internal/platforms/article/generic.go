@@ -2,7 +2,7 @@ package article
 
 import (
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmeta"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
 )
 
 // genericArticleSelectors is the catch-all selector list — same set

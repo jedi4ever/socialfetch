@@ -17,7 +17,7 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmeta"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
 	"github.com/patrickdebois/social-skills/internal/platforms/article"
 )
 

@@ -19,7 +19,7 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/htmlmd"
+	"github.com/patrickdebois/social-skills/internal/util/htmlmd"
 )
 
 // DefaultBridgeURL is the local bridge endpoint the fetcher POSTs to.
