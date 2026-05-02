@@ -57,7 +57,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		case errors.Is(err, bridge.ErrBridgeUnreachable):
 			return nil, fmt.Errorf("linkedin: bridge daemon not running — `socialfetch bridge start`: %w", err)
 		case errors.Is(err, bridge.ErrNoExtensionAttached):
-			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the PatAI extension running")
+			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the socialfetch extension running")
 		default:
 			return nil, fmt.Errorf("linkedin: %w", err)
 		}

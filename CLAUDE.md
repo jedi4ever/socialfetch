@@ -123,6 +123,15 @@ key (e.g. `NEW_API_KEY`) doesn't get an entry there, users won't
 know to set it during install. Keep `user_config` parallel with
 `API_KEYS.md` — both should list the same env vars.
 
+**The Chrome browser-bridge extension has its own version** in
+`extension/manifest.json` — independent of `cmd/socialfetch/main.go`'s
+`Version`. Bump the Chrome extension's version whenever you change
+`extension/*.js` (content scripts, background.js, popup, etc.).
+`make bridge-package` reads that version field to name the dist
+zip; an unbumped version means two zips with the same name and
+older Chrome reloads of the same nominal version may not pick up
+your changes.
+
 ## Versioning
 
 `cmd/socialfetch/main.go` declares a `Version` constant that's

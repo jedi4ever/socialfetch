@@ -1,5 +1,5 @@
 /**
- * Background service worker — maintains WebSocket connection to PatAI server
+ * Background service worker — maintains WebSocket connection to socialfetch server
  * and dispatches commands to content scripts on any supported site.
  *
  * Uses chrome.alarms to periodically check and reconnect the WebSocket,
@@ -8,7 +8,7 @@
 
 const DEFAULT_SERVER = "ws://127.0.0.1:5555/ws/extension";
 
-const TAB_GROUP_TITLE = "PatAI";
+const TAB_GROUP_TITLE = "socialfetch";
 const TAB_GROUP_COLOR = "blue";
 
 let ws = null;
@@ -49,7 +49,7 @@ function getSettings() {
 // Alarm checks connection and reconnects if needed
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "checkConnection") {
-    console.log("[PatAI] Alarm fired, ws state:", ws ? ws.readyState : "null");
+    console.log("[socialfetch] Alarm fired, ws state:", ws ? ws.readyState : "null");
     if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
       connect();
     }
@@ -58,7 +58,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Create the alarm (also re-created on every startup/install)
 chrome.alarms.create("checkConnection", { periodInMinutes: 0.1 });
-console.log("[PatAI] Alarm created");
+console.log("[socialfetch] Alarm created");
 
 async function connect() {
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
@@ -67,25 +67,25 @@ async function connect() {
 
   const serverUrl = await getServerUrl();
   setState("connecting");
-  console.log(`[PatAI] Connecting to ${serverUrl}...`);
+  console.log(`[socialfetch] Connecting to ${serverUrl}...`);
 
   try {
     ws = new WebSocket(serverUrl);
   } catch (err) {
-    console.error("[PatAI] WebSocket constructor error:", err);
+    console.error("[socialfetch] WebSocket constructor error:", err);
     setState("disconnected");
     ws = null;
     return;
   }
 
   ws.onopen = async () => {
-    console.log("[PatAI] Connected");
+    console.log("[socialfetch] Connected");
     setState("connected");
     reconnectAttempts = 0;
     const settings = await getSettings();
     ws.send(JSON.stringify({
       type: "hello",
-      agent: "patai-extension",
+      agent: "socialfetch-extension",
       version: "1.1.0",
       settings,
     }));
@@ -96,21 +96,21 @@ async function connect() {
     try {
       msg = JSON.parse(event.data);
     } catch (e) {
-      console.error("[PatAI] Bad JSON from server:", event.data);
+      console.error("[socialfetch] Bad JSON from server:", event.data);
       return;
     }
     await handleCommand(msg);
   };
 
   ws.onclose = (event) => {
-    console.log(`[PatAI] Disconnected (code=${event.code})`);
+    console.log(`[socialfetch] Disconnected (code=${event.code})`);
     setState("disconnected");
     ws = null;
     reconnectAttempts++;
   };
 
   ws.onerror = (err) => {
-    console.error("[PatAI] WebSocket error:", err);
+    console.error("[socialfetch] WebSocket error:", err);
   };
 }
 
@@ -186,7 +186,7 @@ async function getTab(targetUrl) {
     await ensureTabGroup(tab.id);
     await addTabToGroup(tab.id);
   } catch (e) {
-    console.warn("[PatAI] Tab grouping failed (non-fatal):", e.message);
+    console.warn("[socialfetch] Tab grouping failed (non-fatal):", e.message);
   }
   return tab;
 }
@@ -230,7 +230,7 @@ async function sendToContent(tab, action, params = {}) {
 
 async function handleCommand(msg) {
   const { id, command } = msg;
-  console.log(`[PatAI] Command: ${command} (id=${id})`);
+  console.log(`[socialfetch] Command: ${command} (id=${id})`);
 
   try {
     // Ping doesn't need a tab
@@ -269,7 +269,14 @@ async function handleCommand(msg) {
 
       case "scroll": {
         result = await sendToContent(tab, "scroll", { amount: msg.amount || 1000 });
-        safeSend({ id, command, status: "ok", scrollY: result.scrollY });
+        // Forward every field the content script returned. Earlier
+        // versions hard-coded just `scrollY` and silently dropped
+        // diagnostic fields like `innerScrollTop` (set by the
+        // multi-tier scroll handler when window.scrollBy doesn't
+        // move the page — common on React SPAs like LinkedIn's
+        // SDUI search). Any future content-script field
+        // (`scroller`, `moved`, etc.) lands automatically.
+        safeSend({ id, command, status: "ok", ...result });
         return;
       }
 
@@ -287,7 +294,7 @@ async function handleCommand(msg) {
         safeSend({ id, command, status: "error", error: `Unknown command: ${command}` });
     }
   } catch (err) {
-    console.error(`[PatAI] Command error (${command}):`, err);
+    console.error(`[socialfetch] Command error (${command}):`, err);
     safeSend({ id, command, status: "error", error: err.message || String(err) });
   }
 }
@@ -322,16 +329,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // as long as a matched page is open in the browser
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "keepalive") {
-    console.log("[PatAI] Keepalive port connected");
+    console.log("[socialfetch] Keepalive port connected");
     port.onDisconnect.addListener(() => {
-      console.log("[PatAI] Keepalive port disconnected");
+      console.log("[socialfetch] Keepalive port disconnected");
     });
   }
 });
 
 // Verify alarm exists on startup
 chrome.alarms.get("checkConnection", (alarm) => {
-  console.log("[PatAI] checkConnection alarm:", alarm ? `exists, next at ${new Date(alarm.scheduledTime)}` : "MISSING — creating");
+  console.log("[socialfetch] checkConnection alarm:", alarm ? `exists, next at ${new Date(alarm.scheduledTime)}` : "MISSING — creating");
   if (!alarm) {
     chrome.alarms.create("checkConnection", { periodInMinutes: 0.1 });
   }

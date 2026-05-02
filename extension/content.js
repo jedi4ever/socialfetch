@@ -1,9 +1,9 @@
 /**
- * Base content script — injected into all pages managed by PatAI.
+ * Base content script — injected into all pages managed by socialfetch.
  * Handles generic actions that work on any site.
  *
  * Site-specific feed extraction is in feeds/*.js — those scripts register
- * themselves via window._patai_feed so the base handler can delegate.
+ * themselves via window._socialfetch_feed so the base handler can delegate.
  *
  * Actions:
  *   - get_html      → return full page HTML, URL, title
@@ -14,7 +14,7 @@
 
 // Registry for site-specific feed extractors.
 // Feed scripts (feeds/linkedin.js, feeds/twitter.js) register here.
-window._patai_feed = window._patai_feed || {
+window._socialfetch_feed = window._socialfetch_feed || {
   extractUrls: null,
   extractHtml: null,
 };
@@ -86,7 +86,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case "get_feed": {
-      const extractor = window._patai_feed.extractUrls;
+      const extractor = window._socialfetch_feed.extractUrls;
       if (extractor) {
         sendResponse({ posts: extractor() });
       } else {
@@ -97,7 +97,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
 
     case "get_feed_html": {
-      const extractor = window._patai_feed.extractHtml;
+      const extractor = window._socialfetch_feed.extractHtml;
       if (extractor) {
         sendResponse({ posts: extractor() });
       } else {

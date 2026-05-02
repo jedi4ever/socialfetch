@@ -1,5 +1,5 @@
 /**
- * LinkedIn feed extractor — registers with the PatAI content script base.
+ * LinkedIn feed extractor — registers with the socialfetch content script base.
  * Extracts post URLs and HTML from the LinkedIn feed/profile pages.
  */
 
@@ -21,9 +21,9 @@ const LI_POST_LINK_SELECTORS = [
 // Register extractors with base content script
 // ---------------------------------------------------------------------------
 
-window._patai_feed = window._patai_feed || {};
-window._patai_feed.extractUrls = extractLinkedInFeedUrls;
-window._patai_feed.extractHtml = extractLinkedInFeedHtml;
+window._socialfetch_feed = window._socialfetch_feed || {};
+window._socialfetch_feed.extractUrls = extractLinkedInFeedUrls;
+window._socialfetch_feed.extractHtml = extractLinkedInFeedHtml;
 
 // ---------------------------------------------------------------------------
 // Extractors

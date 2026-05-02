@@ -1,5 +1,5 @@
 /**
- * Twitter/X feed extractor — registers with the PatAI content script base.
+ * Twitter/X feed extractor — registers with the socialfetch content script base.
  * Extracts tweet URLs and HTML from the X.com timeline.
  */
 
@@ -13,9 +13,9 @@ const X_TWEET_SELECTORS = [
 // Register extractors with base content script
 // ---------------------------------------------------------------------------
 
-window._patai_feed = window._patai_feed || {};
-window._patai_feed.extractUrls = extractTwitterFeedUrls;
-window._patai_feed.extractHtml = extractTwitterFeedHtml;
+window._socialfetch_feed = window._socialfetch_feed || {};
+window._socialfetch_feed.extractUrls = extractTwitterFeedUrls;
+window._socialfetch_feed.extractHtml = extractTwitterFeedHtml;
 
 // ---------------------------------------------------------------------------
 // Extractors

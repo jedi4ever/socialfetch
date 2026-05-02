@@ -157,7 +157,7 @@ func wrapBridgeErr(err error) error {
 	case errors.Is(err, bridge.ErrBridgeUnreachable):
 		return fmt.Errorf("linkedin timeline: bridge daemon not running — `socialfetch bridge start`: %w", err)
 	case errors.Is(err, bridge.ErrNoExtensionAttached):
-		return fmt.Errorf("linkedin timeline: no extension attached — open your browser with the PatAI extension running")
+		return fmt.Errorf("linkedin timeline: no extension attached — open your browser with the socialfetch extension running")
 	default:
 		return fmt.Errorf("linkedin timeline: %w", err)
 	}

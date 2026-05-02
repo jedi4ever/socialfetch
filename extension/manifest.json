@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PatAI Browser Bridge",
-  "version": "1.1.0",
-  "description": "Bridges your authenticated browser sessions to the PatAI knowledge store via WebSocket. Supports LinkedIn, Twitter/X, and any web page.",
+  "name": "socialfetch Browser Bridge",
+  "version": "1.2.0",
+  "description": "Bridges your authenticated browser sessions to the socialfetch knowledge store via WebSocket. Supports LinkedIn, Twitter/X, and any web page.",
   "permissions": [
     "activeTab",
     "scripting",

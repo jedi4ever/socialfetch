@@ -212,7 +212,7 @@ reuse your **already-logged-in browser session**:
 1. Open Chrome → `chrome://extensions/` → enable **Developer mode**.
 2. Click **Load unpacked** → select the `extension/` directory inside this
    repo.
-3. The PatAI extension icon appears in the toolbar.
+3. The socialfetch extension icon appears in the toolbar.
 
 ### Per-session
 

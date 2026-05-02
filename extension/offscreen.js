@@ -1,5 +1,5 @@
 /**
- * Offscreen document — maintains the WebSocket connection to PatAI server.
+ * Offscreen document — maintains the WebSocket connection to socialfetch server.
  *
  * Chrome MV3 kills service workers after 30s of inactivity, but offscreen
  * documents persist as long as they're alive. We move the WebSocket here
@@ -32,24 +32,24 @@ async function connect() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
 
   const serverUrl = await getServerUrl();
-  console.log(`[PatAI offscreen] Connecting to ${serverUrl}...`);
+  console.log(`[socialfetch offscreen] Connecting to ${serverUrl}...`);
 
   try {
     ws = new WebSocket(serverUrl);
   } catch (err) {
-    console.error("[PatAI offscreen] WebSocket error:", err);
+    console.error("[socialfetch offscreen] WebSocket error:", err);
     scheduleReconnect();
     return;
   }
 
   ws.onopen = async () => {
-    console.log("[PatAI offscreen] Connected");
+    console.log("[socialfetch offscreen] Connected");
     reconnectAttempt = 0;
     chrome.runtime.sendMessage({ type: "ws_state", state: "connected" });
     const settings = await getSettings();
     ws.send(JSON.stringify({
       type: "hello",
-      agent: "patai-extension",
+      agent: "socialfetch-extension",
       version: "1.1.0",
       settings,
     }));
@@ -61,19 +61,19 @@ async function connect() {
       const msg = JSON.parse(event.data);
       chrome.runtime.sendMessage({ type: "ws_message", payload: msg });
     } catch (e) {
-      console.error("[PatAI offscreen] Bad JSON:", event.data);
+      console.error("[socialfetch offscreen] Bad JSON:", event.data);
     }
   };
 
   ws.onclose = () => {
-    console.log("[PatAI offscreen] Disconnected");
+    console.log("[socialfetch offscreen] Disconnected");
     ws = null;
     chrome.runtime.sendMessage({ type: "ws_state", state: "disconnected" });
     scheduleReconnect();
   };
 
   ws.onerror = (err) => {
-    console.error("[PatAI offscreen] WS error:", err);
+    console.error("[socialfetch offscreen] WS error:", err);
   };
 }
 
