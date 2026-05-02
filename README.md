@@ -82,13 +82,32 @@ plugin is the skill markdown + manifest, not the binary).
 ### 3. Skill (file-based, Claude Desktop or Claude Code)
 
 `SKILL.md` + binary dropped into `~/.claude/skills/socialfetch/`.
-Useful when you want to manage `.env` yourself or work offline:
+Useful when you want to manage `.env` yourself or work offline.
+
+**Via npx (no clone, single command)** — using
+[`vercel-labs/skills`](https://github.com/vercel-labs/skills),
+the most-used skill installer (works with Claude Code, Claude
+Desktop, OpenCode, Codex, and others):
+
+```bash
+npx skills add jedi4ever/socialfetch --skill socialfetch
+```
+
+The `socialfetch` binary still needs to be on PATH separately — `npx
+skills` only installs the markdown skill, not the binary.
+
+**Via clone + make** — same end state, plus builds the binary:
 
 ```bash
 git clone https://github.com/jedi4ever/socialfetch.git
 cd socialfetch
 make skill-install
 ```
+
+Other community installers ([`claude-plugins`](https://github.com/Kamalnrf/claude-plugins),
+[`agent-skills-cli`](https://github.com/alirezarezvani/claude-skills),
+[`add-skill`](https://github.com/vercel-labs/skills)) work similarly
+— they all read the same `SKILL.md` files from this repo.
 
 ### 4. Remote MCP server (claude.ai, Perplexity, Claude Code)
 
@@ -436,9 +455,45 @@ where to sign up, what scope to grant, what's in the free tier, and
 which env var to set. See [HINTS.md](HINTS.md) for known
 gotchas (rate-limit cliffs, Cloudflare blocks, auth landmines).
 
+## License & disclaimer
+
+Released under the [MIT License](LICENSE) — free to use, modify, and
+redistribute. The license itself includes the standard "as is, no
+warranty, no liability" clauses; what follows is an explicit
+plain-language version of those for the AI-specific bits.
+
+> **socialfetch is plumbing for AI agents — and AI agents make
+> mistakes.** This tool fetches third-party content (HackerNews,
+> Reddit, X, LinkedIn, articles, …) and routes it through LLMs
+> (Perplexity, OpenAI, Anthropic, Gemini, Grok, …) that can
+> hallucinate, misattribute, paraphrase incorrectly, and surface
+> outdated information. Every answer in this stack is a best-effort
+> synthesis, not a verified fact.
+>
+> **Things you should NOT do** based solely on socialfetch output,
+> without independent verification:
+>
+> - make legal, medical, or financial decisions
+> - quote the output as if it were the source
+> - act on factual claims that aren't covered by the citations
+>   socialfetch returns alongside the answer
+> - assume a missing citation means the claim is unsupported (or
+>   the inverse — that a citation means the claim is correct)
+>
+> The `source` / `url` / `fetched_at` metadata on every result
+> exists precisely so you can click back to the original. Do that
+> for anything you care about. Treat socialfetch like a research
+> assistant who's read a lot but might be wrong about any specific
+> detail — useful for breadth, not authoritative on accuracy.
+>
+> The author and contributors accept no liability for decisions
+> made on the basis of output from this tool, third-party API
+> responses it relays, or downstream agents that consume it.
+
 ## See also
 
 - [INSTALL.md](INSTALL.md) — full install guide for all four channels
 - [API_KEYS.md](API_KEYS.md) — per-provider auth setup
 - [HINTS.md](HINTS.md) — operator-grade "things that surprise you"
 - [CLAUDE.md](CLAUDE.md) — repo conventions for contributors
+- [LICENSE](LICENSE) — MIT
