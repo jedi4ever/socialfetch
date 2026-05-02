@@ -9,7 +9,6 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/timeline"
 )
 
 // linkedinPostFetcher abstracts the per-post LinkedIn fetcher so the
@@ -42,7 +41,7 @@ func NewLinkedInProvider() *LinkedInProvider {
 
 func (LinkedInProvider) Name() string { return "linkedin" }
 
-func (p LinkedInProvider) Fetch(ctx context.Context, user string, opts timeline.Options) (*core.Item, error) {
+func (p LinkedInProvider) Fetch(ctx context.Context, user string, opts core.TimelineOptions) (*core.Item, error) {
 	if user == "" {
 		return nil, fmt.Errorf("linkedin timeline: empty user")
 	}

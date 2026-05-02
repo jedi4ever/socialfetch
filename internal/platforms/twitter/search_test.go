@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 const fakeJSON = `{
@@ -69,7 +69,7 @@ func TestSearch(t *testing.T) {
 	p.BaseURL = apiSrv.URL
 	p.Creds = Credentials{Key: "k", Secret: "s"}
 
-	got, err := p.Search(context.Background(), "vibe coding", search.Options{Max: 10})
+	got, err := p.Search(context.Background(), "vibe coding", core.SearchOptions{Max: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestSearchRejectsAfterBeyondWindow(t *testing.T) {
 	p := NewSearchProvider()
 	p.Creds = Credentials{Key: "k", Secret: "s"}
 	tooOld := time.Now().UTC().AddDate(0, 0, -14)
-	_, err := p.Search(context.Background(), "x", search.Options{Max: 10, After: &tooOld})
+	_, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 10, After: &tooOld})
 	if err == nil {
 		t.Fatal("expected error for after > 7 days")
 	}
@@ -127,7 +127,7 @@ func TestSearchSurfacesErrorBody(t *testing.T) {
 	p.BaseURL = apiSrv.URL
 	p.Creds = Credentials{Key: "k", Secret: "s"}
 
-	_, err := p.Search(context.Background(), "x", search.Options{Max: 10})
+	_, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 10})
 	if err == nil {
 		t.Fatal("expected error from 400 response")
 	}
@@ -139,7 +139,7 @@ func TestSearchSurfacesErrorBody(t *testing.T) {
 func TestSearchRequiresCreds(t *testing.T) {
 	t.Setenv("X_API_KEY", "")
 	t.Setenv("X_API_SECRET", "")
-	if _, err := NewSearchProvider().Search(context.Background(), "x", search.Options{Max: 10}); err == nil {
+	if _, err := NewSearchProvider().Search(context.Background(), "x", core.SearchOptions{Max: 10}); err == nil {
 		t.Errorf("expected creds error")
 	}
 }

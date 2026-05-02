@@ -1,4 +1,4 @@
-// Package tavily implements a search.Provider backed by Tavily
+// Package tavily implements a core.SearchProvider backed by Tavily
 // (https://tavily.com), an AI-tuned web search API. Tavily de-prioritises
 // SEO listicles, returns a relevance score per result, and supports
 // domain include/exclude as first-class parameters — better signal for
@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 // Provider configures the Tavily client. Most callers only need to set
@@ -66,7 +65,7 @@ type response struct {
 	} `json:"results"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("TAVILY_API_KEY")
@@ -143,7 +142,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("tavily: decode: %w", err)
 	}
 
-	results := make([]search.Result, 0, len(out.Results))
+	results := make([]core.SearchResult, 0, len(out.Results))
 	for _, r := range out.Results {
 		pub := parsePublished(r.PublishedDate)
 		// Defensive client-side filter: Tavily's window can leak a few
@@ -159,7 +158,7 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 				continue
 			}
 		}
-		results = append(results, search.Result{
+		results = append(results, core.SearchResult{
 			Title:     r.Title,
 			URL:       r.URL,
 			Snippet:   snippet(r.Content, 500),

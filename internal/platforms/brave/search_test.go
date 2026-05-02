@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 func TestSearchRequiresKey(t *testing.T) {
 	t.Setenv("BRAVE_API_KEY", "")
-	if _, err := New().Search(context.Background(), "x", search.Options{Max: 5}); err == nil {
+	if _, err := New().Search(context.Background(), "x", core.SearchOptions{Max: 5}); err == nil {
 		t.Errorf("expected missing-key error")
 	}
 }
@@ -39,7 +39,7 @@ func TestSearchHappyPath(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "K"
 
-	got, err := p.Search(context.Background(), "anthropic", search.Options{Max: 5})
+	got, err := p.Search(context.Background(), "anthropic", core.SearchOptions{Max: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestSearch401(t *testing.T) {
 	p := New()
 	p.BaseURL = srv.URL
 	p.Key = "bad"
-	_, err := p.Search(context.Background(), "x", search.Options{Max: 5})
+	_, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 5})
 	if err == nil || !strings.Contains(err.Error(), "401") {
 		t.Errorf("want 401 error, got %v", err)
 	}

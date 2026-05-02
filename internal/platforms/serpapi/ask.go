@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
@@ -54,7 +53,7 @@ type askResponse struct {
 	} `json:"ai_overview"`
 }
 
-func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("SERPAPI_KEY")
@@ -104,20 +103,20 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options
 		answer = strings.TrimSpace(b.String())
 	}
 
-	sources := make([]ask.Source, 0, len(data.AIOverview.References))
+	sources := make([]core.Source, 0, len(data.AIOverview.References))
 	for _, r := range data.AIOverview.References {
 		title := r.Title
 		if title == "" {
 			title = r.Source
 		}
-		sources = append(sources, ask.Source{Title: title, URL: r.Link})
+		sources = append(sources, core.Source{Title: title, URL: r.Link})
 	}
 
 	if answer == "" && len(sources) == 0 {
 		return nil, fmt.Errorf("serpapi ask: no AI Overview returned for %q (Google didn't generate one for this query)", question)
 	}
 
-	return &ask.Answer{
+	return &core.Answer{
 		Question: question,
 		Provider: "serpapi",
 		Text:     answer,

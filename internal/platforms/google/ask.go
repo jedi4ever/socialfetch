@@ -1,4 +1,4 @@
-// Package google implements an ask.Asker backed by Google's Gemini
+// Package google implements an core.Asker backed by Google's Gemini
 // API with the built-in `google_search` tool — Gemini synthesizes an
 // answer grounded in live Google Search results, returning the answer
 // plus a `groundingMetadata` block with the supporting URLs.
@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
@@ -76,7 +75,7 @@ type askResponse struct {
 	} `json:"candidates"`
 }
 
-func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
 	key := p.Key
 	if key == "" {
 		for _, k := range []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"} {
@@ -140,18 +139,18 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options
 	}
 	answer := strings.TrimSpace(b.String())
 
-	sources := make([]ask.Source, 0, len(cand.GroundingMetadata.GroundingChunks))
+	sources := make([]core.Source, 0, len(cand.GroundingMetadata.GroundingChunks))
 	for _, c := range cand.GroundingMetadata.GroundingChunks {
 		if c.Web.URI == "" {
 			continue
 		}
-		sources = append(sources, ask.Source{
+		sources = append(sources, core.Source{
 			Title: c.Web.Title,
 			URL:   c.Web.URI,
 		})
 	}
 
-	return &ask.Answer{
+	return &core.Answer{
 		Question: question,
 		Provider: "google",
 		Model:    model,

@@ -1,4 +1,4 @@
-// Package hnsearch implements a search.Provider backed by Algolia's free
+// Package hnsearch implements a core.SearchProvider backed by Algolia's free
 // HackerNews search API at hn.algolia.com — no auth, returns stories,
 // comments, polls. Same data the HN search box on news.ycombinator.com
 // uses.
@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 // lastIndex is strings.LastIndex; tiny alias for readability at call site.
@@ -21,7 +20,7 @@ func lastIndex(s, sub string) int { return strings.LastIndex(s, sub) }
 
 // hnDateFilter builds a numericFilters string for the HN Algolia API.
 // Multiple filters are joined with commas (AND semantics).
-func hnDateFilter(opts search.Options) string {
+func hnDateFilter(opts core.SearchOptions) string {
 	var parts []string
 	if opts.After != nil {
 		parts = append(parts, fmt.Sprintf("created_at_i>%d", opts.After.Unix()))
@@ -35,7 +34,7 @@ func hnDateFilter(opts search.Options) string {
 // hnDomainQuery folds include/exclude domains into the query string.
 // Algolia doesn't have a first-class domain filter, but HN indexes the
 // URL host as a token so plain text-search works in practice.
-func hnDomainQuery(query string, opts search.Options) string {
+func hnDomainQuery(query string, opts core.SearchOptions) string {
 	parts := []string{query}
 	for _, d := range opts.IncludeDomains {
 		parts = append(parts, d)
@@ -81,7 +80,7 @@ type response struct {
 	} `json:"hits"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	max := opts.Max
 	if max <= 0 {
 		max = 10
@@ -124,7 +123,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		return nil, fmt.Errorf("hackernews search: %w", err)
 	}
 
-	results := make([]search.Result, 0, len(resp.Hits))
+	results := make([]core.SearchResult, 0, len(resp.Hits))
 	for _, h := range resp.Hits {
 		title := h.Title
 		// Comments don't have a title; surface the comment text instead.
@@ -142,7 +141,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		if snippet == "" {
 			snippet = h.CommentText
 		}
-		results = append(results, search.Result{
+		results = append(results, core.SearchResult{
 			Title:   fmt.Sprintf("%s (%d points, %d comments)", title, h.Points, h.NumComments),
 			URL:     linked,
 			Snippet: snippet,

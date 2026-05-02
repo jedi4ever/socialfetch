@@ -1,4 +1,4 @@
-// Package youtubesearch implements a search.Provider backed by the
+// Package youtubesearch implements a core.SearchProvider backed by the
 // YouTube Data API v3 search.list endpoint.
 //
 // Auth: YOUTUBE_API_KEY env var (or set Provider.Key explicitly).
@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 type SearchProvider struct {
@@ -55,7 +54,7 @@ type apiResp struct {
 	} `json:"items"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("YOUTUBE_API_KEY")
@@ -123,12 +122,12 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		return nil, fmt.Errorf("youtube search: decode: %w", err)
 	}
 
-	out := make([]search.Result, 0, len(data.Items))
+	out := make([]core.SearchResult, 0, len(data.Items))
 	for _, it := range data.Items {
 		if it.ID.VideoID == "" {
 			continue
 		}
-		r := search.Result{
+		r := core.SearchResult{
 			Title:   strings.TrimSpace(it.Snippet.Title),
 			URL:     "https://www.youtube.com/watch?v=" + it.ID.VideoID,
 			Snippet: composeSnippet(it.Snippet.ChannelTitle, it.Snippet.Description),

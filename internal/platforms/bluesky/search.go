@@ -1,4 +1,4 @@
-// Package bluesky implements a search.Provider backed by Bluesky's
+// Package bluesky implements a core.SearchProvider backed by Bluesky's
 // app.bsky.feed.searchPosts XRPC method.
 //
 // Auth: Bluesky now requires an authenticated session for searchPosts
@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 const (
@@ -72,7 +71,7 @@ type apiResp struct {
 	} `json:"posts"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	jwt, err := p.session(ctx)
 	if err != nil {
 		return nil, err
@@ -126,7 +125,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		return nil, fmt.Errorf("bluesky search: decode: %w", err)
 	}
 
-	out := make([]search.Result, 0, len(data.Posts))
+	out := make([]core.SearchResult, 0, len(data.Posts))
 	for _, p := range data.Posts {
 		// AT URI looks like at://did:plc:abc/app.bsky.feed.post/rkey
 		// — convert to the public web URL bsky.app uses.
@@ -134,7 +133,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		if webURL == "" {
 			continue
 		}
-		r := search.Result{
+		r := core.SearchResult{
 			Title:   firstLine(p.Record.Text, 100),
 			URL:     webURL,
 			Snippet: p.Record.Text,

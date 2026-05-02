@@ -1,4 +1,4 @@
-// Package grok implements an ask.Asker backed by xAI's Grok models
+// Package grok implements an core.Asker backed by xAI's Grok models
 // with Live Search enabled. The API speaks the OpenAI Chat Completions
 // shape. We turn on web grounding by including a search_parameters
 // block in the request body — without it, Grok answers from its
@@ -26,7 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
@@ -78,7 +77,7 @@ type response struct {
 	Citations []string `json:"citations,omitempty"`
 }
 
-func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
 	key := p.Key
 	if key == "" {
 		key = firstEnv("XAI_API_KEY", "GROK_API_KEY")
@@ -140,14 +139,14 @@ func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (
 	if len(data.Choices) > 0 {
 		answer = strings.TrimSpace(data.Choices[0].Message.Content)
 	}
-	sources := make([]ask.Source, 0, len(data.Citations))
+	sources := make([]core.Source, 0, len(data.Citations))
 	for _, u := range data.Citations {
 		if strings.TrimSpace(u) != "" {
-			sources = append(sources, ask.Source{URL: u})
+			sources = append(sources, core.Source{URL: u})
 		}
 	}
 
-	return &ask.Answer{
+	return &core.Answer{
 		Question: question,
 		Provider: "grok",
 		Model:    data.Model,

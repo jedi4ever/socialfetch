@@ -7,15 +7,13 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
-	"github.com/patrickdebois/social-skills/internal/timeline"
 )
 
-// XSearcher is the subset of search.Provider this package needs from
+// XSearcher is the subset of core.SearchProvider this package needs from
 // xsearch. Defining it locally lets the test substitute a fake without
 // touching the real X API.
 type XSearcher interface {
-	Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error)
+	Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error)
 }
 
 // XProvider implements Provider for X by wrapping a recent-search
@@ -29,7 +27,7 @@ func NewXProvider(s XSearcher) *XProvider { return &XProvider{Searcher: s} }
 
 func (XProvider) Name() string { return "x" }
 
-func (p XProvider) Fetch(ctx context.Context, user string, opts timeline.Options) (*core.Item, error) {
+func (p XProvider) Fetch(ctx context.Context, user string, opts core.TimelineOptions) (*core.Item, error) {
 	if user == "" {
 		return nil, fmt.Errorf("x timeline: empty user")
 	}
@@ -62,7 +60,7 @@ func (p XProvider) Fetch(ctx context.Context, user string, opts timeline.Options
 	}
 
 	opts.Audit.Logf("timeline x: %q (max=%d)", q, max)
-	results, err := p.Searcher.Search(ctx, q, search.Options{
+	results, err := p.Searcher.Search(ctx, q, core.SearchOptions{
 		Max:    max,
 		After:  after,
 		Before: opts.Before,

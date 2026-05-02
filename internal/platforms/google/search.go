@@ -1,4 +1,4 @@
-// Package google implements a search.Provider backed by Google's
+// Package google implements a core.SearchProvider backed by Google's
 // Custom Search JSON API. Free tier: 100 q/day (then $5 per 1k).
 //
 // Setup:
@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 const defaultBase = "https://www.googleapis.com/customsearch/v1"
@@ -49,7 +48,7 @@ type apiResp struct {
 	} `json:"items"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("GOOGLE_API_KEY")
@@ -109,9 +108,9 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("google search: decode: %w", err)
 	}
 
-	out := make([]search.Result, 0, len(data.Items))
+	out := make([]core.SearchResult, 0, len(data.Items))
 	for _, it := range data.Items {
-		r := search.Result{
+		r := core.SearchResult{
 			Title:   strings.TrimSpace(it.Title),
 			URL:     it.Link,
 			Snippet: it.Snippet,

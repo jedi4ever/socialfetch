@@ -6,18 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/search"
-	"github.com/patrickdebois/social-skills/internal/timeline"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 // fakeXSearcher records the query it received and returns canned results.
 type fakeXSearcher struct {
 	gotQuery string
-	gotOpts  search.Options
-	results  []search.Result
+	gotOpts  core.SearchOptions
+	results  []core.SearchResult
 }
 
-func (f *fakeXSearcher) Search(_ context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (f *fakeXSearcher) Search(_ context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	f.gotQuery = query
 	f.gotOpts = opts
 	return f.results, nil
@@ -26,13 +25,13 @@ func (f *fakeXSearcher) Search(_ context.Context, query string, opts search.Opti
 func TestXProviderFetchBuildsFromQuery(t *testing.T) {
 	pub := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	fake := &fakeXSearcher{
-		results: []search.Result{
+		results: []core.SearchResult{
 			{Title: "@swyx", URL: "https://x.com/swyx/status/1", Snippet: "first tweet", Published: &pub},
 			{Title: "@swyx", URL: "https://x.com/swyx/status/2", Snippet: "second tweet"},
 		},
 	}
 	p := NewXProvider(fake)
-	item, err := p.Fetch(context.Background(), "swyx", timeline.Options{Kind: "tweets", Max: 5})
+	item, err := p.Fetch(context.Background(), "swyx", core.TimelineOptions{Kind: "tweets", Max: 5})
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -64,7 +63,7 @@ func TestXProviderFetchBuildsFromQuery(t *testing.T) {
 
 func TestXProviderUnknownKind(t *testing.T) {
 	p := NewXProvider(&fakeXSearcher{})
-	_, err := p.Fetch(context.Background(), "swyx", timeline.Options{Kind: "garbage"})
+	_, err := p.Fetch(context.Background(), "swyx", core.TimelineOptions{Kind: "garbage"})
 	if err == nil || !strings.Contains(err.Error(), "unknown kind") {
 		t.Errorf("expected unknown-kind error, got %v", err)
 	}
@@ -72,7 +71,7 @@ func TestXProviderUnknownKind(t *testing.T) {
 
 func TestXProviderRejectsEmptyUser(t *testing.T) {
 	p := NewXProvider(&fakeXSearcher{})
-	_, err := p.Fetch(context.Background(), "", timeline.Options{})
+	_, err := p.Fetch(context.Background(), "", core.TimelineOptions{})
 	if err == nil {
 		t.Error("expected error for empty user")
 	}

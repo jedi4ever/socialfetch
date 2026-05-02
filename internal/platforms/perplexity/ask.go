@@ -1,4 +1,4 @@
-// Package perplexity implements an ask.Asker backed by Perplexity's
+// Package perplexity implements an core.Asker backed by Perplexity's
 // "Sonar" online models. The API speaks the OpenAI Chat Completions
 // shape; the synthesized answer comes back in choices[0].message
 // .content and the cited URLs in `citations` (older shape) or
@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
@@ -71,7 +70,7 @@ type response struct {
 	} `json:"search_results,omitempty"`
 }
 
-func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
 	key := p.Key
 	if key == "" {
 		key = firstEnv("PERPLEXITY_API_KEY", "PPLX_API_KEY")
@@ -130,9 +129,9 @@ func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (
 
 	// Prefer the newer `search_results` shape (titled, with dates) and
 	// fall back to the legacy `citations` URL list.
-	sources := make([]ask.Source, 0, len(data.SearchResults)+len(data.Citations))
+	sources := make([]core.Source, 0, len(data.SearchResults)+len(data.Citations))
 	for _, r := range data.SearchResults {
-		s := ask.Source{Title: r.Title, URL: r.URL}
+		s := core.Source{Title: r.Title, URL: r.URL}
 		if t := parseTime(r.Date); t != nil {
 			s.Published = t
 		}
@@ -141,12 +140,12 @@ func (p *Provider) Ask(ctx context.Context, question string, opts ask.Options) (
 	if len(sources) == 0 {
 		for _, u := range data.Citations {
 			if strings.TrimSpace(u) != "" {
-				sources = append(sources, ask.Source{URL: u})
+				sources = append(sources, core.Source{URL: u})
 			}
 		}
 	}
 
-	return &ask.Answer{
+	return &core.Answer{
 		Question: question,
 		Provider: "perplexity",
 		Model:    data.Model,

@@ -30,12 +30,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
-	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/dotenv"
 	"github.com/patrickdebois/social-skills/internal/render"
-	"github.com/patrickdebois/social-skills/internal/search"
 
 	"github.com/patrickdebois/social-skills/internal/platforms/article"
 	"github.com/patrickdebois/social-skills/internal/platforms/arxiv"
@@ -62,8 +60,8 @@ import (
 // buildAskers returns the registry of "answer engines" used by the
 // `ask` subcommand. Kept separate from search because the conceptual
 // shape (synthesized answer + sources) differs from a flat result list.
-func buildAskers() *ask.Registry {
-	return ask.NewRegistry(
+func buildAskers() *core.AskRegistry {
+	return core.NewAskRegistry(
 		perplexity.New(),
 		grok.New(),
 		google.NewAsker(),
@@ -74,7 +72,7 @@ func buildAskers() *ask.Registry {
 
 // buildRegistries wires up the default fetcher and search registries.
 // The fetcher order matters: specific sources first, generic article last.
-func buildRegistries() (*core.Registry, *search.Registry) {
+func buildRegistries() (*core.Registry, *core.SearchRegistry) {
 	fetchers := core.NewRegistry(
 		hackernews.New(),
 		reddit.New(),
@@ -93,7 +91,7 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		rss.New(),
 		article.New(), // catch-all — must be last
 	)
-	searchers := search.NewRegistry(
+	searchers := core.NewSearchRegistry(
 		duckduckgo.New(),
 		google.New(),
 		bing.New(),
@@ -653,7 +651,7 @@ func runSearch(args []string) error {
 	defer cancel()
 
 	audit.Logf("search %q via %s (max=%d)", flags.query, provider.Name(), flags.max)
-	results, err := provider.Search(ctx, flags.query, search.Options{
+	results, err := provider.Search(ctx, flags.query, core.SearchOptions{
 		Max:            flags.max,
 		Before:         flags.before,
 		After:          flags.after,
@@ -794,7 +792,7 @@ func runAsk(args []string) error {
 	defer cancel()
 
 	audit.Logf("ask %q via %s (model=%s, recency=%s)", question, asker.Name(), model, recency)
-	answer, err := asker.Ask(ctx, question, ask.Options{
+	answer, err := asker.Ask(ctx, question, core.AskOptions{
 		Model:     model,
 		Recency:   recency,
 		MaxTokens: maxTokens,
@@ -816,7 +814,7 @@ func runAsk(args []string) error {
 // renderAnswer writes an Answer in the requested format. Markdown gets
 // the question as an H1, the synthesized text as the body, and a
 // numbered Sources list at the bottom.
-func renderAnswer(w io.Writer, a *ask.Answer, format render.Format) error {
+func renderAnswer(w io.Writer, a *core.Answer, format render.Format) error {
 	switch format {
 	case render.FormatJSON, render.FormatJSONL:
 		// Reuse the search rendering envelope shape for consistency
@@ -892,7 +890,7 @@ Output (markdown):
 `)
 }
 
-func renderSearchResults(w io.Writer, results []search.Result, format render.Format, query, providerName string) error {
+func renderSearchResults(w io.Writer, results []core.SearchResult, format render.Format, query, providerName string) error {
 	switch format {
 	case render.FormatJSON, render.FormatJSONL:
 		// Wrap in a small envelope so consumers know which provider ran.
@@ -920,7 +918,7 @@ func renderSearchResults(w io.Writer, results []search.Result, format render.For
 	return fmt.Errorf("unknown format %q", format)
 }
 
-func displayTitle(r search.Result) string {
+func displayTitle(r core.SearchResult) string {
 	if r.Title != "" {
 		return r.Title
 	}
@@ -929,7 +927,7 @@ func displayTitle(r search.Result) string {
 
 // asItem reuses the render package by wrapping search results inside a
 // core.Item so `render.Item` produces consistent envelope shape.
-func asItem(_ map[string]any, results []search.Result, query, provider string) *core.Item {
+func asItem(_ map[string]any, results []core.SearchResult, query, provider string) *core.Item {
 	children := make([]core.Item, 0, len(results))
 	for _, r := range results {
 		children = append(children, core.Item{

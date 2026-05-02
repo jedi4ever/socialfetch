@@ -9,7 +9,7 @@
 // xsearch package (no extra auth, hard 7-day window). LinkedIn
 // timelines drive the local browser-extension bridge to navigate the
 // /in/<user>/recent-activity/... pages and scrape the rendered DOM.
-package timeline
+package core
 
 import (
 	"context"
@@ -19,37 +19,36 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 // Options shape one timeline call. Kind values are provider-specific;
 // "all" is the cross-provider default. Max caps the number of children
 // returned and is best-effort: LinkedIn is bounded by what the first
 // page renders, X is bounded by recent-search results.
-type Options struct {
+type TimelineOptions struct {
 	Kind          string     // all (default), and provider-specific kinds
 	Max           int        // result cap (default 30)
 	After         *time.Time // earliest item; X enforces 7-day window
 	Before        *time.Time // latest item
 	Expand        bool       // LinkedIn: re-fetch each item via the post fetcher (slow)
 	ExcludeShares bool       // LinkedIn: drop reposts/reshares (default keeps them)
-	Audit         *core.AuditLogger
+	Audit         *AuditLogger
 }
 
 // Provider implements timeline lookup for one platform.
-type Provider interface {
+type TimelineProvider interface {
 	Name() string
-	Fetch(ctx context.Context, user string, opts Options) (*core.Item, error)
+	Fetch(ctx context.Context, user string, opts TimelineOptions) (*Item, error)
 }
 
 // Registry indexes providers by name.
-type Registry struct{ providers []Provider }
+type TimelineRegistry struct{ providers []TimelineProvider }
 
-func NewRegistry(providers ...Provider) *Registry {
-	return &Registry{providers: providers}
+func NewTimelineRegistry(providers ...TimelineProvider) *TimelineRegistry {
+	return &TimelineRegistry{providers: providers}
 }
 
-func (r *Registry) Get(name string) (Provider, error) {
+func (r *TimelineRegistry) Get(name string) (TimelineProvider, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	for _, p := range r.providers {
 		if strings.ToLower(p.Name()) == name {
@@ -59,7 +58,7 @@ func (r *Registry) Get(name string) (Provider, error) {
 	return nil, fmt.Errorf("unknown timeline provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
-func (r *Registry) Names() []string {
+func (r *TimelineRegistry) Names() []string {
 	out := make([]string, 0, len(r.providers))
 	for _, p := range r.providers {
 		out = append(out, p.Name())

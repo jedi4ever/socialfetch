@@ -1,6 +1,6 @@
 // Package tavilyask adapts Tavily as an answer engine: a regular
 // /search call with include_answer=true returns a synthesized answer
-// alongside the result list, which is exactly the ask.Answer shape.
+// alongside the result list, which is exactly the core.Answer shape.
 //
 // Auth: same TAVILY_API_KEY as the search provider.
 package tavily
@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/ask"
 	"github.com/patrickdebois/social-skills/internal/core"
 )
 
@@ -52,7 +51,7 @@ type askResponse struct {
 	} `json:"results"`
 }
 
-func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options) (*ask.Answer, error) {
+func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOptions) (*core.Answer, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("TAVILY_API_KEY")
@@ -94,15 +93,15 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts ask.Options
 		return nil, fmt.Errorf("tavily ask: decode: %w", err)
 	}
 
-	sources := make([]ask.Source, 0, len(data.Results))
+	sources := make([]core.Source, 0, len(data.Results))
 	for _, r := range data.Results {
-		s := ask.Source{Title: r.Title, URL: r.URL, Snippet: r.Content}
+		s := core.Source{Title: r.Title, URL: r.URL, Snippet: r.Content}
 		if t := parseTime(r.PublishedDate); t != nil {
 			s.Published = t
 		}
 		sources = append(sources, s)
 	}
-	return &ask.Answer{
+	return &core.Answer{
 		Question: question,
 		Provider: "tavily",
 		Text:     strings.TrimSpace(data.Answer),

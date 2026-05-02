@@ -1,4 +1,4 @@
-// Package bravesearch implements a search.Provider backed by Brave
+// Package bravesearch implements a core.SearchProvider backed by Brave
 // Search (https://api.search.brave.com). Brave is a generally-strong
 // alternative to DuckDuckGo for tech queries — privacy-focused, doesn't
 // rely on Bing or Google for ranking, and exposes a clean JSON API.
@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 type Provider struct {
@@ -45,7 +44,7 @@ type apiResp struct {
 	} `json:"web"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("BRAVE_API_KEY")
@@ -103,9 +102,9 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("brave search: decode: %w", err)
 	}
-	out := make([]search.Result, 0, len(data.Web.Results))
+	out := make([]core.SearchResult, 0, len(data.Web.Results))
 	for _, r := range data.Web.Results {
-		res := search.Result{
+		res := core.SearchResult{
 			Title:   r.Title,
 			URL:     r.URL,
 			Snippet: r.Description,

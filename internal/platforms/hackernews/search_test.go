@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 const fakeJSON = `{
@@ -54,7 +54,7 @@ func TestSearch(t *testing.T) {
 	p := NewSearchProvider()
 	p.BaseURL = srv.URL
 
-	got, err := p.Search(context.Background(), "rust async", search.Options{Max: 5})
+	got, err := p.Search(context.Background(), "rust async", core.SearchOptions{Max: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestSearchByDateRewritesPath(t *testing.T) {
 	p.BaseURL = srv.URL + "/api/v1/search"
 	p.SortByDate = true
 
-	if _, err := p.Search(context.Background(), "x", search.Options{Max: 5}); err != nil {
+	if _, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 5}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if !strings.HasSuffix(hitPath, "/search_by_date") {

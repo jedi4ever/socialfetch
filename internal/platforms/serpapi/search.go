@@ -1,4 +1,4 @@
-// Package serpapi implements a search.Provider backed by SerpAPI
+// Package serpapi implements a core.SearchProvider backed by SerpAPI
 // (https://serpapi.com). Requires a SERPAPI_KEY environment variable
 // (or an explicit Key on the Provider).
 //
@@ -14,10 +14,9 @@ import (
 	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
-func applyDomainOpsSerp(query string, opts search.Options) string {
+func applyDomainOpsSerp(query string, opts core.SearchOptions) string {
 	parts := []string{query}
 	for _, d := range opts.IncludeDomains {
 		parts = append(parts, "site:"+d)
@@ -28,7 +27,7 @@ func applyDomainOpsSerp(query string, opts search.Options) string {
 	return strings.Join(parts, " ")
 }
 
-func serpDateRange(opts search.Options) string {
+func serpDateRange(opts core.SearchOptions) string {
 	if opts.After == nil && opts.Before == nil {
 		return ""
 	}
@@ -75,7 +74,7 @@ type response struct {
 	Error string `json:"error"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("SERPAPI_KEY")
@@ -114,12 +113,12 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("serpapi: %s", resp.Error)
 	}
 
-	results := make([]search.Result, 0, len(resp.OrganicResults))
+	results := make([]core.SearchResult, 0, len(resp.OrganicResults))
 	for _, r := range resp.OrganicResults {
 		if len(results) >= max {
 			break
 		}
-		results = append(results, search.Result{
+		results = append(results, core.SearchResult{
 			Title:   r.Title,
 			URL:     r.Link,
 			Snippet: r.Snippet,

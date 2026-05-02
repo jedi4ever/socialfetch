@@ -1,4 +1,4 @@
-// Package bing implements a search.Provider backed by Microsoft's Bing
+// Package bing implements a core.SearchProvider backed by Microsoft's Bing
 // Web Search API.
 //
 // Auth: requires a subscription key passed via the Ocp-Apim-Subscription-Key
@@ -20,12 +20,11 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 // applyDomainOps appends site: / -site: operators that virtually every
 // search engine understands. Used by Bing and (loosely) DDG.
-func applyDomainOps(query string, opts search.Options) string {
+func applyDomainOps(query string, opts core.SearchOptions) string {
 	parts := []string{query}
 	for _, d := range opts.IncludeDomains {
 		parts = append(parts, "site:"+d)
@@ -39,7 +38,7 @@ func applyDomainOps(query string, opts search.Options) string {
 // bingFreshness picks Bing's freshness=Day|Week|Month based on the After
 // bound. Bing only exposes these three coarse buckets; a precise range
 // would need the (paid) "customRange" parameter.
-func bingFreshness(opts search.Options) string {
+func bingFreshness(opts core.SearchOptions) string {
 	if opts.After == nil {
 		return ""
 	}
@@ -87,7 +86,7 @@ type response struct {
 	} `json:"errors"`
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	key := p.Key
 	if key == "" {
 		key = os.Getenv("BING_API_KEY")
@@ -146,12 +145,12 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 		return nil, fmt.Errorf("bing: %s", body.Errors[0].Message)
 	}
 
-	out := make([]search.Result, 0, len(body.WebPages.Value))
+	out := make([]core.SearchResult, 0, len(body.WebPages.Value))
 	for _, r := range body.WebPages.Value {
 		if len(out) >= max {
 			break
 		}
-		out = append(out, search.Result{
+		out = append(out, core.SearchResult{
 			Title:   r.Name,
 			URL:     r.URL,
 			Snippet: r.Snippet,

@@ -7,7 +7,7 @@
 // Answer has a synthesized body that's the primary value, with sources
 // as supporting metadata, while a search Result is one of many ranked
 // hits with no synthesis between them.
-package ask
+package core
 
 import (
 	"context"
@@ -35,7 +35,7 @@ type Source struct {
 }
 
 // Options shape a single Ask call.
-type Options struct {
+type AskOptions struct {
 	// Model overrides the provider's default. Examples:
 	//   perplexity: "sonar", "sonar-pro", "sonar-reasoning"
 	//   grok:       "grok-3", "grok-4-fast"
@@ -52,19 +52,19 @@ type Options struct {
 // Asker is implemented by every backend.
 type Asker interface {
 	Name() string
-	Ask(ctx context.Context, question string, opts Options) (*Answer, error)
+	Ask(ctx context.Context, question string, opts AskOptions) (*Answer, error)
 }
 
 // Registry holds the registered askers, queried by name.
-type Registry struct {
+type AskRegistry struct {
 	askers []Asker
 }
 
-func NewRegistry(askers ...Asker) *Registry {
-	return &Registry{askers: askers}
+func NewAskRegistry(askers ...Asker) *AskRegistry {
+	return &AskRegistry{askers: askers}
 }
 
-func (r *Registry) Get(name string) (Asker, error) {
+func (r *AskRegistry) Get(name string) (Asker, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	for _, a := range r.askers {
 		if strings.EqualFold(a.Name(), name) {
@@ -74,7 +74,7 @@ func (r *Registry) Get(name string) (Asker, error) {
 	return nil, fmt.Errorf("unknown ask provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
-func (r *Registry) Names() []string {
+func (r *AskRegistry) Names() []string {
 	out := make([]string, 0, len(r.askers))
 	for _, a := range r.askers {
 		out = append(out, a.Name())
@@ -82,7 +82,7 @@ func (r *Registry) Names() []string {
 	return out
 }
 
-func (r *Registry) Askers() []Asker {
+func (r *AskRegistry) Askers() []Asker {
 	out := make([]Asker, len(r.askers))
 	copy(out, r.askers)
 	return out

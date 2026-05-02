@@ -40,5 +40,59 @@ LinkedIn, Reddit, X-syndication, etc. rename CSS classes periodically.
 When you add a substring matcher, also add a unit test with HTML that
 mirrors the current DOM shape — that way the next drift surfaces at
 `go test` time instead of as silent empty fields. See
-`internal/sources/linkedin/comments.go` + `linkedin_test.go` for the
-pattern (real-DOM HTML fragment fed through `extractComments`).
+`internal/platforms/linkedin/fetch_extract_comments.go` +
+`fetch_test.go` for the pattern (real-DOM HTML fragment fed through
+`extractComments`).
+
+## Platform layout
+
+Every platform lives in `internal/platforms/<name>/` and ships one file
+per capability:
+
+```
+fetch.go          # core.Fetcher impl
+fetch_extract.go  # parsing helpers (HTML/JSON → core.Item)
+search.go         # core.SearchProvider impl
+ask.go            # core.Asker impl
+timeline.go       # core.TimelineProvider impl
+profile.go        # reserved for future capability
+```
+
+Capability interfaces live in `internal/core/{fetcher,search,ask,timeline}.go`.
+Adding a platform means adding the package + registering it in
+`cmd/socialfetch/main.go`'s `buildRegistries()` / `buildAskers()`. The
+help text and `socialfetch list` are derived from the registries.
+
+## Test coverage requirements per platform
+
+**Every capability function on every platform must have BOTH:**
+
+1. **A unit test** — fast, offline, uses an httptest server or canned
+   HTML/JSON fixtures. Runs by default with `go test ./...`. Locks in
+   parser behaviour and protects against silent regressions when
+   third-party DOMs / API shapes drift. File convention:
+   `<capability>_test.go`.
+
+2. **A live test** — hits the real upstream, gated behind the `live`
+   build tag so it doesn't run on `go test ./...` by default. Use
+   `go test -tags=live ./...` to run them. Catches the cases canned
+   fixtures miss: auth flows working end-to-end, real DOM shape still
+   matches, rate limiting behaviour. File convention: `live_test.go`,
+   first line `//go:build live`.
+
+If you can't write one of the two for a capability, document why in the
+package doc comment.
+
+## Documentation: every file gets a human-readable opener
+
+Each `.go` file starts with a doc comment that a human can read and
+walk away with the gist of the file. For package files, that's the
+`// Package <name>` block at the top of the canonical file (often the
+fetch.go or platform.go). For each non-trivial type, function, and
+exported constant, add a short comment explaining *why* the thing
+exists, not just what it does — what problem it solves, what surprising
+behaviour it has, what other code it interacts with.
+
+Reading the file with comments only should leave you with a working
+mental model. Reading the code without comments should leave you
+guessing. Aim for the former.

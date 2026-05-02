@@ -1,4 +1,4 @@
-// Package redditsearch implements a search.Provider backed by Reddit's
+// Package redditsearch implements a core.SearchProvider backed by Reddit's
 // public search.json endpoint — no auth required for read-only queries,
 // though Reddit rate-limits anonymous traffic aggressively (~60 req/min
 // per IP) and is strict about User-Agent strings. core.UserAgent is
@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 // Provider queries the public Reddit search endpoint.
@@ -72,7 +71,7 @@ type searchListing struct {
 	} `json:"data"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	max := opts.Max
 	if max <= 0 {
 		max = 10
@@ -103,7 +102,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		return nil, fmt.Errorf("reddit search: %w", err)
 	}
 
-	results := make([]search.Result, 0, len(resp.Data.Children))
+	results := make([]core.SearchResult, 0, len(resp.Data.Children))
 	for _, child := range resp.Data.Children {
 		d := child.Data
 
@@ -141,7 +140,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 			published = &t
 		}
 
-		results = append(results, search.Result{
+		results = append(results, core.SearchResult{
 			Title:     title,
 			URL:       linkURL,
 			Snippet:   snippet,
@@ -161,7 +160,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 //
 // Reddit's search does support `site:` and `subreddit:` operators on
 // its full-text search backend.
-func applyOperators(query string, opts search.Options) string {
+func applyOperators(query string, opts core.SearchOptions) string {
 	parts := []string{strings.TrimSpace(query)}
 	if len(opts.IncludeDomains) == 1 {
 		parts = append(parts, "site:"+opts.IncludeDomains[0])

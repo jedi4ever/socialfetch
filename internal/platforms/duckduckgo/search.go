@@ -1,4 +1,4 @@
-// Package duckduckgo implements a search.Provider backed by DDG's HTML
+// Package duckduckgo implements a core.SearchProvider backed by DDG's HTML
 // "lite" endpoint, which works without auth or JS.
 //
 // The lite endpoint is a stable, JS-free version of the search results
@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 
 	"golang.org/x/net/html"
 )
@@ -31,10 +30,10 @@ func New() *Provider {
 
 func (Provider) Name() string { return "duckduckgo" }
 
-// applyDDGOperators turns search.Options into DDG-lite query operators.
+// applyDDGOperators turns core.SearchOptions into DDG-lite query operators.
 // Date filters use a `:daterange:start..end` token DDG accepts on lite.
 // Include/exclude domains use `site:` and `-site:` operators.
-func applyDDGOperators(query string, opts search.Options) string {
+func applyDDGOperators(query string, opts core.SearchOptions) string {
 	parts := []string{query}
 	for _, d := range opts.IncludeDomains {
 		parts = append(parts, "site:"+d)
@@ -58,7 +57,7 @@ func applyDDGOperators(query string, opts search.Options) string {
 	return strings.Join(parts, " ")
 }
 
-func (p *Provider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	max := opts.Max
 	if max <= 0 {
 		max = 10
@@ -96,9 +95,9 @@ func (p *Provider) Search(ctx context.Context, query string, opts search.Options
 // followed (in adjacent table cells) by a <td class="result-snippet">. We
 // don't depend on exact positions: we collect links and snippets in order
 // and zip them up.
-func parseResults(doc *html.Node, max int) []search.Result {
-	var results []search.Result
-	var pending search.Result
+func parseResults(doc *html.Node, max int) []core.SearchResult {
+	var results []core.SearchResult
+	var pending core.SearchResult
 
 	var visit func(*html.Node)
 	visit = func(n *html.Node) {
@@ -111,7 +110,7 @@ func parseResults(doc *html.Node, max int) []search.Result {
 			pending.Snippet = strings.TrimSpace(textOf(n))
 			if pending.URL != "" {
 				results = append(results, pending)
-				pending = search.Result{}
+				pending = core.SearchResult{}
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {

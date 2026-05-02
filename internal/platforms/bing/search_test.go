@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 const fakeJSON = `{
@@ -21,7 +21,7 @@ const fakeJSON = `{
 
 func TestSearchRequiresKey(t *testing.T) {
 	t.Setenv("BING_API_KEY", "")
-	if _, err := New().Search(context.Background(), "x", search.Options{Max: 5}); err == nil {
+	if _, err := New().Search(context.Background(), "x", core.SearchOptions{Max: 5}); err == nil {
 		t.Errorf("expected missing-key error")
 	}
 }
@@ -46,7 +46,7 @@ func TestSearch(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "secret"
 
-	got, err := p.Search(context.Background(), "anthropic", search.Options{Max: 5})
+	got, err := p.Search(context.Background(), "anthropic", core.SearchOptions{Max: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestSearchPropagatesAPIError(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "any"
 
-	_, err := p.Search(context.Background(), "x", search.Options{Max: 5})
+	_, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 5})
 	if err == nil || !strings.Contains(err.Error(), "Quota exceeded") {
 		t.Errorf("want quota error, got %v", err)
 	}
@@ -88,7 +88,7 @@ func TestSearchCapsAtMax(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "any"
 
-	got, err := p.Search(context.Background(), "x", search.Options{Max: 1})
+	got, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

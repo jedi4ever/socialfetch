@@ -12,7 +12,6 @@ import (
 	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
 	"github.com/patrickdebois/social-skills/internal/platforms/twitter"
 	"github.com/patrickdebois/social-skills/internal/render"
-	"github.com/patrickdebois/social-skills/internal/timeline"
 )
 
 // timelineFlags is parsed from `socialfetch timeline` args.
@@ -159,7 +158,7 @@ func runTimeline(args []string) error {
 		return err
 	}
 
-	provider, user, err := timeline.ParseIdentifier(flags.user, flags.provider)
+	provider, user, err := core.ParseIdentifier(flags.user, flags.provider)
 	if err != nil {
 		return err
 	}
@@ -175,7 +174,7 @@ func runTimeline(args []string) error {
 	}
 	defer closeAudit()
 
-	reg := timeline.NewRegistry(
+	reg := core.NewTimelineRegistry(
 		twitter.NewXProvider(twitter.NewSearchProvider()),
 		linkedin.NewLinkedInProvider(),
 	)
@@ -189,7 +188,7 @@ func runTimeline(args []string) error {
 	defer cancel()
 
 	audit.Logf("timeline %s/%s (kind=%s, max=%d)", provider, user, flags.kind, flags.max)
-	item, err := p.Fetch(ctx, user, timeline.Options{
+	item, err := p.Fetch(ctx, user, core.TimelineOptions{
 		Kind:          flags.kind,
 		Max:           flags.max,
 		After:         flags.after,

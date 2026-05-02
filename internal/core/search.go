@@ -1,7 +1,7 @@
 // Package search defines the Provider interface that backends — DuckDuckGo,
-// SerpAPI, others — implement. A Result is intentionally tiny: just enough
+// SerpAPI, others — implement. A SearchResult is intentionally tiny: just enough
 // to feed back into the fetch pipeline.
-package search
+package core
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// Result is one search hit.
-type Result struct {
+// SearchResult is one search hit.
+type SearchResult struct {
 	Title     string     `json:"title"`
 	URL       string     `json:"url"`
 	Snippet   string     `json:"snippet,omitempty"`
@@ -23,8 +23,8 @@ type Result struct {
 // best-effort: providers that don't support a native filter ignore it;
 // providers with coarse granularity (Tavily's "last N days") round to
 // the closest supported window.
-type Options struct {
-	Max            int        // max results; <=0 means provider default
+type SearchOptions struct {
+	Max  int        // max results; <=0 means provider default
 	Before         *time.Time // only results published before this time
 	After          *time.Time // only results published after this time
 	IncludeDomains []string   // allowlist; if non-empty, restrict to these
@@ -32,25 +32,25 @@ type Options struct {
 }
 
 // DefaultOptions returns options with the provider's own defaults.
-func DefaultOptions() Options { return Options{} }
+func DefaultSearchOptions() SearchOptions { return SearchOptions{} }
 
 // Provider performs queries against a backend.
-type Provider interface {
+type SearchProvider interface {
 	Name() string
-	Search(ctx context.Context, query string, opts Options) ([]Result, error)
+	Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error)
 }
 
 // Registry holds the known search providers.
-type Registry struct {
-	providers []Provider
+type SearchRegistry struct {
+	providers []SearchProvider
 }
 
-func NewRegistry(providers ...Provider) *Registry {
-	return &Registry{providers: providers}
+func NewSearchRegistry(providers ...SearchProvider) *SearchRegistry {
+	return &SearchRegistry{providers: providers}
 }
 
 // Get returns the named provider, or an error listing the known names.
-func (r *Registry) Get(name string) (Provider, error) {
+func (r *SearchRegistry) Get(name string) (SearchProvider, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	for _, p := range r.providers {
 		if strings.ToLower(p.Name()) == name {
@@ -60,7 +60,7 @@ func (r *Registry) Get(name string) (Provider, error) {
 	return nil, fmt.Errorf("unknown search provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
-func (r *Registry) Names() []string {
+func (r *SearchRegistry) Names() []string {
 	out := make([]string, 0, len(r.providers))
 	for _, p := range r.providers {
 		out = append(out, p.Name())
@@ -68,8 +68,8 @@ func (r *Registry) Names() []string {
 	return out
 }
 
-func (r *Registry) Providers() []Provider {
-	out := make([]Provider, len(r.providers))
+func (r *SearchRegistry) Providers() []SearchProvider {
+	out := make([]SearchProvider, len(r.providers))
 	copy(out, r.providers)
 	return out
 }

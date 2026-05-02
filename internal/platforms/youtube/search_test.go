@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 func TestSearchRequiresKey(t *testing.T) {
 	t.Setenv("YOUTUBE_API_KEY", "")
-	if _, err := NewSearchProvider().Search(context.Background(), "x", search.Options{Max: 5}); err == nil {
+	if _, err := NewSearchProvider().Search(context.Background(), "x", core.SearchOptions{Max: 5}); err == nil {
 		t.Errorf("expected missing-key error")
 	}
 }
@@ -60,7 +60,7 @@ func TestSearchHappyPath(t *testing.T) {
 	p.BaseURL = srv.URL
 	p.Key = "K"
 
-	got, err := p.Search(context.Background(), "vibe coding", search.Options{Max: 3})
+	got, err := p.Search(context.Background(), "vibe coding", core.SearchOptions{Max: 3})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestSearchAfterForcesDateOrder(t *testing.T) {
 	p.Key = "K"
 
 	after := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := p.Search(context.Background(), "x", search.Options{Max: 5, After: &after}); err != nil {
+	if _, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 5, After: &after}); err != nil {
 		t.Fatal(err)
 	}
 	if seenOrder != "date" {
@@ -114,7 +114,7 @@ func TestSearch403(t *testing.T) {
 	p := NewSearchProvider()
 	p.BaseURL = srv.URL
 	p.Key = "K"
-	_, err := p.Search(context.Background(), "x", search.Options{Max: 5})
+	_, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 5})
 	if err == nil || !strings.Contains(err.Error(), "403") {
 		t.Errorf("want 403 error, got %v", err)
 	}

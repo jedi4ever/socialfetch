@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/search"
+	"github.com/patrickdebois/social-skills/internal/core"
 )
 
 const fakeHTML = `<html><body><table>
@@ -33,7 +33,7 @@ func TestSearch(t *testing.T) {
 	p := New()
 	p.BaseURL = srv.URL + "/"
 
-	results, err := p.Search(context.Background(), "golang fetch", search.Options{Max: 5})
+	results, err := p.Search(context.Background(), "golang fetch", core.SearchOptions{Max: 5})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSearchRespectsMax(t *testing.T) {
 	p := New()
 	p.BaseURL = srv.URL + "/"
 
-	results, err := p.Search(context.Background(), "x", search.Options{Max: 1})
+	results, err := p.Search(context.Background(), "x", core.SearchOptions{Max: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

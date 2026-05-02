@@ -1,4 +1,4 @@
-// Package xsearch implements a search.Provider backed by X's recent
+// Package xsearch implements a core.SearchProvider backed by X's recent
 // tweets search v2 endpoint (last 7 days, free-tier-friendly).
 //
 // Auth: OAuth 2.0 App-Only — exchanges X_API_KEY+X_API_SECRET for an app
@@ -19,17 +19,16 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 // XSearchMaxAgeDays is X's recent-search window. The free/basic tier of
 // the v2 endpoint rejects start_time older than 7 days with HTTP 400.
 const XSearchMaxAgeDays = 7
 
-// applyXOperators turns search.Options into X v2 search operators.
+// applyXOperators turns core.SearchOptions into X v2 search operators.
 // X uses `from:user`, `-from:user`, `domain:host`, `-domain:host`.
 // We use `domain:` for domain filters since site: isn't a thing on X.
-func applyXOperators(query string, opts search.Options) string {
+func applyXOperators(query string, opts core.SearchOptions) string {
 	parts := []string{query}
 	for _, d := range opts.IncludeDomains {
 		parts = append(parts, "domain:"+d)
@@ -82,7 +81,7 @@ type response struct {
 	} `json:"errors"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	creds := p.Creds
 	if creds.Key == "" || creds.Secret == "" {
 		c, ok := FromEnv()
@@ -172,7 +171,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		users[u.ID] = u.Username
 	}
 
-	out := make([]search.Result, 0, len(body.Data))
+	out := make([]core.SearchResult, 0, len(body.Data))
 	for _, t := range body.Data {
 		text := t.Text
 		if t.NoteTweet != nil && t.NoteTweet.Text != "" {
@@ -192,7 +191,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 				published = &pt
 			}
 		}
-		out = append(out, search.Result{
+		out = append(out, core.SearchResult{
 			Title:     "@" + title,
 			URL:       tweetURL,
 			Snippet:   text,

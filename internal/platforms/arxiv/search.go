@@ -1,4 +1,4 @@
-// Package arxivsearch implements a search.Provider backed by arXiv's
+// Package arxivsearch implements a core.SearchProvider backed by arXiv's
 // public Atom search API. No auth.
 //
 // arXiv's query syntax is field-prefixed: `all:foo`, `ti:foo`,
@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/search"
 )
 
 const defaultBase = "https://export.arxiv.org/api/query"
@@ -42,7 +41,7 @@ type searchAtomFeed struct {
 	} `xml:"entry"`
 }
 
-func (p *SearchProvider) Search(ctx context.Context, query string, opts search.Options) ([]search.Result, error) {
+func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	maxN := opts.Max
 	if maxN <= 0 {
 		maxN = 10
@@ -77,7 +76,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		return nil, fmt.Errorf("arxiv search: parse atom: %w", err)
 	}
 
-	out := make([]search.Result, 0, len(feed.Entries))
+	out := make([]core.SearchResult, 0, len(feed.Entries))
 	for _, e := range feed.Entries {
 		// e.ID looks like https://arxiv.org/abs/2403.04132v1 — strip
 		// the version suffix for canonical URLs.
@@ -102,7 +101,7 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts search.O
 		if as := strings.Join(authors, ", "); as != "" {
 			snippet = as + " — " + snippet
 		}
-		out = append(out, search.Result{
+		out = append(out, core.SearchResult{
 			Title:     cleanWhitespace(e.Title),
 			URL:       webURL,
 			Snippet:   snippet,
