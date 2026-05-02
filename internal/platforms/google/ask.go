@@ -1,4 +1,4 @@
-// Package google implements an core.Asker backed by Google's Gemini
+// Package google implements a core.Asker backed by Google's Gemini
 // API with the built-in `google_search` tool — Gemini synthesizes an
 // answer grounded in live Google Search results, returning the answer
 // plus a `groundingMetadata` block with the supporting URLs.
@@ -7,7 +7,15 @@
 // the YouTube Data API; just enable Generative Language API in your
 // Google Cloud project. Free tier covers casual use.
 //
-// Default model: gemini-2.5-flash — fast, cheap, web-grounded.
+// Model: optional. We default to the auto-tracking
+// `gemini-flash-latest` alias — Google publishes that alongside
+// `gemini-pro-latest` and updates them when a new flagship ships,
+// so we don't have to chase version bumps. Pass `-m gemini-3-pro-preview`
+// (or any specific version) to override.
+//
+// Refs:
+//   https://ai.google.dev/gemini-api/docs/google-search
+//   https://ai.google.dev/api/generate-content
 package google
 
 import (
@@ -26,8 +34,17 @@ import (
 
 const (
 	defaultAskBase  = "https://generativelanguage.googleapis.com/v1beta"
-	defaultAskModel = "gemini-2.5-flash"
+	defaultAskModel = "gemini-flash-latest" // auto-tracking alias; see file header
 )
+
+// longAskClient handles Gemini grounding requests, which routinely
+// run 30-60s while google_search retrieves and reasons over multiple
+// sources. Reuses core.HTTPClient.Transport so audit events still
+// emit through the standard transport wrapper.
+var longAskClient = &http.Client{
+	Timeout:   3 * time.Minute,
+	Transport: core.HTTPClient.Transport,
+}
 
 type AskProvider struct {
 	BaseURL string
@@ -39,8 +56,9 @@ func NewAsker() *AskProvider { return &AskProvider{BaseURL: defaultAskBase} }
 func (*AskProvider) Name() string { return "google" }
 
 type askRequest struct {
-	Contents []askContent `json:"contents"`
-	Tools    []askTool    `json:"tools,omitempty"`
+	Contents          []askContent `json:"contents"`
+	Tools             []askTool    `json:"tools,omitempty"`
+	SystemInstruction *askContent  `json:"systemInstruction,omitempty"`
 }
 
 type askContent struct {
@@ -94,12 +112,21 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOpt
 		model = defaultAskModel
 	}
 
-	body, err := json.Marshal(askRequest{
+	reqBody := askRequest{
 		Contents: []askContent{
 			{Role: "user", Parts: []askPart{{Text: question}}},
 		},
 		Tools: []askTool{{}}, // empty struct — google_search tool enabled
-	})
+	}
+	if opts.Instructions != "" {
+		// Gemini's systemInstruction field takes the same shape as a
+		// content message; only `parts` is consulted (role is ignored
+		// for system instructions per the API spec).
+		reqBody.SystemInstruction = &askContent{
+			Parts: []askPart{{Text: opts.Instructions}},
+		}
+	}
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -112,16 +139,16 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOpt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", core.UserAgent)
 
-	resp, err := core.HTTPClient.Do(req)
+	resp, err := longAskClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("google ask: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("google ask: HTTP 403 — key invalid, restricted, or Generative Language API not enabled in your project")
+		return nil, fmt.Errorf("google ask: HTTP 403 — key invalid, restricted, or Generative Language API not enabled: %s", core.HTTPErrorBody(resp))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("google ask: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("google ask: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var data askResponse
