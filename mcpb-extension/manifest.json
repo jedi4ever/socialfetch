@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "socialfetch",
   "display_name": "socialfetch",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Fetch social-media URLs and run grounded web searches via MCP. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE) and ask (Perplexity Sonar, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI AI Overview).",
   "long_description": "socialfetch wraps content discovery and grounded answer engines as MCP tools. Use it to pull a HackerNews thread, search Bluesky for a topic, ask Perplexity a recency-filtered question, or scroll through a LinkedIn user's recent posts. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship an extension with whichever subset of API keys you've configured and the rest is silent.",
   "author": {

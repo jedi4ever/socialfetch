@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "socialfetch-marketplace",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Patrick Debois' marketplace for socialfetch — fetch + search the social web from Claude Code.",
   "owner": {
     "name": "Patrick Debois"
