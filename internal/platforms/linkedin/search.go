@@ -14,6 +14,7 @@ package linkedin
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net/url"
 	"regexp"
 	"strings"
@@ -153,7 +154,19 @@ func scrapeSDUIFallback(ctx context.Context, client *bridge.Client, target strin
 		return nil, ctx.Err()
 	}
 
-	const maxRounds = 8
+	// LinkedIn's SDUI lazy-loads when the viewport reaches the bottom
+	// AND a real-looking wheel event fires. ScrollBy() alone won't
+	// trigger their IntersectionObserver — verified empirically.
+	// Strategy per round:
+	//   1. ScrollToBottom (viewport-independent — no amount math)
+	//   2. Dispatch a wheel event sized ~1× viewport for triggering
+	//   3. Sleep a randomized 1.8-3.5s for the fetch + render
+	//   4. Re-extract; if no growth two rounds in a row, stop.
+	//
+	// 16 rounds is enough to surface ~50-60 posts on a busy query
+	// and tops out cleanly on quieter ones (loop exits via the
+	// stall counter).
+	const maxRounds = 16
 	var results []core.SearchResult
 	prevCount := -1
 	stalled := 0
@@ -169,21 +182,38 @@ func scrapeSDUIFallback(ctx context.Context, client *bridge.Client, target strin
 		if len(results) == prevCount {
 			stalled++
 			if stalled >= 2 {
-				break
+				break // no growth two rounds running — assume end of feed
 			}
 		} else {
 			stalled = 0
 		}
 		prevCount = len(results)
 
-		// Scroll for the next round and let LinkedIn fetch+render
-		// more cards. Same randomization as the legacy timeline
-		// loop to look less bot-like.
-		if _, err := client.Scroll(ctx, randScrollAmount(), audit); err != nil {
+		// Scroll to bottom (viewport-independent) + wheel event for
+		// the lazy-load trigger.
+		clientHeight, err := client.ScrollToBottom(ctx, audit)
+		if err != nil {
 			return results, err
 		}
+		// Wheel deltaY scaled to viewport — slightly under one
+		// viewport so the event registers without overshooting.
+		// Falls back to a sensible default if the bridge didn't
+		// return clientHeight (older extensions, edge cases).
+		deltaY := int(float64(clientHeight) * 0.85)
+		if deltaY < 800 {
+			deltaY = 800
+		}
+		// Add a small random jitter so the deltaY isn't a
+		// fixed-cadence fingerprint round-after-round.
+		deltaY += rand.IntN(deltaY / 4) // up to +25%
+		if err := client.Wheel(ctx, deltaY, audit); err != nil {
+			return results, err
+		}
+		// Random dwell time. Centered around 2.4s with both
+		// shorter (skim) and longer (deep read) variants — same
+		// reasoning as the timeline scroll loop.
 		select {
-		case <-time.After(randScrollPause()):
+		case <-time.After(randSDUIDwell()):
 		case <-ctx.Done():
 			return results, ctx.Err()
 		}
@@ -192,6 +222,20 @@ func scrapeSDUIFallback(ctx context.Context, client *bridge.Client, target strin
 		results = results[:max]
 	}
 	return results, nil
+}
+
+// randSDUIDwell returns the wait time after a scroll+wheel before
+// re-extracting. LinkedIn's lazy-load fetches typically resolve in
+// 1-2.5s; we wait a hair longer so we don't snap a half-rendered
+// DOM. Bot-detection heuristics often flag fixed-cadence pulses, so
+// the dwell is randomized [1.8s, 3.5s] with a long-tail "reader
+// pause" of 4-5s ~25% of the time.
+func randSDUIDwell() time.Duration {
+	base := 1800 + rand.IntN(1700) // [1800, 3500]ms
+	if rand.IntN(10) < 3 {
+		base += 1500 + rand.IntN(1500) // occasional 4-5s pause
+	}
+	return time.Duration(base) * time.Millisecond
 }
 
 // extractSDUIRound performs one HTML grab + parse + extract cycle

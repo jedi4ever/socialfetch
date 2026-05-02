@@ -57,6 +57,7 @@ Already-exported shell vars always win over file entries.
   - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
   - "high-quality web search for AI agents" → `tavily` (needs `TAVILY_API_KEY`)
   - "Perplexity index without synthesis" → `perplexity` (needs `PERPLEXITY_API_KEY`; same key as `ask -p perplexity`, but cheaper since no LLM tokens)
+  - "LinkedIn posts about <topic>" → `linkedin` (requires the browser bridge + a logged-in LinkedIn session; up to 50 results per query via scroll-to-bottom + wheel-event lazy-load). **Use sparingly.** LinkedIn aggressively rate-limits accounts that scrape — running this back-to-back will get the user temp-banned. Prefer `tavily` / `perplexity` / `serpapi` for general "who's writing about X" questions, and only reach for `-p linkedin` when LinkedIn-specific posts are explicitly the goal.
   - "search Bluesky" → `bluesky` (no auth, native date filter)
   - "search arXiv" / academic papers → `arxiv` (no auth, sorted newest-first)
   - "search HN" → `hackernews`

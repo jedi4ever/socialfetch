@@ -96,9 +96,30 @@ Generative Language API (for `google` ask), YouTube Data API v3 (for
 buttons.
 
 **LinkedIn — no anonymous read path.**
-Every LinkedIn fetch / timeline goes through the bridge. Always run
-`socialfetch bridge status` before fetching authenticated URLs.
-Exit codes: `0` connected / `1` not connected / `2` bridge not running.
+Every LinkedIn fetch / timeline / search goes through the bridge.
+Always run `socialfetch bridge status` before fetching authenticated
+URLs. Exit codes: `0` connected / `1` not connected / `2` bridge
+not running.
+
+**LinkedIn search — use sparingly.**
+LinkedIn aggressively rate-limits and occasionally temp-bans
+accounts that scrape. The `linkedin` search provider works (drives
+the browser to `/search/results/content/?keywords=...`, scroll-to-
+bottom + wheel events to trigger lazy-load, parse the
+`data-testid="expandable-text-box"` cards), but each query is a
+real scrape against your account. Prefer `tavily` / `perplexity` /
+`serpapi` for general "who's writing about X" questions, and only
+reach for `-p linkedin` when LinkedIn-specific posts are
+explicitly what you need. Running it back-to-back in a research
+loop is exactly what gets accounts flagged.
+
+**LinkedIn — keep the active tab on linkedin.com during a fetch.**
+The bridge tells the extension to navigate the *active tab* to the
+target URL. If you have Chrome focused on `chrome://extensions/`
+or another non-LinkedIn page when a fetch fires, the navigate may
+return before the page is actually rendered + observed and the
+scrape sees a half-loaded page. Fix: leave a LinkedIn tab focused
+in Chrome while running socialfetch.
 
 ---
 

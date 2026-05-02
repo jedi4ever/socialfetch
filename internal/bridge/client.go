@@ -142,6 +142,65 @@ func (c *Client) Scroll(ctx context.Context, amount int, audit *core.AuditLogger
 	return int(r.ScrollY), nil
 }
 
+// ScrollToBottom moves the largest scrollable element on the active
+// tab to its bottom (scrollHeight - clientHeight). Viewport-independent
+// — no amount math. Used by lazy-load loops where the goal is "hit
+// the bottom and dwell" so an IntersectionObserver can fire and
+// fetch more content. Returns the resulting clientHeight so the
+// caller can size follow-up wheel events relative to the viewport.
+func (c *Client) ScrollToBottom(ctx context.Context, audit *core.AuditLogger) (clientHeight int, err error) {
+	audit.Logf("bridge: scroll_to_bottom")
+	body, err := c.call(ctx, c.endpoint(), map[string]any{
+		"command": "scroll_to_bottom",
+	})
+	if err != nil {
+		return 0, err
+	}
+	var r struct {
+		Status       string  `json:"status"`
+		Error        string  `json:"error,omitempty"`
+		ClientHeight float64 `json:"clientHeight"`
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return 0, fmt.Errorf("bridge: decode scroll_to_bottom reply: %w", err)
+	}
+	if r.Status != "ok" {
+		return 0, fmt.Errorf("bridge: scroll_to_bottom error: %s", r.Error)
+	}
+	return int(r.ClientHeight), nil
+}
+
+// Wheel dispatches a synthetic wheel event at the center of the
+// viewport. Some SPAs (LinkedIn's new SDUI) lazy-load on real
+// wheel events but ignore plain scrollBy() — wheel events bubble
+// through React's event delegation and look more like
+// user-initiated scrolling. deltaY of 0 sends 1000px (sensible
+// default; callers usually pick something close to a viewport).
+func (c *Client) Wheel(ctx context.Context, deltaY int, audit *core.AuditLogger) error {
+	if deltaY == 0 {
+		deltaY = 1000
+	}
+	audit.Logf("bridge: wheel deltaY=%d", deltaY)
+	body, err := c.call(ctx, c.endpoint(), map[string]any{
+		"command": "wheel",
+		"deltaY":  deltaY,
+	})
+	if err != nil {
+		return err
+	}
+	var r struct {
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return fmt.Errorf("bridge: decode wheel reply: %w", err)
+	}
+	if r.Status != "ok" {
+		return fmt.Errorf("bridge: wheel error: %s", r.Error)
+	}
+	return nil
+}
+
 // GetTabHTML scrapes the active tab on the current origin without
 // navigating. Use it when you've already called Navigate (or have just
 // scrolled) and want the rendered DOM as it stands. The target URL is

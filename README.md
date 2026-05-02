@@ -49,7 +49,7 @@ When you pass multiple URLs and `-f json`, the format is automatically promoted 
 
 | flag | meaning |
 | -- | -- |
-| `-p, --provider` | `duckduckgo` (default), `brave`, `serpapi`, `tavily`, `x`, `youtube`, `bluesky`, `arxiv`, or `hackernews` |
+| `-p, --provider` | `duckduckgo` (default), `brave`, `serpapi`, `tavily`, `perplexity`, `x`, `youtube`, `bluesky`, `arxiv`, `hackernews`, or `linkedin` (bridge + login required, use sparingly — rate limits) |
 | `-n, --max` | max results (default 10) |
 | `-f, --format` | `markdown` (default), `json`, or `jsonl` |
 | `-o, --output` | stdout or file |

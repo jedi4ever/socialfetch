@@ -60,7 +60,7 @@ import (
 
 // Version is the user-visible socialfetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.6.2"
+const Version = "0.7.0"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -1156,7 +1156,7 @@ func searchAuthHint(name string) string {
 	case "youtube":
 		return "(requires YOUTUBE_API_KEY; native --last 7d)"
 	case "linkedin":
-		return "(requires bridge + login; cap 50 results, infinite-scroll)"
+		return "(requires bridge + login; up to 50 results via scroll-to-bottom + wheel-event lazy-load. Use sparingly — LinkedIn rate-limits scraping accounts aggressively.)"
 	case "bluesky":
 		return "(requires BLUESKY_HANDLE + BLUESKY_APP_PASSWORD)"
 	case "arxiv":

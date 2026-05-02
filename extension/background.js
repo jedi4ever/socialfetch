@@ -292,15 +292,23 @@ async function handleCommand(msg) {
         return;
       }
 
-      case "get_feed":
-        result = await sendToContent(tab, "get_feed");
-        safeSend({ id, command, status: "ok", posts: result.posts || [] });
+      case "enumerate_scrollers": {
+        result = await sendToContent(tab, "enumerate_scrollers");
+        safeSend({ id, command, status: "ok", ...result });
         return;
+      }
 
-      case "get_feed_html":
-        result = await sendToContent(tab, "get_feed_html");
-        safeSend({ id, command, status: "ok", posts: result.posts || [] });
+      case "wheel": {
+        result = await sendToContent(tab, "wheel", { deltaY: msg.deltaY || 1000 });
+        safeSend({ id, command, status: "ok", ...result });
         return;
+      }
+
+      case "scroll_to_bottom": {
+        result = await sendToContent(tab, "scroll_to_bottom");
+        safeSend({ id, command, status: "ok", ...result });
+        return;
+      }
 
       default:
         safeSend({ id, command, status: "error", error: `Unknown command: ${command}` });
