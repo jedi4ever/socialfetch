@@ -81,6 +81,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({
         scrollY: window.scrollY,
         innerScrollTop: scroller ? scroller.scrollTop : 0,
+        // Debug fingerprint of which element we ended up scrolling.
+        // Empty when the document body/scrollingElement handled it.
+        scrollerInfo: scroller
+          ? {
+              tag: scroller.tagName,
+              id: scroller.id || "",
+              cls: (scroller.className || "").slice(0, 80),
+              scrollHeight: scroller.scrollHeight,
+              clientHeight: scroller.clientHeight,
+            }
+          : null,
       });
       break;
     }

@@ -115,9 +115,21 @@ async function connect() {
 }
 
 function safeSend(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  // Tag every reply with the extension's manifest version so the
+  // bridge daemon (and anyone tailing audit logs) can see exactly
+  // which content+background-script combo produced the response.
+  // Useful when debugging stale-cache reload issues — if the version
+  // doesn't match what the user just bumped, the reload didn't take.
+  if (typeof msg === "object" && msg !== null && !("extension_version" in msg)) {
+    try {
+      msg.extension_version = chrome.runtime.getManifest().version;
+    } catch (_) {
+      // getManifest() shouldn't fail in MV3, but if it does, send
+      // anyway so we don't blackhole replies on a metadata hiccup.
+    }
   }
+  ws.send(typeof msg === "string" ? msg : JSON.stringify(msg));
 }
 
 // ---------------------------------------------------------------------------
