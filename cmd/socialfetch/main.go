@@ -222,76 +222,13 @@ func emitExitAudit(cmd string, start time.Time, runErr error) {
 	audit.Logf("exit %s code=0 in %s", cmd, dur)
 }
 
-// loadDotEnv pulls KEY=VALUE pairs from .env files into the process
-// environment, without overriding anything already exported in the
-// shell. Two starting points each get a parent-directory walk:
-//
-//  1. CWD upward — handles `socialfetch` invoked from any subdir of
-//     a project that has a `.env` at its root (e.g. running from
-//     `internal/platforms/openai/` still finds `social-skills/.env`).
-//  2. Binary location upward — handles the skill install layout
-//     `<skill>/scripts/<binary>` where `.env` lives at `<skill>/.env`.
-//     `filepath.Dir(exe)` only sees the `scripts/` dir, so without
-//     the walk the documented `~/.claude/skills/socialfetch/.env`
-//     location was actually unreachable. Walking up one level fixes
-//     it.
-//
-// Each walk stops at the first `.env` it finds OR at $HOME OR at
-// filesystem root, whichever comes first, and caps depth at 4 levels
-// — that's enough for any realistic project layout without picking
-// up a stranger's `.env` from an unrelated parent.
-//
-// Errors reading a present file are reported to stderr but don't
-// abort startup; credentials may still be set elsewhere.
+// loadDotEnv pulls KEY=VALUE pairs from .env into the process env via
+// dotenv.LoadAuto, which walks up from cwd and from the binary's
+// install dir. See dotenv.LoadAuto for the resolver semantics — same
+// helper is used by every live test in the repo so the discovery
+// rules stay consistent across CLI runtime and `go test`.
 func loadDotEnv() {
-	seen := make(map[string]bool)
-	var paths []string
-	if cwd, err := os.Getwd(); err == nil {
-		if p := findDotEnv(cwd); p != "" && !seen[p] {
-			paths = append(paths, p)
-			seen[p] = true
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		if real, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = real
-		}
-		if p := findDotEnv(filepath.Dir(exe)); p != "" && !seen[p] {
-			paths = append(paths, p)
-			seen[p] = true
-		}
-	}
-	for _, p := range paths {
-		if err := dotenv.Load(p); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: reading %s: %v\n", p, err)
-		}
-	}
-}
-
-// findDotEnv walks parent directories from start, returning the first
-// `.env` it finds. Stops at $HOME, filesystem root, or after 4 levels
-// — whichever comes first. Returns "" if nothing matches.
-func findDotEnv(start string) string {
-	const maxDepth = 4
-	home, _ := os.UserHomeDir()
-	dir := start
-	for i := 0; i <= maxDepth; i++ {
-		candidate := filepath.Join(dir, ".env")
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
-		}
-		// Don't reach for $HOME/.env — too easy to load a global
-		// secrets file by accident.
-		if home != "" && dir == home {
-			return ""
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-	return ""
+	dotenv.LoadAuto()
 }
 
 func run(args []string) error {

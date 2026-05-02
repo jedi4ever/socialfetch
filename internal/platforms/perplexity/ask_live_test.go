@@ -20,9 +20,7 @@ import (
 // Requires PERPLEXITY_API_KEY (or PPLX_API_KEY). Skipped silently if
 // no key is available so CI without secrets stays green.
 func TestLivePerplexityAsk(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("PERPLEXITY_API_KEY") == "" && os.Getenv("PPLX_API_KEY") == "" {
 		t.Skip("PERPLEXITY_API_KEY / PPLX_API_KEY not set — skipping")
 	}
@@ -57,9 +55,7 @@ func TestLivePerplexityAsk(t *testing.T) {
 // TestLivePerplexityAskWithInstructions exercises the system-message
 // preamble built from opts.Instructions.
 func TestLivePerplexityAskWithInstructions(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("PERPLEXITY_API_KEY") == "" && os.Getenv("PPLX_API_KEY") == "" {
 		t.Skip("PERPLEXITY_API_KEY / PPLX_API_KEY not set — skipping")
 	}

@@ -30,9 +30,7 @@ func TestLiveGoogleAsk(t *testing.T) {
 	// Best-effort: load .env files the same way the binary does so
 	// running `go test -tags=live` without a pre-exported key still
 	// works when the user has dropped credentials into the repo.
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("GOOGLE_API_KEY") == "" {
 		t.Skip("GEMINI_API_KEY / GOOGLE_API_KEY not set — skipping live google ask test")
 	}
@@ -77,9 +75,7 @@ func TestLiveGoogleAsk(t *testing.T) {
 // just that the request succeeds — failing here would mean we built
 // the systemInstruction field wrong.
 func TestLiveGoogleAskWithInstructions(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("GOOGLE_API_KEY") == "" {
 		t.Skip("GEMINI_API_KEY / GOOGLE_API_KEY not set — skipping")
 	}

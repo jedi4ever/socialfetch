@@ -15,9 +15,7 @@ import (
 // TestLiveTavilySearch hits Tavily's /search endpoint via the search
 // Provider (NOT the Asker — this exercises the SearchProvider wiring).
 func TestLiveTavilySearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("TAVILY_API_KEY") == "" {
 		t.Skip("TAVILY_API_KEY not set — skipping")
 	}

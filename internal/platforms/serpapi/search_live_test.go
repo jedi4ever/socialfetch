@@ -15,9 +15,7 @@ import (
 // TestLiveSerpAPISearch hits SerpAPI's google search engine via the
 // search Provider (NOT the Asker — that uses google_ai_overview).
 func TestLiveSerpAPISearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("SERPAPI_KEY") == "" {
 		t.Skip("SERPAPI_KEY not set — skipping")
 	}

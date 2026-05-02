@@ -46,9 +46,7 @@ func TestLiveTwitterFirstTweet(t *testing.T) {
 // Sample URL is the post that surfaced the gap originally — Trevin's
 // "Compound Engineering v3" article.
 func TestLiveTwitterLongFormArticle(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if _, ok := FromEnv(); !ok {
 		t.Skip("X_API_KEY / X_API_SECRET not set — skipping (long-form article needs v2 API)")
 	}

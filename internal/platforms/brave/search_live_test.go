@@ -19,9 +19,7 @@ import (
 //
 // Requires BRAVE_API_KEY. Skipped silently if missing.
 func TestLiveBraveSearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("BRAVE_API_KEY") == "" {
 		t.Skip("BRAVE_API_KEY not set — skipping")
 	}

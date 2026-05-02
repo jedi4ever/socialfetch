@@ -17,9 +17,7 @@ import (
 // method. Skipped silently when BLUESKY_HANDLE / BLUESKY_APP_PASSWORD
 // aren't set.
 func TestLiveBlueskySearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("BLUESKY_HANDLE") == "" || os.Getenv("BLUESKY_APP_PASSWORD") == "" {
 		t.Skip("BLUESKY_HANDLE / BLUESKY_APP_PASSWORD not set — skipping")
 	}

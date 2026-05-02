@@ -17,9 +17,7 @@ import (
 // same X_API_KEY/SECRET as Search. Empty Children is tolerated when
 // the user has no recent activity in X's 7-day window.
 func TestLiveTwitterTimeline(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("X_API_KEY") == "" || os.Getenv("X_API_SECRET") == "" {
 		t.Skip("X_API_KEY / X_API_SECRET not set — skipping")
 	}

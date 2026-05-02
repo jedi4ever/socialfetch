@@ -30,9 +30,7 @@ func TestLiveGrokAsk(t *testing.T) {
 	// Best-effort: load .env files the same way the binary does, so
 	// running `go test -tags=live` without a pre-exported key still
 	// works when the user has dropped credentials into the repo.
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("XAI_API_KEY") == "" && os.Getenv("GROK_API_KEY") == "" {
 		t.Skip("XAI_API_KEY / GROK_API_KEY not set — skipping live grok ask test")
 	}

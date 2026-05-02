@@ -20,9 +20,7 @@ import (
 //
 // Requires OPENAI_API_KEY. Skipped silently if missing.
 func TestLiveOpenAIAsk(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		t.Skip("OPENAI_API_KEY not set — skipping")
 	}
@@ -57,9 +55,7 @@ func TestLiveOpenAIAsk(t *testing.T) {
 // TestLiveOpenAIAskWithInstructions exercises the system-prompt-style
 // preamble plumbed through opts.Instructions → request.instructions.
 func TestLiveOpenAIAskWithInstructions(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("OPENAI_API_KEY") == "" {
 		t.Skip("OPENAI_API_KEY not set — skipping")
 	}

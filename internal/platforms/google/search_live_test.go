@@ -16,9 +16,7 @@ import (
 // GOOGLE_API_KEY and GOOGLE_CSE_ID; skipped otherwise. Confirms the
 // search.Provider wiring (separate from Gemini grounding above).
 func TestLiveGoogleSearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("GOOGLE_API_KEY") == "" || os.Getenv("GOOGLE_CSE_ID") == "" {
 		t.Skip("GOOGLE_API_KEY / GOOGLE_CSE_ID not set — skipping")
 	}

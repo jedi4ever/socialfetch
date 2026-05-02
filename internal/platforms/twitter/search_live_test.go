@@ -18,9 +18,7 @@ import (
 // HTTP 400. Zero results is a soft-warn (X recent index is sparse for
 // many queries), not a fail.
 func TestLiveTwitterSearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("X_API_KEY") == "" || os.Getenv("X_API_SECRET") == "" {
 		t.Skip("X_API_KEY / X_API_SECRET not set — skipping")
 	}

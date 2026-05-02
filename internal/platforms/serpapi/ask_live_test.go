@@ -24,9 +24,7 @@ import (
 // SerpAPI returns "no AI Overview" the test logs it as a soft skip
 // rather than failing — that's a Google decision, not a code bug.
 func TestLiveSerpAPIAsk(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("SERPAPI_KEY") == "" {
 		t.Skip("SERPAPI_KEY not set — skipping")
 	}

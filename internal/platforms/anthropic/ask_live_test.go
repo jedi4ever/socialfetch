@@ -25,9 +25,7 @@ import (
 // pointing to the privacy settings — surfaced via core.HTTPErrorBody
 // at the top of the test failure.
 func TestLiveAnthropicAsk(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		t.Skip("ANTHROPIC_API_KEY not set — skipping")
 	}
@@ -63,9 +61,7 @@ func TestLiveAnthropicAsk(t *testing.T) {
 // preamble (mapped from opts.Instructions to the top-level `system`
 // field on the Messages API).
 func TestLiveAnthropicAskWithInstructions(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		t.Skip("ANTHROPIC_API_KEY not set — skipping")
 	}

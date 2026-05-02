@@ -16,9 +16,7 @@ import (
 // TestLiveYouTubeSearch hits the YouTube Data API v3 search.list
 // endpoint. Skipped silently when YOUTUBE_API_KEY isn't set.
 func TestLiveYouTubeSearch(t *testing.T) {
-	for _, p := range []string{".env", "../../../.env"} {
-		_ = dotenv.Load(p)
-	}
+	dotenv.LoadAuto()
 	if os.Getenv("YOUTUBE_API_KEY") == "" {
 		t.Skip("YOUTUBE_API_KEY not set — skipping")
 	}
