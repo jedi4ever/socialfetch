@@ -109,10 +109,10 @@ Three transcript backends, switchable via `YOUTUBE_TRANSCRIPT_PROVIDER`:
 
 ## Browser bridge
 
-LinkedIn (and the paywalled paths of Medium / Substack) need an authenticated browser session, so socialfetch ships a small Chrome MV3 extension at `extension/` and a local WebSocket bridge that brokers between the CLI and your real, logged-in browser.
+LinkedIn (and the paywalled paths of Medium / Substack) need an authenticated browser session, so socialfetch ships a small Chrome MV3 extension at `chrome-extension/` and a local WebSocket bridge that brokers between the CLI and your real, logged-in browser.
 
 ```bash
-# one-time: load extension/ in chrome://extensions (Developer mode → Load unpacked)
+# one-time: load chrome-extension/ in chrome://extensions (Developer mode → Load unpacked)
 socialfetch bridge start         # daemonize on :5555
 socialfetch bridge status        # 0 connected, 1 no extension, 2 not running
 socialfetch bridge stop          # SIGTERM the daemon

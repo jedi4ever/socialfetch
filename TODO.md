@@ -1,10 +1,11 @@
 - Google search, ask
-- Name of project - socialfetch - social-curl?
-- Homebrew / install
-- turn it into a library
 
--  extension permissions
-- publish as marketplace ?
-- notes on why a mcbp - 
 - build reolease git action
+- Homebrew / install
+
+- publish as marketplace - docs
+- notes on why a mcbp - 
+
 - analytics use
+-  extension permissions
+- turn it into a library

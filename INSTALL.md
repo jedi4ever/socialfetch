@@ -373,7 +373,7 @@ reuse your **already-logged-in browser session**:
 ### One-time setup
 
 1. Open Chrome → `chrome://extensions/` → enable **Developer mode**.
-2. Click **Load unpacked** → select the `extension/` directory inside this
+2. Click **Load unpacked** → select the `chrome-extension/` directory inside this
    repo.
 3. The socialfetch extension icon appears in the toolbar.
 

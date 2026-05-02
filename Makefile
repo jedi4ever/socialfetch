@@ -106,7 +106,7 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 # bridge-package zips the Chrome browser-bridge extension as a
 # distributable. The Chrome extension is independent of the
 # socialfetch app version — it has its own version field in
-# extension/manifest.json which we read at package time.
+# chrome-extension/manifest.json which we read at package time.
 #
 # Output: dist/socialfetch-chrome-extension-<version>.zip. Drop the zip
 # into chrome://extensions/ → "Load unpacked" (after unzipping) for
@@ -117,10 +117,10 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 # bit-identical between developers' machines.
 bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/socialfetch-chrome-extension-<version>.zip
 	@mkdir -p $(CURDIR)/dist
-	@VERSION=$$(python3 -c "import json; print(json.load(open('extension/manifest.json'))['version'])"); \
+	@VERSION=$$(python3 -c "import json; print(json.load(open('chrome-extension/manifest.json'))['version'])"); \
 	OUT="$(CURDIR)/dist/socialfetch-chrome-extension-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
-	(cd extension && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
+	(cd chrome-extension && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
 	echo "Packaged: dist/socialfetch-chrome-extension-$$VERSION.zip"
 
 # skill-package builds a self-contained zip of the skill ready to
