@@ -57,6 +57,7 @@ Already-exported shell vars always win over file entries.
   - "search Bluesky" → `bluesky` (no auth, native date filter)
   - "search arXiv" / academic papers → `arxiv` (no auth, sorted newest-first)
   - "search HN" → `hackernews`
+  - "search Reddit" → `reddit` (no auth, public search.json; rate-limited per IP)
   - "search Twitter/X" → `x` (needs `X_API_KEY` + `X_API_SECRET`)
   - "search via Google" → `serpapi` (needs `SERPAPI_KEY`)
   - "search Bing" → `bing` (needs `BING_API_KEY`)

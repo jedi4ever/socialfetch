@@ -62,6 +62,7 @@ import (
 	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
 	googlesearch "github.com/patrickdebois/social-skills/internal/search/google"
 	"github.com/patrickdebois/social-skills/internal/search/hnsearch"
+	"github.com/patrickdebois/social-skills/internal/search/redditsearch"
 	"github.com/patrickdebois/social-skills/internal/search/serpapi"
 	"github.com/patrickdebois/social-skills/internal/search/tavily"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
@@ -110,6 +111,7 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 		serpapi.New(),
 		tavily.New(),
 		hnsearch.New(),
+		redditsearch.New(),
 		xsearch.New(),
 		youtubesearch.New(),
 		bskysearch.New(),
@@ -987,36 +989,43 @@ func runHelp(args []string) error {
 }
 
 func runList() error {
-	fetchers, searchers := buildRegistries()
 	w := os.Stdout
-
 	fmt.Fprintln(w, "Fetch providers (URL → Item):")
+	writeFetchTable(w)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Search providers (query → []Result):")
+	writeSearchTable(w)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Timeline providers (user → activity feed):")
+	writeTimelineTable(w)
+	return nil
+}
+
+// writeFetchTable / writeSearchTable / writeTimelineTable enumerate the
+// live registries and print one row per provider, so help text and
+// `socialfetch list` always reflect what the binary actually supports.
+// The auth-hint and example-URL lookup tables below stay hand-curated
+// because the registries don't expose either, but they're keyed off
+// the provider name so a missing entry just falls through to a blank
+// — never produces stale or wrong text.
+
+func writeFetchTable(w io.Writer) {
+	fetchers, _ := buildRegistries()
 	for _, f := range fetchers.Fetchers() {
 		fmt.Fprintf(w, "  %-12s  %s\n", f.Name(), exampleFor(f.Name()))
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Search providers (query → []Result):")
+}
+
+func writeSearchTable(w io.Writer) {
+	_, searchers := buildRegistries()
 	for _, p := range searchers.Providers() {
-		auth := ""
-		switch p.Name() {
-		case "serpapi":
-			auth = "(requires SERPAPI_KEY)"
-		case "bing":
-			auth = "(requires BING_API_KEY)"
-		case "tavily":
-			auth = "(requires TAVILY_API_KEY)"
-		case "x":
-			auth = "(requires X_API_KEY + X_API_SECRET; recent 7d)"
-		case "hackernews":
-			auth = "(no auth, Algolia)"
-		}
-		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), auth)
+		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), searchAuthHint(p.Name()))
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Timeline providers (user → activity feed):")
+}
+
+func writeTimelineTable(w io.Writer) {
 	fmt.Fprintln(w, "  x           (requires X_API_KEY + X_API_SECRET; recent 7d, kinds: all|tweets|replies|retweets)")
 	fmt.Fprintln(w, "  linkedin    (requires bridge; kinds: all|posts|comments|reactions)")
-	return nil
 }
 
 func exampleFor(name string) string {
@@ -1029,10 +1038,52 @@ func exampleFor(name string) string {
 		return "https://github.com/<owner>/<repo>"
 	case "twitter":
 		return "https://x.com/<user>/status/<id>"
+	case "linkedin":
+		return "https://www.linkedin.com/posts/<user>-activity-<id> (bridge required)"
+	case "youtube":
+		return "https://www.youtube.com/watch?v=<id>"
+	case "bluesky":
+		return "https://bsky.app/profile/<handle>/post/<id>"
+	case "arxiv":
+		return "https://arxiv.org/abs/<id>"
+	case "medium":
+		return "https://medium.com/@<user>/<slug>"
+	case "substack":
+		return "https://<sub>.substack.com/p/<slug>"
 	case "rss":
 		return "https://example.com/feed.xml"
 	case "article":
-		return "any other http(s) URL (Medium, Substack, blog post, ...)"
+		return "any other http(s) URL (blogs, news, generic articles)"
+	}
+	return ""
+}
+
+func searchAuthHint(name string) string {
+	switch name {
+	case "duckduckgo":
+		return "(no auth)"
+	case "google":
+		return "(requires GOOGLE_API_KEY + GOOGLE_CSE_ID; 100 q/day free)"
+	case "bing":
+		return "(requires BING_API_KEY; Azure Cognitive Services)"
+	case "brave":
+		return "(requires BRAVE_API_KEY; native --last 7d via freshness)"
+	case "serpapi":
+		return "(requires SERPAPI_KEY; 100 searches/month free)"
+	case "tavily":
+		return "(requires TAVILY_API_KEY; AI-tuned, 1k searches/month free)"
+	case "hackernews":
+		return "(no auth, Algolia)"
+	case "reddit":
+		return "(no auth, public search.json; rate-limited per IP)"
+	case "x":
+		return "(requires X_API_KEY + X_API_SECRET; recent 7d only)"
+	case "youtube":
+		return "(requires YOUTUBE_API_KEY; native --last 7d)"
+	case "bluesky":
+		return "(requires BLUESKY_HANDLE + BLUESKY_APP_PASSWORD)"
+	case "arxiv":
+		return "(no auth, sorted newest-first)"
 	}
 	return ""
 }
@@ -1559,8 +1610,23 @@ func signalContext(timeout time.Duration) (context.Context, context.CancelFunc) 
 
 // ---- help text --------------------------------------------------------
 
+// fetchTableString / searchTableString render the live registry tables
+// into strings the help-text templates can interpolate via %s, so help
+// stays in lockstep with what the binary actually supports.
+func fetchTableString() string {
+	var b strings.Builder
+	writeFetchTable(&b)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func searchTableString() string {
+	var b strings.Builder
+	writeSearchTable(&b)
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func printUsage(w io.Writer) {
-	fmt.Fprint(w, `socialfetch — fetch social-media URLs and run search queries
+	fmt.Fprintf(w, `socialfetch — fetch social-media URLs and run search queries
 
 USAGE
   socialfetch fetch    <url> [<url>...] [flags]
@@ -1591,8 +1657,8 @@ FETCH FLAGS
       --timeout       DUR     overall timeout, e.g. 60s, 2m (default 60s)
 
 SEARCH FLAGS
-  -p, --provider      NAME    duckduckgo (default), bing, serpapi,
-                              tavily, hackernews, or x
+  -p, --provider      NAME    pick a provider (see SEARCH PROVIDERS below;
+                              default: duckduckgo)
   -n, --max           N       max results (default 10)
   -f, --format        FMT     markdown (default), json, or jsonl
   -o, --output        PATH    stdout or file
@@ -1604,20 +1670,11 @@ SEARCH FLAGS
       --exclude-site  DOMAIN  exclude domain (repeatable)
       --timeout       DUR     overall timeout (default 30s)
 
-FETCH SOURCES (auto-detected by URL host)
-  hackernews   https://news.ycombinator.com/item?id=NN  (or bare ID)
-  reddit       https://www.reddit.com/r/<sub>/comments/<id>/<slug>/
-  github       https://github.com/<owner>/<repo>
-  twitter      https://x.com/<user>/status/<id>
-  rss          any URL with /feed, /rss, /atom or .xml in the path
-  article      any other http(s) URL (Medium, Substack, blogs, news)
+FETCH SOURCES (auto-detected by URL host — run 'socialfetch list' for the live registry)
+%s
 
-SEARCH PROVIDERS
-  duckduckgo   no auth (lite endpoint scrape)
-  bing         requires BING_API_KEY env var (Bing Web Search v7 API)
-  serpapi      requires SERPAPI_KEY env var
-  tavily       requires TAVILY_API_KEY env var (AI-tuned web search)
-  x            requires X_API_KEY + X_API_SECRET (X recent search, 7 days)
+SEARCH PROVIDERS (run 'socialfetch list' for the live registry)
+%s
 
 EXAMPLES
   socialfetch fetch https://news.ycombinator.com/item?id=43000000
@@ -1631,16 +1688,17 @@ NOTES FOR AGENTS
   - With multiple URLs and -f json, output is auto-promoted to jsonl.
   - --log - prints which URL was fetched and any redirects to stderr.
   - 'socialfetch list' prints the fetch + search providers in machine-friendly form.
-`)
+`, fetchTableString(), searchTableString())
 }
 
 func printFetchHelp(w io.Writer) {
-	fmt.Fprint(w, `socialfetch fetch — pull URLs from supported sources
+	fmt.Fprintf(w, `socialfetch fetch — pull URLs from supported sources
 
 Usage:
   socialfetch fetch <url> [<url>...] [flags]
 
-Sources are auto-detected by URL host. Run 'socialfetch list' to see them.
+Sources (auto-detected by URL host):
+%s
 
 Flags:
   -f, --format   FMT    Output format: markdown (default), json, jsonl
@@ -1675,34 +1733,36 @@ Notes for agents:
   - Use --log - to see exactly which URL the binary fetched and any redirects.
   - Output order matches input order even when -j > 1 (results buffered
     per-slot, written as each slot completes in sequence).
-`)
+`, fetchTableString())
 }
 
 func printSearchHelp(w io.Writer) {
-	fmt.Fprint(w, `socialfetch search — run a query against a search provider
+	fmt.Fprintf(w, `socialfetch search — run a query against a search provider
 
 Usage:
   socialfetch search "<query>" [flags]
 
 Flags:
-  -p, --provider NAME   Provider: duckduckgo (default) or serpapi
+  -p, --provider NAME   pick a provider (see below)
   -n, --max      N      Max results (default 10)
-  -f, --format   FMT    json (default), jsonl, or markdown
+  -f, --format   FMT    markdown (default), json, or jsonl
   -o, --output   PATH   '-' or unset = stdout; otherwise file
   -l, --log      PATH   Audit/debug log destination
-      --timeout  DUR    Overall timeout (default 30s)
+      --after  DATE     yyyy-mm-dd or RFC3339; only newer hits
+      --before DATE     yyyy-mm-dd or RFC3339; only older hits
+      --last   DUR      sugar for --after (e.g. 7d, 24h, 1m)
+      --site DOMAIN     restrict to domain (repeatable)
+      --exclude-site DOMAIN  exclude domain (repeatable)
+      --timeout DUR     Overall timeout (default 30s)
   -h, --help            Show this help
 
 Providers:
-  duckduckgo  — no auth, scrapes the lite endpoint
-  bing        — requires BING_API_KEY env var (Bing Web Search v7 API)
-  serpapi     — requires SERPAPI_KEY env var
-  tavily      — requires TAVILY_API_KEY (AI-tuned web search, scored)
-  x           — requires X_API_KEY + X_API_SECRET (X recent search, 7d)
+%s
 
 Examples:
   socialfetch search "anthropic claude api" -n 5
-  socialfetch search "openai" -p serpapi -f markdown
-  socialfetch search "rust async" -f jsonl -o results.jsonl
-`)
+  socialfetch search "harness engineering" -p reddit -n 20
+  socialfetch search "ai harness" -p youtube --last 7d
+  socialfetch search "rust async" -p hackernews -f jsonl -o results.jsonl
+`, searchTableString())
 }
