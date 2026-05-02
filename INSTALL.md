@@ -1,9 +1,18 @@
 # Installing socialfetch
 
-socialfetch ships in two flavors: a **skill** (file-based, manual
-`.env`) and a **Claude Desktop Extension (.mcpb)** (drag-into-Settings
-installer with key prompts). Both wrap the same Go binary; pick
-whichever matches your install style.
+socialfetch ships in three flavors, all wrapping the same Go binary —
+pick whichever matches your install style:
+
+- **Option A — Claude Desktop Extension (.mcpb)**: drag-into-Settings
+  installer with key prompts, secrets in OS keychain. Best UX for
+  Claude Desktop users.
+- **Option B — Remote MCP server**: `socialfetch mcp --ngrok` runs
+  the protocol over HTTPS so cloud-hosted clients (claude.ai,
+  Perplexity, Claude Code's `mcp add http`) can connect to your
+  local binary. Keys stay in your `.env` / shell.
+- **Option C — Skill**: file-based, drop SKILL.md + the binary into
+  `~/.claude/skills/socialfetch/`, manage `.env` yourself. Works in
+  Claude Desktop and Claude Code; no plan-tier gating.
 
 ## Option A — Claude Desktop Extension (.mcpb)
 
@@ -83,7 +92,156 @@ Or directly: `./node_modules/.bin/mcpb validate mcpb-extension/manifest.json`.
 
 ---
 
-# Installing the `socialfetch` skill (Option B)
+# Option B — Remote MCP server (claude.ai, Perplexity, Claude Code)
+
+Use this when you want socialfetch reachable from a **cloud-hosted
+chat client** that connects to a remote MCP server over HTTPS rather
+than launching a local binary. The same `socialfetch mcp` subcommand
+runs the protocol over HTTP/Streamable instead of stdio; pair it with
+ngrok during local development to get a public HTTPS URL without
+standing up cloud infra.
+
+## Quickest path (ngrok)
+
+```bash
+socialfetch mcp --ngrok                # defaults to :8080
+socialfetch mcp --ngrok --http :9090   # override the port
+```
+
+Output looks like:
+
+```
+socialfetch mcp: bearer-token auth enabled (auto-generated (--ngrok))
+socialfetch mcp: listening on :8080 (Streamable HTTP)
+
+──────────────────────────────────────────────────────────────
+  socialfetch MCP server is live via ngrok.
+
+  URL:    https://abc-xyz.ngrok-free.dev/mcp
+  Token:  bf8b008772dc29d78415cd5dc7e3693f5a191d6a831c2008ba909d39b0ebee2c
+
+  Add to claude.ai → Settings → Connectors → Add custom connector:
+    1. Connector URL:  https://abc-xyz.ngrok-free.dev/mcp
+    2. Authentication:  Bearer token (paste the token above)
+
+  Ctrl+C to stop the server and tear down the tunnel.
+──────────────────────────────────────────────────────────────
+```
+
+Three things to know:
+
+- **The URL changes between sessions on ngrok's free tier** (~8h max
+  per session). Re-run `socialfetch mcp --ngrok` to get a new one.
+- **API keys come from `.env` / shell env on YOUR machine** — same
+  resolver as the local skill. Cloud clients never see them.
+- **Bridge providers (LinkedIn / Medium / Substack) keep working**
+  because the binary runs on your machine. Self-hosted on Fly.io
+  etc. they wouldn't.
+
+Verify the server is reachable before pasting into a connector UI:
+
+```bash
+curl https://abc-xyz.ngrok-free.dev/         # → JSON status, no auth needed
+curl https://abc-xyz.ngrok-free.dev/health   # same
+```
+
+Tail incoming connections in another shell:
+
+```bash
+socialfetch monitor
+# every probe lands as cmd=mcp:http with method+path+IP+status+duration
+```
+
+## Connect from claude.ai
+
+Claude.ai's Custom Connector UI lives at **Settings → Connectors →
+Add custom connector**.
+
+> ⚠️ Custom Connectors are gated by plan tier and admin settings.
+> Free / Pro accounts may not see the option yet (phased rollout).
+> Team / Enterprise plans need a workspace admin to enable
+> "Custom Connectors" in admin settings first.
+
+If you can see the panel:
+
+1. **Connector URL**: `https://abc-xyz.ngrok-free.dev/mcp` (the `/mcp`
+   suffix is required — it's where the protocol handler lives).
+2. **Authentication**: Bearer token. Paste the token printed by
+   `--ngrok`. Claude.ai sends it as `Authorization: Bearer <token>`.
+3. (Fallback) If the UI doesn't expose a bearer-auth field, paste a
+   URL with the token embedded:
+   `https://abc-xyz.ngrok-free.dev/mcp?token=<token>`. Same effect.
+
+Save → claude.ai will preflight the URL. The seven socialfetch tools
+(`socialfetch_fetch`, `_search`, `_ask`, `_timeline`, `_research`,
+`_list_providers`, `_bridge_status`) appear in any new conversation.
+
+## Connect from Perplexity
+
+Perplexity's Pro and Enterprise tiers added Custom Connectors / MCP
+integrations in 2025. As of early 2026, the UI is in
+**Settings → Integrations → Connectors** (Pro consumer) or
+**Admin → Connectors** (Enterprise).
+
+> ⚠️ Like claude.ai, Connector availability depends on your plan.
+> Free Perplexity accounts don't have it; Pro typically does. Comet
+> (Perplexity's browser) has its own MCP integration accessed from
+> the Assistant settings.
+
+The fields you'll fill in match the claude.ai shape — Streamable HTTP
+is a spec, not an Anthropic format. Paste:
+
+1. **Server URL**: `https://abc-xyz.ngrok-free.dev/mcp`.
+2. **Authentication header**: `Authorization: Bearer <token>` (Perplexity's
+   UI typically asks for the header name + value separately; some
+   variants ask just for an API key and assume the Bearer prefix).
+3. **Description** (optional): "socialfetch — fetch / search / ask
+   / research / LinkedIn timelines via the local browser bridge."
+
+If Perplexity's UI rejects the URL with a generic "couldn't reach
+server" error, run `curl https://abc-xyz.ngrok-free.dev/health` from
+your phone (different network) to rule out connectivity. If `/health`
+returns 200 from elsewhere on the internet, the issue is on
+Perplexity's connector setup side, not your tunnel.
+
+Tail `socialfetch monitor` while clicking "Save" in Perplexity's
+connector UI — every probe lands in the audit log, so you'll see
+exactly which method + path + auth header Perplexity sent (or
+whether anything reached you at all).
+
+## Connect from Claude Code (CLI)
+
+```bash
+claude mcp add socialfetch https://abc-xyz.ngrok-free.dev/mcp \
+  --transport http \
+  --header "Authorization: Bearer <token>"
+```
+
+Doesn't depend on plan tier — Claude Code's MCP support is
+universal. The seven tools become available in every session.
+
+## When you're ready for 24/7 uptime
+
+ngrok is meant for development. For something always-on, swap the
+tunnel for a real host:
+
+| host | shape |
+|---|---|
+| **Fly.io** | `fly launch` from the repo, set secrets via `fly secrets set ANTHROPIC_API_KEY=...`, deploy. Same `--http :8080` binary, different supervisor. |
+| **Railway** | New project from GitHub repo, env vars in dashboard. |
+| **Your VPS** | systemd unit running `socialfetch mcp --http :8080`, nginx in front for TLS. |
+
+All three follow the same recipe: build a Linux binary
+(`GOOS=linux GOARCH=amd64 go build`), run with `MCP_AUTH_TOKEN=...`
+in the env, point your client at the public URL. The server side is
+identical to local — only the host changes. **Bridge providers
+(LinkedIn / Medium / Substack) stop working** in a remote deploy
+because there's no Chrome on the host; everything else (fetch /
+search / ask / timeline-X / research) works unchanged.
+
+---
+
+# Installing the `socialfetch` skill (Option C)
 
 This guide walks through installing the bundled skill (`skill/socialfetch/`)
 so it's discoverable by **Claude Desktop** and **Claude Code**. Both apps
