@@ -13,7 +13,7 @@ $ socialfetch search "vercel ai sdk" -p duckduckgo -n 5
 ## Install / build
 
 ```bash
-make build             # builds ./bin/socialfetch
+make build             # builds ./dist/socialfetch
 make install           # go install into $GOBIN
 ```
 

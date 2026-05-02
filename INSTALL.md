@@ -18,7 +18,7 @@ cd social-skills
 make extension-package
 ```
 
-Produces `bin/socialfetch-extension-<version>-darwin-arm64.mcpb`
+Produces `dist/socialfetch-extension-<version>-darwin-arm64.mcpb`
 (macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
 / Windows builds).
 
@@ -54,7 +54,7 @@ Anthropic ships a validation CLI:
 
 ```bash
 npm install -g @anthropic-ai/mcpb
-mcpb validate bin/socialfetch-extension-*.mcpb
+mcpb validate dist/socialfetch-extension-*.mcpb
 ```
 
 ---
@@ -90,7 +90,7 @@ LinkedIn timeline, etc.).
 
 Inspect the target in `Makefile:50` if you're curious. In short:
 
-1. Builds `bin/socialfetch` from `cmd/socialfetch` with `-ldflags="-s -w"
+1. Builds `dist/socialfetch` from `cmd/socialfetch` with `-ldflags="-s -w"
    -trimpath` (smaller, reproducible binary).
 2. Copies the binary to `skill/socialfetch/scripts/socialfetch` (the bundled
    layout the skill expects).

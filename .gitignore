@@ -1,4 +1,5 @@
 # Build artifacts
+/dist/
 /bin/
 # The bundled skill binary is a build product; SKILL.md stays committed.
 skill/socialfetch/scripts/socialfetch

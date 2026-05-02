@@ -1,7 +1,7 @@
 # socialfetch — build and test targets.
 # Run 'make' with no arguments to see all available targets.
 
-BIN          := ./bin/socialfetch
+BIN          := ./dist/socialfetch
 SKILL_BIN    := ./skill/socialfetch/scripts/socialfetch
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
@@ -21,7 +21,7 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
 # work tree never carries leftover artifacts.
-SKILL_PACKAGE_STAGE := $(CURDIR)/bin/.skill-stage
+SKILL_PACKAGE_STAGE := $(CURDIR)/dist/.skill-stage
 
 all: help  ## Default target: print this help
 
@@ -32,17 +32,17 @@ help:  ## Show all targets and their purpose
 	@printf "\nVariables (override on the command line):\n"
 	@printf "  URL=<url>       passed to 'make run' (default: %s)\n" "$(URL)"
 	@printf "\nQuick start:\n"
-	@printf "  make build && ./bin/socialfetch --help\n"
+	@printf "  make build && ./dist/socialfetch --help\n"
 	@printf "  make run URL=https://news.ycombinator.com/item?id=1\n"
 
-build: skill-build  ## Build ./bin/socialfetch and refresh the bundled skill binary
+build: skill-build  ## Build ./dist/socialfetch and refresh the bundled skill binary
 
 # The skill target depends on every Go source file so the bundled binary
 # is rebuilt whenever the implementation changes — guarantees the skill
 # can never go stale relative to the working tree.
 SKILL_DEPS := $(shell find cmd internal -type f -name '*.go' 2>/dev/null) go.mod go.sum
 $(SKILL_BIN): $(SKILL_DEPS)
-	@mkdir -p bin $(dir $(SKILL_BIN))
+	@mkdir -p dist $(dir $(SKILL_BIN))
 	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/socialfetch
 	cp $(BIN) $(SKILL_BIN)
 
@@ -66,7 +66,7 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 # extension-package builds a Claude Desktop Extension (.mcpb) for
 # darwin/arm64. The .mcpb format is just a zip with a manifest at root
 # + the binary at scripts/. Output:
-# bin/socialfetch-extension-<version>-darwin-arm64.mcpb.
+# dist/socialfetch-extension-<version>-darwin-arm64.mcpb.
 #
 # Phase 1 is darwin/arm64 only (the developer's platform). Phase 2
 # will fan this out to darwin-amd64 / linux-amd64 / windows-amd64 via
@@ -75,7 +75,7 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 #
 # Depends on extension-validate so the build fails fast if someone
 # adds a manifest field that breaks the schema.
-EXTENSION_STAGE := $(CURDIR)/bin/.extension-stage
+EXTENSION_STAGE := $(CURDIR)/dist/.extension-stage
 MCPB_BIN        := ./node_modules/.bin/mcpb
 
 extension-package: extension-validate  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
@@ -84,11 +84,11 @@ extension-package: extension-validate  ## Package as Claude Desktop Extension (.
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
 	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
 	@VERSION=$$($(EXTENSION_STAGE)/scripts/socialfetch version 2>/dev/null | awk '{print $$2}' || echo unknown); \
-	OUT="$(CURDIR)/bin/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"; \
+	OUT="$(CURDIR)/dist/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"; \
 	rm -f "$$OUT"; \
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(EXTENSION_STAGE); \
-	echo "Packaged: bin/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"
+	echo "Packaged: dist/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"
 
 # extension-validate runs Anthropic's official @anthropic-ai/mcpb CLI
 # against mcpb-extension/manifest.json. Installed locally via npm
@@ -111,17 +111,17 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 # The version string comes from `socialfetch version` so the zip
 # filename always tracks the binary's reported version, not a stale
 # Makefile constant.
-skill-package: skill-build  ## Package the skill as ./bin/socialfetch-skill-<version>.zip
+skill-package: skill-build  ## Package the skill as ./dist/socialfetch-skill-<version>.zip
 	@rm -rf $(SKILL_PACKAGE_STAGE)
 	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts
 	@cp skill/socialfetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
 	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch
 	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
-	OUT="$(CURDIR)/bin/socialfetch-skill-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/socialfetch-skill-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd $(SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(SKILL_PACKAGE_STAGE); \
-	echo "Packaged: bin/socialfetch-skill-$$VERSION.zip"
+	echo "Packaged: dist/socialfetch-skill-$$VERSION.zip"
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch
@@ -157,5 +157,5 @@ demo: build  ## Fetch a representative URL from each source
 cli-help: build  ## Print the CLI's full --help
 	$(BIN) --help
 
-clean: skill-clean  ## Delete ./bin and the skill binary
-	rm -rf bin
+clean: skill-clean  ## Delete ./dist and the skill binary
+	rm -rf dist bin
