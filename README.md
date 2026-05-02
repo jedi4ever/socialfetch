@@ -92,15 +92,31 @@ make skill-install
 
 ### 4. Remote MCP server (claude.ai, Perplexity, Claude Code)
 
-`socialfetch mcp --ngrok` runs the MCP protocol over HTTPS, prints
-a public URL + bearer token, and lets cloud-hosted clients reach
-your local binary:
+`socialfetch mcp` runs the MCP protocol over Streamable HTTP so
+cloud-hosted clients can reach your local binary:
 
 ```bash
-socialfetch mcp --ngrok           # prints URL + token
-# paste both into Settings → Connectors / Custom Connector in
-# claude.ai, Perplexity Pro, or `claude mcp add http <url> --header …`
+# Plain HTTP listener — bring-your-own-tunnel
+MCP_AUTH_TOKEN=$(openssl rand -hex 32) \
+  socialfetch mcp --http :8080
+# expose :8080 publicly with whatever you prefer:
+# Cloudflare Tunnel, Tailscale Funnel, fly.io machine, your own
+# reverse proxy, etc. Then paste the resulting HTTPS URL +
+# token into the client.
 ```
+
+If you want a one-line public URL without configuring a tunnel
+yourself, `--ngrok` spawns ngrok for you and prints the URL + an
+auto-generated bearer token (requires `ngrok` on PATH and one-time
+`ngrok config add-authtoken …`):
+
+```bash
+socialfetch mcp --ngrok           # convenience: prints URL + token
+```
+
+Either way, paste the URL + token into Settings → Connectors /
+Custom Connector in claude.ai, Perplexity Pro, or
+`claude mcp add http <url> --header "Authorization: Bearer <token>"`.
 
 API keys stay in your local `.env` — never sent over the wire.
 
