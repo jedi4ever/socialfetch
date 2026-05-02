@@ -1,11 +1,22 @@
 # socialfetch
 
-A Go CLI for fetching social-media URLs (HackerNews, Reddit, GitHub,
-X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS,
-generic articles) and running grounded web searches + answer-engine
-queries (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI,
-Brave, DuckDuckGo, Google CSE), output as clean Markdown or
-structured JSON / JSONL.
+**A toolkit that lets AI agents read and reason over the social web.**
+
+LLMs are great at understanding text but bad at getting it. The
+social web — HackerNews threads, Reddit comments, GitHub repos,
+X/Twitter posts, LinkedIn timelines, YouTube transcripts, Bluesky
+feeds, arXiv papers, Medium / Substack articles, RSS feeds, generic
+blog posts — lives behind a different API, DOM scraper, auth flow,
+and rate limit per platform. socialfetch hides all of that behind one
+consistent interface and gives the agent **clean Markdown or
+structured JSON** an LLM can actually parse.
+
+Same shape covers grounded web search (Perplexity, Tavily, Brave,
+SerpAPI, Google, DuckDuckGo) and grounded answer engines (Grok,
+OpenAI, Anthropic, Gemini), and exposes everything as MCP tools so
+**Claude Desktop, Claude Code, claude.ai, and Perplexity** can call
+into it as a first-class tool — not as another `WebFetch` round-trip
+that returns rendered HTML.
 
 ```bash
 socialfetch fetch    https://news.ycombinator.com/item?id=43000000
@@ -17,21 +28,25 @@ socialfetch research "tessl harness engineering" -p anthropic
 
 ## What it is
 
-- **Single Go binary** wrapping ~20 platform-specific fetchers / search
-  providers / answer engines behind one consistent interface — output
-  shape is the same whether you're scraping HN comments or asking
-  Perplexity a recency-filtered question.
-- **Provider chains** — `-p auto` walks a default fallback list, so
-  whichever subset of API keys you've configured determines coverage,
-  and the rest silently no-op.
-- **MCP server built in** — `socialfetch mcp` exposes every CLI
+- **One interface for ~20 platforms.** Same `Item` shape whether
+  you're scraping HN comments, pulling a LinkedIn timeline, or
+  asking Perplexity a recency-filtered question — agents don't need
+  per-platform branching logic.
+- **Provider chains.** `-p auto` walks a default fallback list, so
+  whichever subset of API keys you've configured determines coverage
+  and the rest silently no-op. Drop a key in, the agent gets a new
+  capability without code changes.
+- **MCP server built in.** `socialfetch mcp` exposes every CLI
   capability as Model Context Protocol tools, runnable over stdio
   (Claude Desktop) or Streamable HTTP (claude.ai, Perplexity, Claude
-  Code remote-MCP) — the same binary is your CLI and your MCP server.
+  Code remote-MCP). Same binary is your CLI and your MCP server.
 - **Browser bridge** for authenticated paths — LinkedIn, Medium /
   Substack paywalls — via a small Chrome MV3 extension that brokers
-  between the CLI and your real, logged-in browser. Public content
-  goes direct over HTTP.
+  between the agent and your real, logged-in browser. Public content
+  still goes direct over HTTP.
+- **Citations first.** Every result carries `source`, `url`,
+  `fetched_at`, `written_at`, scores, comment trees — so the agent
+  can ground its answer in something the user can click back to.
 
 ## Install
 
