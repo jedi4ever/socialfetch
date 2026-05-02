@@ -144,7 +144,7 @@ cd socialfetch && make build       # → ./dist/socialfetch
 Requires Go 1.26+. Windows is not currently supported (the bridge
 daemon uses Unix-only syscalls — run via WSL).
 
-## Platforms supported
+## Social platforms supported
 
 ### Fetch (URL → structured Item)
 
