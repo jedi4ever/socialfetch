@@ -3,6 +3,11 @@
 # The bundled skill binary is a build product; SKILL.md stays committed.
 skill/socialfetch/scripts/socialfetch
 
+# Local-only npm tooling (currently just @anthropic-ai/mcpb for
+# validating the Claude Desktop Extension manifest). package.json +
+# package-lock.json are committed; the install tree is not.
+/node_modules/
+
 # Go test outputs
 *.test
 *.out

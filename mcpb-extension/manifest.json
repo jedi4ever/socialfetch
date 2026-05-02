@@ -1,5 +1,5 @@
 {
-  "mcpb_version": "0.1",
+  "manifest_version": "0.3",
   "name": "socialfetch",
   "display_name": "socialfetch",
   "version": "0.2.0",

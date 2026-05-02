@@ -16,7 +16,7 @@ GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
-        skill-build skill-install skill-clean skill-package extension-package
+        skill-build skill-install skill-clean skill-package extension-package extension-validate
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -72,9 +72,13 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 # will fan this out to darwin-amd64 / linux-amd64 / windows-amd64 via
 # additional targets — Go cross-compilation is one GOOS=… GOARCH=…
 # go build per target.
+#
+# Depends on extension-validate so the build fails fast if someone
+# adds a manifest field that breaks the schema.
 EXTENSION_STAGE := $(CURDIR)/bin/.extension-stage
+MCPB_BIN        := ./node_modules/.bin/mcpb
 
-extension-package:  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
+extension-package: extension-validate  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
 	@rm -rf $(EXTENSION_STAGE)
 	@mkdir -p $(EXTENSION_STAGE)/scripts
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
@@ -85,6 +89,18 @@ extension-package:  ## Package as Claude Desktop Extension (.mcpb) for darwin/ar
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(EXTENSION_STAGE); \
 	echo "Packaged: bin/socialfetch-extension-$$VERSION-darwin-arm64.mcpb"
+
+# extension-validate runs Anthropic's official @anthropic-ai/mcpb CLI
+# against mcpb-extension/manifest.json. Installed locally via npm
+# (node_modules/.bin/mcpb) — no global install required, no shell PATH
+# pollution. `npm install` runs automatically the first time the
+# binary is missing.
+extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
+	@if [ ! -x "$(MCPB_BIN)" ]; then \
+		echo "→ installing local @anthropic-ai/mcpb"; \
+		npm install --silent; \
+	fi
+	@$(MCPB_BIN) validate mcpb-extension/manifest.json
 
 # skill-package builds a self-contained zip of the skill ready to
 # upload (skills marketplace, file share, attached to a release). The

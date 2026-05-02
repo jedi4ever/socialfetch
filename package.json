@@ -1,0 +1,12 @@
+{
+  "name": "socialfetch-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-only npm devDependencies for socialfetch — currently just the @anthropic-ai/mcpb CLI used to validate the Claude Desktop Extension manifest. Not a publishable package.",
+  "scripts": {
+    "validate-extension": "mcpb validate bin/socialfetch-extension-*.mcpb"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "^1.0.0"
+  }
+}
