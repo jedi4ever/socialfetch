@@ -28,6 +28,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -56,6 +57,15 @@ type Config struct {
 	// BridgePort is the port the local browser bridge listens on.
 	// The `bridge_status` tool probes /status on this port.
 	BridgePort int
+
+	// ToolLogWriter, when non-nil, receives a copy of every tool's
+	// audit lines as they happen. The HTTP transport sets this to
+	// os.Stderr so the operator running `socialfetch mcp --http` /
+	// `--ngrok` can see incoming tool calls (which platform, which
+	// query, which provider) live alongside the HTTP access log.
+	// Stdio leaves this nil — anything written here would corrupt
+	// the JSON-RPC stream on stdout.
+	ToolLogWriter io.Writer
 }
 
 // NewServer builds an MCP server with all socialfetch tools registered.
@@ -88,15 +98,26 @@ func registerTools(s *server.MCPServer, cfg Config) {
 // running `socialfetch monitor` can tell MCP-driven calls apart from
 // shell-driven ones.
 //
-// We never attach a user-facing destination because stdio is the
-// JSON-RPC channel — writing audit lines to stdout would corrupt the
-// protocol stream. If you need to debug, tail the global audit file:
+// When cfg.ToolLogWriter is non-nil (HTTP/ngrok mode) the audit lines
+// are also written there in real time so the operator sees which
+// tool was invoked with which arguments — without needing to tail
+// the global audit file in another shell.
+//
+// Stdio mode leaves cfg.ToolLogWriter nil because stdout is the
+// JSON-RPC channel — anything written there corrupts the protocol
+// stream. Tail the global audit file instead:
 //
 //	socialfetch monitor
-func openToolAudit(toolName string) (*core.AuditLogger, func()) {
+func openToolAudit(cfg Config, toolName string) (*core.AuditLogger, func()) {
 	cmd := "mcp:" + toolName
 	globalW, closeGlobal, err := core.OpenGlobalAudit(cmd)
-	audit := core.NewAuditLogger(nil)
+	w := cfg.ToolLogWriter
+	if w != nil {
+		// Prefix tool-call lines so they're greppable in stderr next
+		// to the HTTP access log (`socialfetch mcp: http POST /mcp …`).
+		w = prefixWriter{w: w, prefix: []byte("socialfetch mcp: " + cmd + " ")}
+	}
+	audit := core.NewAuditLogger(w)
 	if err == nil && globalW != nil {
 		audit.AttachGlobal(globalW)
 	}
@@ -105,6 +126,22 @@ func openToolAudit(toolName string) (*core.AuditLogger, func()) {
 			closeGlobal()
 		}
 	}
+}
+
+// prefixWriter prepends a fixed byte sequence to every Write so each
+// audit line in stderr is identifiable as MCP-tool-level traffic.
+// The underlying *log.Logger writes one line per call, so it's safe
+// to assume Write boundaries == line boundaries here.
+type prefixWriter struct {
+	w      io.Writer
+	prefix []byte
+}
+
+func (p prefixWriter) Write(b []byte) (int, error) {
+	if _, err := p.w.Write(p.prefix); err != nil {
+		return 0, err
+	}
+	return p.w.Write(b)
 }
 
 // ---- fetch -----------------------------------------------------------
@@ -125,7 +162,7 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithBoolean("generic_extraction", mcp.Description("Force the catch-all article extractor even on hosts with a specific extractor (debug aid)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args fetchArgs) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("fetch")
+		audit, closeAudit := openToolAudit(cfg, "fetch")
 		defer closeAudit()
 		ctx = core.WithAudit(ctx, audit)
 		audit.Logf("fetch %s", args.URL)
@@ -174,7 +211,7 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("site", mcp.Description("Restrict to domain (single domain; comma-separate for multiple)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args searchArgs) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("search")
+		audit, closeAudit := openToolAudit(cfg, "search")
 		defer closeAudit()
 		ctx = core.WithAudit(ctx, audit)
 		audit.Logf("search %q via %s (max=%d)", args.Query, args.Provider, args.Max)
@@ -251,7 +288,7 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("instructions", mcp.Description("System-prompt-style preamble (honored by perplexity, grok, openai, anthropic, google)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args askArgs) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("ask")
+		audit, closeAudit := openToolAudit(cfg, "ask")
 		defer closeAudit()
 		ctx = core.WithAudit(ctx, audit)
 		audit.Logf("ask %q via %s (model=%s, recency=%s)", args.Question, args.Provider, args.Model, args.Recency)
@@ -304,7 +341,7 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 		mcp.WithBoolean("no_reshares", mcp.Description("LinkedIn: drop reposts from the timeline")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args timelineArgs) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("timeline")
+		audit, closeAudit := openToolAudit(cfg, "timeline")
 		defer closeAudit()
 		ctx = core.WithAudit(ctx, audit)
 		audit.Logf("timeline %s/%s (kind=%s, max=%d)", args.Provider, args.User, args.Kind, args.Max)
@@ -354,7 +391,7 @@ func addListProvidersTool(s *server.MCPServer, cfg Config) {
 		mcp.WithDescription("List all available fetch / search / ask / timeline providers. Useful for the agent to discover capabilities at runtime."),
 	)
 	s.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("list_providers")
+		audit, closeAudit := openToolAudit(cfg, "list_providers")
 		defer closeAudit()
 		audit.Logf("list_providers called")
 
@@ -391,7 +428,7 @@ func addResearchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithBoolean("json", mcp.Description("Return the structured Report as JSON instead of rendered markdown (default false)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args researchArgs) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("research")
+		audit, closeAudit := openToolAudit(cfg, "research")
 		defer closeAudit()
 		ctx = core.WithAudit(ctx, audit)
 		audit.Logf("research %q via %s (max_angles=%d, jobs=%d)", args.Question, args.Orchestrator, args.MaxAngles, args.Jobs)
@@ -475,7 +512,7 @@ func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
 		mcp.WithDescription("Probe the local browser-extension bridge. Returns {reachable, connected, port}. LinkedIn / Medium / Substack fetches require this to be reachable + connected."),
 	)
 	s.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		audit, closeAudit := openToolAudit("bridge_status")
+		audit, closeAudit := openToolAudit(cfg, "bridge_status")
 		defer closeAudit()
 
 		port := cfg.BridgePort

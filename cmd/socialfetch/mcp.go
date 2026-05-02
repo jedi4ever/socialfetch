@@ -77,7 +77,7 @@ func runMCP(args []string) error {
 		linkedin.NewLinkedInProvider(),
 	)
 
-	srv := mcp.NewServer(mcp.Config{
+	cfg := mcp.Config{
 		Fetchers:           fetchers,
 		Searchers:          searchers,
 		Askers:             askers,
@@ -86,15 +86,19 @@ func runMCP(args []string) error {
 		DefaultSearchChain: defaultSearchChain,
 		Version:            Version,
 		BridgePort:         bridge.DefaultPort,
-	})
-
+	}
+	// HTTP/ngrok mode: surface every tool invocation (fetch URL, ask
+	// query+provider, search query, etc.) on stderr so the operator
+	// running the server sees who's calling what in real time. Stdio
+	// keeps this nil because stdout is the JSON-RPC channel.
 	if httpAddr != "" {
-		return runMCPOverHTTP(srv, httpAddr, useNgrok)
+		cfg.ToolLogWriter = os.Stderr
+		return runMCPOverHTTP(mcp.NewServer(cfg), httpAddr, useNgrok)
 	}
 	// ServeStdio reads JSON-RPC from os.Stdin and writes it to
 	// os.Stdout. Anything we log on stdout corrupts the protocol —
 	// the audit logger always writes to a file or stderr, so it's safe.
-	return server.ServeStdio(srv)
+	return server.ServeStdio(mcp.NewServer(cfg))
 }
 
 // runMCPOverHTTP serves the MCP protocol over Streamable HTTP. The
