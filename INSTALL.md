@@ -22,40 +22,56 @@ Produces `dist/socialfetch-extension-<version>-darwin-arm64.mcpb`
 (macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
 / Windows builds).
 
-### Install
+### Install (fastest path)
 
-1. **Open Claude Desktop → Settings → Extensions.**
-2. **Drag the `.mcpb` file** onto the Extensions panel (or
-   double-click it).
-3. Claude Desktop opens an install dialog showing every supported
-   API key + routing hint as a form field. **Fill in whichever keys
-   you have**; leave the rest blank — every provider is optional and
-   the chain falls through gracefully.
-4. Click **Install**. The extension registers as an MCP server and
-   six tools become available: `fetch`, `search`, `ask`, `timeline`,
+```bash
+open dist/socialfetch-extension-0.2.0-darwin-arm64.mcpb
+```
+
+That hands the file off to Claude Desktop. Skip ahead to step 3 below.
+
+### Install (manual)
+
+1. **Open Claude Desktop** (`cmd+,` opens Settings).
+2. **Settings → Extensions** in the sidebar. **Drag the `.mcpb`
+   file** onto the Extensions panel, or double-click it in Finder
+   (macOS hands it off to Claude Desktop).
+3. Claude Desktop opens an **install dialog** with one form field
+   per `user_config` entry — 19 fields total (15 API keys + 4
+   routing hints). **Fill in only the keys you have**; everything is
+   optional and the provider chains fall through gracefully on
+   missing keys. Sensitive fields land in the macOS Keychain;
+   routing hints (`HTML2MD_PROVIDER`, `HTML2MD_READER`,
+   `TAVILY_TOPIC`) live in plain Claude Desktop config.
+4. Click **Install**. Six MCP tools become available in any new
+   conversation: `fetch`, `search`, `ask`, `timeline`,
    `list_providers`, `bridge_status`.
-5. **Verify**: in a Claude conversation ask *"use socialfetch to
-   fetch https://news.ycombinator.com/item?id=1"* — Claude should
+5. **Verify** — in a new conversation ask: *"use socialfetch to
+   fetch https://news.ycombinator.com/item?id=1"*. Claude should
    call the `fetch` tool and return the parsed thread.
 
-Sensitive fields are stored in the macOS Keychain, not in plain
-config. Routing hints (`HTML2MD_PROVIDER`, `HTML2MD_READER`,
-`TAVILY_TOPIC`) live in plain Claude Desktop config.
+If the install dialog doesn't appear, your Claude Desktop build may
+predate September 2025 (when the format renamed `.dxt` → `.mcpb`).
+Update Claude Desktop and try again.
 
 ### Update / uninstall
 
-Re-run `make extension-package` after a `git pull` and re-drag the
-new `.mcpb` — Claude Desktop replaces the previous install. Remove
-via **Settings → Extensions → ...→ Remove**.
+- **Update**: `git pull && make extension-package`, then re-drag (or
+  `open ...`) the new `.mcpb` — Claude Desktop replaces in place.
+- **Uninstall**: Settings → Extensions → ⋯ menu next to socialfetch
+  → **Remove**.
 
-### Validate the manifest before shipping
+### Validate the manifest
 
-Anthropic ships a validation CLI:
+The `@anthropic-ai/mcpb` CLI is a local devDependency (see
+`package.json`). `make extension-package` already chains through
+validation, but you can run it standalone:
 
 ```bash
-npm install -g @anthropic-ai/mcpb
-mcpb validate dist/socialfetch-extension-*.mcpb
+make extension-validate
 ```
+
+Or directly: `./node_modules/.bin/mcpb validate mcpb-extension/manifest.json`.
 
 ---
 
