@@ -1,4 +1,4 @@
-// Package perplexity implements an core.Asker backed by Perplexity's
+// Package perplexity implements a core.Asker backed by Perplexity's
 // "Sonar" online models. The API speaks the OpenAI Chat Completions
 // shape; the synthesized answer comes back in choices[0].message
 // .content and the cited URLs in `citations` (older shape) or
@@ -7,11 +7,15 @@
 // Auth: PERPLEXITY_API_KEY (or PPLX_API_KEY). Sign up at
 // https://www.perplexity.ai/settings/api.
 //
-// Default model: sonar — cheap, fast. Override with --model:
+// Model: optional. Defaults to `sonar` (Perplexity's auto-tracking
+// alias for their cheapest grounded variant). Override with --model:
 //
-//	sonar           cheapest grounded model
+//	sonar           cheapest grounded model (default)
 //	sonar-pro       larger context, better synthesis
 //	sonar-reasoning reasoning model with web search
+//
+// Instructions are passed through as a `system`-role message
+// prepended to the messages array — standard Chat Completions idiom.
 package perplexity
 
 import (
@@ -30,6 +34,14 @@ import (
 
 const defaultBase = "https://api.perplexity.ai/chat/completions"
 const defaultModel = "sonar"
+
+// longAskClient handles Perplexity Sonar requests, which can run
+// 30-90s when the model fans out to multiple sources. Reuses
+// core.HTTPClient.Transport so audit events still emit.
+var longAskClient = &http.Client{
+	Timeout:   3 * time.Minute,
+	Transport: core.HTTPClient.Transport,
+}
 
 type Provider struct {
 	BaseURL string
@@ -83,11 +95,18 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 		model = defaultModel
 	}
 
+	// Build messages: optional system instruction, then the user's
+	// question. Perplexity's Chat Completions endpoint accepts the
+	// standard role=system message for persistent guidance.
+	msgs := make([]chatMsg, 0, 2)
+	if opts.Instructions != "" {
+		msgs = append(msgs, chatMsg{Role: "system", Content: opts.Instructions})
+	}
+	msgs = append(msgs, chatMsg{Role: "user", Content: question})
+
 	body, err := json.Marshal(request{
-		Model: model,
-		Messages: []chatMsg{
-			{Role: "user", Content: question},
-		},
+		Model:               model,
+		Messages:            msgs,
 		SearchRecencyFilter: opts.Recency,
 		MaxTokens:           opts.MaxTokens,
 	})
@@ -103,19 +122,19 @@ func (p *Provider) Ask(ctx context.Context, question string, opts core.AskOption
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("User-Agent", core.UserAgent)
 
-	resp, err := core.HTTPClient.Do(req)
+	resp, err := longAskClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("perplexity: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("perplexity: HTTP 401 — PERPLEXITY_API_KEY rejected")
+		return nil, fmt.Errorf("perplexity: HTTP 401 — PERPLEXITY_API_KEY rejected: %s", core.HTTPErrorBody(resp))
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("perplexity: HTTP 429 — rate limit hit")
+		return nil, fmt.Errorf("perplexity: HTTP 429 — rate limit hit: %s", core.HTTPErrorBody(resp))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("perplexity: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("perplexity: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	var data response

@@ -1,8 +1,17 @@
-// Package tavilyask adapts Tavily as an answer engine: a regular
-// /search call with include_answer=true returns a synthesized answer
-// alongside the result list, which is exactly the core.Answer shape.
+// Package tavily's Ask side adapts Tavily as an answer engine: a
+// regular /search call with include_answer=true returns a synthesized
+// answer alongside the result list, which is exactly the core.Answer
+// shape.
 //
 // Auth: same TAVILY_API_KEY as the search provider.
+//
+// Limitations:
+//   - opts.Model is ignored — Tavily's /search synthesises with their
+//     own backend; no caller-controlled model.
+//   - opts.Instructions is ignored — Tavily's /search has no
+//     system-prompt parameter (their newer /answer endpoint does, but
+//     it's a separate API). If you need instruction-following, use
+//     -p perplexity / grok / google instead.
 package tavily
 
 import (
@@ -20,6 +29,15 @@ import (
 )
 
 const defaultAskBase = "https://api.tavily.com/search"
+
+// longAskClient handles Tavily Ask requests. /search with
+// include_answer=true is generally fast (<10s) but advanced search
+// depth + many sources can occasionally push past the 30s default.
+// 2-minute ceiling reuses core.HTTPClient.Transport for audit.
+var longAskClient = &http.Client{
+	Timeout:   2 * time.Minute,
+	Transport: core.HTTPClient.Transport,
+}
 
 type AskProvider struct {
 	BaseURL string
@@ -80,13 +98,13 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOpt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", core.UserAgent)
 
-	resp, err := core.HTTPClient.Do(req)
+	resp, err := longAskClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("tavily ask: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("tavily ask: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("tavily ask: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 	var data askResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
