@@ -170,6 +170,19 @@ func WithAudit(ctx context.Context, a *AuditLogger) context.Context {
 	return context.WithValue(ctx, auditCtxKey, a)
 }
 
+// AuditFromContext returns the AuditLogger attached via WithAudit, or
+// nil if there isn't one. Useful from platform packages that want to
+// emit a one-line note alongside the HTTP-level audit lines that the
+// transport produces automatically — without needing to change the
+// Options struct that gets passed in.
+func AuditFromContext(ctx context.Context) *AuditLogger {
+	if ctx == nil {
+		return nil
+	}
+	a, _ := ctx.Value(auditCtxKey).(*AuditLogger)
+	return a
+}
+
 // GetJSON fetches url and decodes its body into v. It surfaces non-2xx
 // responses as an error so callers don't accidentally decode an HTML error
 // page as JSON.

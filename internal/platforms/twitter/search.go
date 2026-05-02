@@ -15,11 +15,35 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 )
+
+// unsupportedOpRE matches X v2 search operators that aren't available
+// on our recent-search tier. They look like Twitter's web-search
+// operators (`before:2026-04-01`, `since:2026-01-01`) but the API
+// returns HTTP 400 with "Reference to invalid operator" when they
+// appear. Strip them before sending so an LLM-generated query
+// (research orchestrator's decomposer is the common source) doesn't
+// hard-fail; date filtering should go through opts.After/opts.Before
+// → start_time/end_time instead.
+var unsupportedOpRE = regexp.MustCompile(`(?i)\b(before|after|since|until):[^ ]+`)
+
+// stripUnsupportedXOperators removes Twitter web-search operators
+// that the API rejects, returning the cleaned query plus a slice of
+// the operators it removed (so callers can audit-log them).
+func stripUnsupportedXOperators(query string) (cleaned string, removed []string) {
+	matches := unsupportedOpRE.FindAllString(query, -1)
+	if len(matches) == 0 {
+		return query, nil
+	}
+	cleaned = strings.TrimSpace(unsupportedOpRE.ReplaceAllString(query, ""))
+	cleaned = strings.Join(strings.Fields(cleaned), " ") // collapse double spaces
+	return cleaned, matches
+}
 
 // XSearchMaxAgeDays is X's recent-search window. The free/basic tier of
 // the v2 endpoint rejects start_time older than 7 days with HTTP 400.
@@ -106,12 +130,24 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts core.Sea
 		max = 100
 	}
 
+	// Strip Twitter web-search operators that the v2 API rejects
+	// (`before:`, `after:`, `since:`, `until:`). These commonly leak
+	// in from LLM-generated queries — the research orchestrator's
+	// decomposer is the usual source. Date filtering should go
+	// through opts.After/Before → start_time/end_time below.
+	cleanQuery, stripped := stripUnsupportedXOperators(query)
+	if len(stripped) > 0 {
+		if a := core.AuditFromContext(ctx); a != nil {
+			a.Logf("x search: stripped unsupported operators %v from query — use opts.After/Before for date filtering", stripped)
+		}
+	}
+
 	// X v2 recent-search supports inline operators; map portable
 	// Options into them. Date bounds use start_time/end_time as
 	// dedicated query params (more precise than the from:/until:
 	// inline operators which are date-granular).
 	q := url.Values{
-		"query":        {applyXOperators(query, opts)},
+		"query":        {applyXOperators(cleanQuery, opts)},
 		"max_results":  {fmt.Sprint(max)},
 		"expansions":   {"author_id"},
 		"tweet.fields": {"created_at,public_metrics,lang,note_tweet"},

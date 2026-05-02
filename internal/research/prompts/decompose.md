@@ -15,18 +15,15 @@ A good decomposition:
 
 ## Available tools
 
-- **`ask`** — grounded answer engine. Use for "what is X" or "why
-  does Y matter" sub-questions where a synthesized paragraph is
-  more useful than raw URLs. Providers: {{.AskProviders}}
-- **`search`** — list of URLs + snippets for a query. Use for "who
-  is talking about X" or "where has Y been discussed". Providers:
-  {{.SearchProviders}}
-- **`fetch`** — the body of a single URL. Use only when you already
-  know the URL is worth reading (e.g. a specific HN thread, GitHub
-  repo, arXiv paper). Don't use for general queries.
-- **`timeline`** — recent activity for a named person on X or
-  LinkedIn. Use for "what is <person> saying about <topic>". Two
-  providers: x, linkedin.
+You MUST pick `tool` from this exact list — do NOT invent tool names,
+and do NOT pair a provider with the wrong tool. If you want to leave
+the provider choice to the system, set `provider` to "" (empty
+string) and the auto chain will pick.
+{{range .Tools}}
+- **`{{.Name}}`** — {{.Purpose}}{{if .Providers}}
+  Valid providers: {{.Providers}}, or "" for auto.{{end}}{{if .Notes}}
+  {{.Notes}}{{end}}
+{{end}}
 
 ## Output format
 

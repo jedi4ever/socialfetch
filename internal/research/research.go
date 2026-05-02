@@ -157,10 +157,9 @@ func decompose(ctx context.Context, question string, opts Options) ([]Angle, err
 		return nil, fmt.Errorf("template parse: %w", err)
 	}
 	data := map[string]any{
-		"Question":        question,
-		"MaxAngles":       opts.MaxAngles,
-		"AskProviders":    strings.Join(opts.Askers.Names(), ", "),
-		"SearchProviders": strings.Join(opts.Searchers.Names(), ", "),
+		"Question":  question,
+		"MaxAngles": opts.MaxAngles,
+		"Tools":     buildToolSpecs(opts),
 	}
 	var prompt bytes.Buffer
 	if err := tmpl.Execute(&prompt, data); err != nil {
@@ -230,12 +229,21 @@ func fanOut(parent context.Context, angles []Angle, opts Options, emit func(Even
 	return results
 }
 
+// normalizeToolName accepts either the namespaced MCP tool name
+// (`socialfetch_fetch`, what the decomposer prompt recommends) or the
+// bare category (`fetch`, what hand-written angle JSON tends to use).
+// Both resolve to the same dispatcher branch.
+func normalizeToolName(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	return strings.TrimPrefix(t, "socialfetch_")
+}
+
 // dispatch turns an Angle into one tool call against the existing
 // registries. Errors are stuffed into AngleResult.Err so the
 // synthesizer sees the partial picture instead of the run aborting.
 func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 	r := AngleResult{Angle: a}
-	switch strings.ToLower(strings.TrimSpace(a.Tool)) {
+	switch normalizeToolName(a.Tool) {
 	case "ask":
 		if a.Question == "" {
 			r.Err = errors.New("angle.question is empty for tool=ask")
@@ -315,20 +323,45 @@ func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 	return r
 }
 
+// resolveAsker / resolveSearcher are intentionally tolerant of
+// invalid `provider` fields the decomposer LLM may emit. When the
+// name doesn't resolve to a known provider (typo, hallucination,
+// wrong tool — e.g. `linkedin` for a search angle), we fall through
+// to the auto chain rather than returning an error and losing the
+// whole angle. The audit log records the substitution so the
+// operator can see when this fired.
+
 func resolveAsker(opts Options, name string) (core.Asker, error) {
 	if name == "" || strings.EqualFold(name, "auto") {
 		// Default chain — if the orchestrator was already an
 		// AskChain, reuse the same chain semantics for workers too.
 		return opts.Orchestrator, nil
 	}
-	return opts.Askers.Get(name)
+	a, err := opts.Askers.Get(name)
+	if err != nil {
+		// Hallucinated / unknown provider — fall back to the
+		// orchestrator (which is the auto chain by default).
+		return opts.Orchestrator, nil
+	}
+	return a, nil
 }
 
 func resolveSearcher(opts Options, name string) (core.SearchProvider, error) {
-	if name == "" || strings.EqualFold(name, "auto") {
-		return core.NewSearchChain(opts.Searchers, []string{"perplexity", "tavily", "brave", "serpapi", "duckduckgo"})
+	autoChain := func() (core.SearchProvider, error) {
+		return core.NewSearchChain(opts.Searchers, []string{
+			"perplexity", "tavily", "brave", "serpapi", "duckduckgo",
+		})
 	}
-	return opts.Searchers.Get(name)
+	if name == "" || strings.EqualFold(name, "auto") {
+		return autoChain()
+	}
+	p, err := opts.Searchers.Get(name)
+	if err != nil {
+		// Hallucinated / unknown provider — fall back to the auto
+		// search chain.
+		return autoChain()
+	}
+	return p, nil
 }
 
 // ---- synthesize ---------------------------------------------------
