@@ -79,6 +79,32 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addBridgeStatusTool(s, cfg)
 }
 
+// openToolAudit opens the always-on global audit log scoped to an MCP
+// tool invocation. The audit log destination matches what
+// `socialfetch fetch` / `search` / `ask` etc. use from the CLI; the
+// only difference is the cmd string is `mcp:<tool>` so an operator
+// running `socialfetch monitor` can tell MCP-driven calls apart from
+// shell-driven ones.
+//
+// We never attach a user-facing destination because stdio is the
+// JSON-RPC channel — writing audit lines to stdout would corrupt the
+// protocol stream. If you need to debug, tail the global audit file:
+//
+//	socialfetch monitor
+func openToolAudit(toolName string) (*core.AuditLogger, func()) {
+	cmd := "mcp:" + toolName
+	globalW, closeGlobal, err := core.OpenGlobalAudit(cmd)
+	audit := core.NewAuditLogger(nil)
+	if err == nil && globalW != nil {
+		audit.AttachGlobal(globalW)
+	}
+	return audit, func() {
+		if closeGlobal != nil {
+			closeGlobal()
+		}
+	}
+}
+
 // ---- fetch -----------------------------------------------------------
 
 type fetchArgs struct {
@@ -97,19 +123,27 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithBoolean("generic_extraction", mcp.Description("Force the catch-all article extractor even on hosts with a specific extractor (debug aid)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args fetchArgs) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("fetch")
+		defer closeAudit()
+		ctx = core.WithAudit(ctx, audit)
+		audit.Logf("fetch %s", args.URL)
+
 		if strings.TrimSpace(args.URL) == "" {
+			audit.Logf("fetch FAILED: url is required")
 			return mcp.NewToolResultError("url is required"), nil
 		}
 		opts := core.Options{
 			IncludeComments:   args.IncludeComments == nil || *args.IncludeComments,
 			MaxComments:       args.MaxComments,
 			GenericExtraction: args.GenericExtraction,
-			Audit:             core.NewAuditLogger(nil),
+			Audit:             audit,
 		}
 		item, err := cfg.Fetchers.Fetch(ctx, args.URL, opts)
 		if err != nil {
+			audit.Logf("fetch FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		audit.Logf("fetch ok via %s kind=%s title=%q", item.Source, item.Kind, item.Title)
 		return jsonResult(item)
 	}))
 }
@@ -138,11 +172,18 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("site", mcp.Description("Restrict to domain (single domain; comma-separate for multiple)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args searchArgs) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("search")
+		defer closeAudit()
+		ctx = core.WithAudit(ctx, audit)
+		audit.Logf("search %q via %s (max=%d)", args.Query, args.Provider, args.Max)
+
 		if strings.TrimSpace(args.Query) == "" {
+			audit.Logf("search FAILED: query is required")
 			return mcp.NewToolResultError("query is required"), nil
 		}
 		provider, err := resolveSearcher(cfg, args.Provider)
 		if err != nil {
+			audit.Logf("search FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		opts := core.SearchOptions{Max: args.Max}
@@ -173,8 +214,10 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 		}
 		results, err := provider.Search(ctx, args.Query, opts)
 		if err != nil {
+			audit.Logf("search FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		audit.Logf("search returned %d results via %s", len(results), provider.Name())
 		return jsonResult(map[string]any{
 			"query":    args.Query,
 			"provider": provider.Name(),
@@ -206,11 +249,18 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("instructions", mcp.Description("System-prompt-style preamble (honored by perplexity, grok, openai, anthropic, google)")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args askArgs) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("ask")
+		defer closeAudit()
+		ctx = core.WithAudit(ctx, audit)
+		audit.Logf("ask %q via %s (model=%s, recency=%s)", args.Question, args.Provider, args.Model, args.Recency)
+
 		if strings.TrimSpace(args.Question) == "" {
+			audit.Logf("ask FAILED: question is required")
 			return mcp.NewToolResultError("question is required"), nil
 		}
 		asker, err := resolveAsker(cfg, args.Provider)
 		if err != nil {
+			audit.Logf("ask FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		ans, err := asker.Ask(ctx, args.Question, core.AskOptions{
@@ -220,8 +270,10 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 			Instructions: args.Instructions,
 		})
 		if err != nil {
+			audit.Logf("ask FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		audit.Logf("ask returned answer (%d chars, %d sources) via %s", len(ans.Text), len(ans.Sources), ans.Provider)
 		return jsonResult(ans)
 	}))
 }
@@ -250,15 +302,23 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 		mcp.WithBoolean("no_reshares", mcp.Description("LinkedIn: drop reposts from the timeline")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args timelineArgs) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("timeline")
+		defer closeAudit()
+		ctx = core.WithAudit(ctx, audit)
+		audit.Logf("timeline %s/%s (kind=%s, max=%d)", args.Provider, args.User, args.Kind, args.Max)
+
 		if strings.TrimSpace(args.User) == "" {
+			audit.Logf("timeline FAILED: user is required")
 			return mcp.NewToolResultError("user is required"), nil
 		}
 		provider, user, err := core.ParseIdentifier(args.User, args.Provider)
 		if err != nil {
+			audit.Logf("timeline FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		p, err := cfg.Timelines.Get(provider)
 		if err != nil {
+			audit.Logf("timeline FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		opts := core.TimelineOptions{
@@ -277,8 +337,10 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 		}
 		item, err := p.Fetch(ctx, user, opts)
 		if err != nil {
+			audit.Logf("timeline FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		audit.Logf("timeline returned %d items for %s/%s", len(item.Children), provider, user)
 		return jsonResult(item)
 	}))
 }
@@ -290,6 +352,10 @@ func addListProvidersTool(s *server.MCPServer, cfg Config) {
 		mcp.WithDescription("List all available fetch / search / ask / timeline providers. Useful for the agent to discover capabilities at runtime."),
 	)
 	s.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("list_providers")
+		defer closeAudit()
+		audit.Logf("list_providers called")
+
 		fetchNames := make([]string, 0)
 		for _, f := range cfg.Fetchers.Fetchers() {
 			fetchNames = append(fetchNames, f.Name())
@@ -310,6 +376,9 @@ func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
 		mcp.WithDescription("Probe the local browser-extension bridge. Returns {reachable, connected, port}. LinkedIn / Medium / Substack fetches require this to be reachable + connected."),
 	)
 	s.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("bridge_status")
+		defer closeAudit()
+
 		port := cfg.BridgePort
 		if port == 0 {
 			port = bridge.DefaultPort
@@ -320,6 +389,7 @@ func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
 		req, _ := http.NewRequestWithContext(probe, http.MethodGet, url, nil)
 		resp, err := core.HTTPClient.Do(req)
 		if err != nil {
+			audit.Logf("bridge_status: not reachable on :%d", port)
 			return jsonResult(map[string]any{"reachable": false, "connected": false, "port": port})
 		}
 		defer resp.Body.Close()
@@ -327,6 +397,7 @@ func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
 			Connected bool `json:"connected"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&body)
+		audit.Logf("bridge_status: reachable=%v connected=%v port=%d", resp.StatusCode == 200, body.Connected, port)
 		return jsonResult(map[string]any{
 			"reachable": resp.StatusCode == 200,
 			"connected": body.Connected,
