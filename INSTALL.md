@@ -56,10 +56,18 @@ Update Claude Desktop and try again.
 
 ### Update / uninstall
 
-- **Update**: `git pull && make extension-package`, then re-drag (or
-  `open ...`) the new `.mcpb` — Claude Desktop replaces in place.
+- **Update (preserves API keys)**: `git pull && make extension-package`,
+  then drag the new `.mcpb` straight onto Settings → Extensions —
+  **without** uninstalling first. Claude Desktop matches by manifest
+  `name` and updates in place, keeping every keychain entry. The
+  install dialog still appears but fields are pre-populated.
 - **Uninstall**: Settings → Extensions → ⋯ menu next to socialfetch
   → **Remove**.
+
+> ⚠️ **Don't uninstall before installing a new version** — uninstall
+> wipes the keychain entries, so a subsequent drag presents an empty
+> dialog and you have to re-enter every key. Just drag the new
+> `.mcpb` over the old one to update in place.
 
 ### Validate the manifest
 

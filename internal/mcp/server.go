@@ -115,7 +115,7 @@ type fetchArgs struct {
 }
 
 func addFetchTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("fetch",
+	tool := mcp.NewTool("socialfetch_fetch",
 		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a structured Item with title, author, content, comments, etc."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("The URL to fetch")),
 		mcp.WithBoolean("include_comments", mcp.Description("Include comment trees (default true; set false for faster/smaller fetch)")),
@@ -161,7 +161,7 @@ type searchArgs struct {
 }
 
 func addSearchTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("search",
+	tool := mcp.NewTool("socialfetch_search",
 		mcp.WithDescription("Run a search query. Provider names: duckduckgo (default for unauthed), google, brave, serpapi, tavily, perplexity, hackernews, reddit, twitter, youtube, bluesky, arxiv. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
@@ -239,7 +239,7 @@ type askArgs struct {
 }
 
 func addAskTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("ask",
+	tool := mcp.NewTool("socialfetch_ask",
 		mcp.WithDescription("Ask a question of a grounded answer engine. Returns a synthesized answer plus citations. Provider names: perplexity, grok, openai, anthropic, google, tavily, serpapi. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("question", mcp.Required(), mcp.Description("The question to ask")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
@@ -291,7 +291,7 @@ type timelineArgs struct {
 }
 
 func addTimelineTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("timeline",
+	tool := mcp.NewTool("socialfetch_timeline",
 		mcp.WithDescription("Recent activity for a user on X/Twitter or LinkedIn. Accepts bare handles (default to X), @-prefixed handles, or full profile URLs (auto-detected). LinkedIn requires the local browser bridge."),
 		mcp.WithString("user", mcp.Required(), mcp.Description("User handle or profile URL")),
 		mcp.WithString("provider", mcp.Description("x or linkedin; auto-detected from URL")),
@@ -348,7 +348,7 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 // ---- list_providers --------------------------------------------------
 
 func addListProvidersTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("list_providers",
+	tool := mcp.NewTool("socialfetch_list_providers",
 		mcp.WithDescription("List all available fetch / search / ask / timeline providers. Useful for the agent to discover capabilities at runtime."),
 	)
 	s.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -372,7 +372,7 @@ func addListProvidersTool(s *server.MCPServer, cfg Config) {
 // ---- bridge_status ---------------------------------------------------
 
 func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("bridge_status",
+	tool := mcp.NewTool("socialfetch_bridge_status",
 		mcp.WithDescription("Probe the local browser-extension bridge. Returns {reachable, connected, port}. LinkedIn / Medium / Substack fetches require this to be reachable + connected."),
 	)
 	s.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
