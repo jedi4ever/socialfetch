@@ -114,12 +114,12 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		Score:       root.LikeCount,
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
-			"did":           root.Author.DID,
-			"handle":        root.Author.Handle,
-			"like_count":    root.LikeCount,
-			"reply_count":   root.ReplyCount,
-			"repost_count":  root.RepostCount,
-			"quote_count":   root.QuoteCount,
+			"did":          root.Author.DID,
+			"handle":       root.Author.Handle,
+			"like_count":   root.LikeCount,
+			"reply_count":  root.ReplyCount,
+			"repost_count": root.RepostCount,
+			"quote_count":  root.QuoteCount,
 		},
 	}
 	for _, m := range extractMedia(root) {
@@ -158,8 +158,8 @@ type post struct {
 }
 
 type embed struct {
-	Type    string  `json:"$type"`
-	Images  []embedImg `json:"images,omitempty"`
+	Type     string         `json:"$type"`
+	Images   []embedImg     `json:"images,omitempty"`
 	External *embedExternal `json:"external,omitempty"`
 }
 
@@ -176,8 +176,8 @@ type embedExternal struct {
 }
 
 type threadView struct {
-	Post    *post         `json:"post"`
-	Replies []threadView  `json:"replies,omitempty"`
+	Post    *post        `json:"post"`
+	Replies []threadView `json:"replies,omitempty"`
 }
 
 type getPostThreadResp struct {
@@ -203,9 +203,9 @@ func (f *Fetcher) resolveHandle(ctx context.Context, handle string) (string, err
 
 func (f *Fetcher) getPostThread(ctx context.Context, atURI string, opts core.Options) (*threadView, error) {
 	q := url.Values{
-		"uri":           {atURI},
-		"depth":         {"6"},
-		"parentHeight":  {"0"},
+		"uri":          {atURI},
+		"depth":        {"6"},
+		"parentHeight": {"0"},
 	}
 	endpoint := f.base() + "/app.bsky.feed.getPostThread?" + q.Encode()
 	var out getPostThreadResp

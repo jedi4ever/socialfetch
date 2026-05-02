@@ -76,11 +76,11 @@ type atomFeed struct {
 }
 
 type atomEntry struct {
-	ID         string      `xml:"id"`
-	Title      string      `xml:"title"`
-	Summary    string      `xml:"summary"`
-	Published  string      `xml:"published"`
-	Updated    string      `xml:"updated"`
+	ID         string       `xml:"id"`
+	Title      string       `xml:"title"`
+	Summary    string       `xml:"summary"`
+	Published  string       `xml:"published"`
+	Updated    string       `xml:"updated"`
 	Authors    []atomAuthor `xml:"author"`
 	Categories []struct {
 		Term string `xml:"term,attr"`

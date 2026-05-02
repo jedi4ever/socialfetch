@@ -178,7 +178,6 @@ func atURIToWebURL(uri, handle string) string {
 	return "https://bsky.app/profile/" + handle + "/post/" + rkey
 }
 
-
 // session returns a cached accessJwt or runs createSession to mint
 // one. The token is reused across calls in this process; if Bluesky
 // rejects it (401) Search() clears the cache so the next call gets

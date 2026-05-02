@@ -51,10 +51,10 @@ type Server struct {
 	// CommandTimeout overrides DefaultCommandTimeout when non-zero.
 	CommandTimeout time.Duration
 
-	mu       sync.Mutex
-	conn     *websocket.Conn   // current extension connection (or nil)
-	pending  map[string]chan json.RawMessage
-	nextID   atomic.Uint64
+	mu      sync.Mutex
+	conn    *websocket.Conn // current extension connection (or nil)
+	pending map[string]chan json.RawMessage
+	nextID  atomic.Uint64
 }
 
 // New returns a Server with no logger and default timeout.

@@ -39,8 +39,8 @@ import (
 
 func runMCP(args []string) error {
 	var (
-		httpAddr  string
-		useNgrok  bool
+		httpAddr string
+		useNgrok bool
 	)
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -293,18 +293,18 @@ func printNgrokInstructions(publicURL, token string) {
 	fmt.Fprintln(os.Stderr, "──────────────────────────────────────────────────────────────")
 	fmt.Fprintln(os.Stderr, "  socialfetch MCP server is live via ngrok.")
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr,  "  URL:    %s/mcp\n", publicURL)
+	fmt.Fprintf(os.Stderr, "  URL:    %s/mcp\n", publicURL)
 	if token != "" {
 		fmt.Fprintf(os.Stderr, "  Token:  %s\n", token)
 	}
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "  Add to claude.ai → Settings → Connectors → Add custom")
 	fmt.Fprintln(os.Stderr, "  connector:")
-	fmt.Fprintf(os.Stderr,  "    1. Connector URL:  %s/mcp\n", publicURL)
+	fmt.Fprintf(os.Stderr, "    1. Connector URL:  %s/mcp\n", publicURL)
 	if token != "" {
 		fmt.Fprintln(os.Stderr, "    2. Authentication:  Bearer token (paste the token above)")
-		fmt.Fprintf(os.Stderr,  "       Or use this URL with embedded token:\n")
-		fmt.Fprintf(os.Stderr,  "         %s/mcp?token=%s\n", publicURL, token)
+		fmt.Fprintf(os.Stderr, "       Or use this URL with embedded token:\n")
+		fmt.Fprintf(os.Stderr, "         %s/mcp?token=%s\n", publicURL, token)
 	}
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "  Ctrl+C to stop the server and tear down the tunnel.")

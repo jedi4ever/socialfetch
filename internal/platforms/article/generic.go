@@ -24,8 +24,8 @@ var genericArticleSelectors = []string{
 // extractor. It uses the broadest selector list and adds no extras.
 type GenericExtractor struct{}
 
-func (*GenericExtractor) Name() string                { return "generic" }
-func (*GenericExtractor) Match(host string) bool      { return true }
+func (*GenericExtractor) Name() string           { return "generic" }
+func (*GenericExtractor) Match(host string) bool { return true }
 
 func (g *GenericExtractor) Extract(rawURL string, page *htmlmeta.Page) (*core.Item, error) {
 	item := BaseFromPage(rawURL, page, "article")

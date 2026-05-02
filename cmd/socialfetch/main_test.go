@@ -109,8 +109,8 @@ func TestExampleForKnownNames(t *testing.T) {
 // the configured delay, then returns an Item whose title encodes the URL
 // so tests can verify ordering.
 type fakeFetcher struct {
-	delays  map[string]time.Duration // per-URL artificial delay
-	calls   atomic.Int64
+	delays map[string]time.Duration // per-URL artificial delay
+	calls  atomic.Int64
 }
 
 func (*fakeFetcher) Name() string          { return "fake" }

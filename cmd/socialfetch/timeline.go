@@ -16,14 +16,14 @@ import (
 
 // timelineFlags is parsed from `socialfetch timeline` args.
 type timelineFlags struct {
-	provider string // explicit -p; auto-detected from URL when empty
-	kind     string // all | posts | comments | reactions | tweets | replies | retweets
-	max      int
-	format   string
-	output   string
-	logFile  string
-	before   *time.Time
-	after    *time.Time
+	provider      string // explicit -p; auto-detected from URL when empty
+	kind          string // all | posts | comments | reactions | tweets | replies | retweets
+	max           int
+	format        string
+	output        string
+	logFile       string
+	before        *time.Time
+	after         *time.Time
 	timeout       time.Duration
 	expand        bool
 	excludeShares bool

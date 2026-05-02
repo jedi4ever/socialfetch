@@ -57,10 +57,10 @@ func (*AskProvider) Name() string { return "serpapi" }
 // (in the `ai_overview` field of the larger response) and
 // /search?engine=google_ai_overview (as the top-level `ai_overview`).
 type aiOverview struct {
-	PageToken  string         `json:"page_token,omitempty"`
-	Snippet    string         `json:"snippet,omitempty"`
-	TextBlocks []aiTextBlock  `json:"text_blocks,omitempty"`
-	References []aiReference  `json:"references,omitempty"`
+	PageToken  string        `json:"page_token,omitempty"`
+	Snippet    string        `json:"snippet,omitempty"`
+	TextBlocks []aiTextBlock `json:"text_blocks,omitempty"`
+	References []aiReference `json:"references,omitempty"`
 }
 
 type aiTextBlock struct {

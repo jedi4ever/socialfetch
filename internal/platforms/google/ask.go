@@ -14,8 +14,9 @@
 // (or any specific version) to override.
 //
 // Refs:
-//   https://ai.google.dev/gemini-api/docs/google-search
-//   https://ai.google.dev/api/generate-content
+//
+//	https://ai.google.dev/gemini-api/docs/google-search
+//	https://ai.google.dev/api/generate-content
 package google
 
 import (
@@ -63,7 +64,7 @@ type askRequest struct {
 
 type askContent struct {
 	Parts []askPart `json:"parts"`
-	Role  string `json:"role,omitempty"`
+	Role  string    `json:"role,omitempty"`
 }
 
 type askPart struct {

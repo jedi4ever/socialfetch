@@ -30,10 +30,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/util/dotenv"
+	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/render"
+	"github.com/patrickdebois/social-skills/internal/util/dotenv"
 
 	"github.com/patrickdebois/social-skills/internal/platforms/anthropic"
 	"github.com/patrickdebois/social-skills/internal/platforms/article"

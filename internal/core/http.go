@@ -135,8 +135,8 @@ func (c *countingBody) Close() error {
 // content has moved permanently and we received the new location. Callers
 // can inspect Final to retry against it, or surface the move in audit logs.
 type MovedError struct {
-	From  string
-	To    string
+	From   string
+	To     string
 	Status int
 }
 

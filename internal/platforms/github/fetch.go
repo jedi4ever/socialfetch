@@ -56,28 +56,28 @@ func splitOwnerRepo(path string) (string, string) {
 }
 
 type repoInfo struct {
-	Name        string `json:"name"`
-	FullName    string `json:"full_name"`
-	Description string `json:"description"`
-	Homepage    string `json:"homepage"`
-	HTMLURL     string `json:"html_url"`
-	Default     string `json:"default_branch"`
-	Language    string `json:"language"`
+	Name        string   `json:"name"`
+	FullName    string   `json:"full_name"`
+	Description string   `json:"description"`
+	Homepage    string   `json:"homepage"`
+	HTMLURL     string   `json:"html_url"`
+	Default     string   `json:"default_branch"`
+	Language    string   `json:"language"`
 	Topics      []string `json:"topics"`
 	License     *struct {
 		SPDX string `json:"spdx_id"`
 	} `json:"license"`
-	Stars       int    `json:"stargazers_count"`
-	Forks       int    `json:"forks_count"`
-	OpenIssues  int    `json:"open_issues_count"`
-	Watchers    int    `json:"watchers_count"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	PushedAt    string `json:"pushed_at"`
-	Private     bool   `json:"private"`
-	Fork        bool   `json:"fork"`
-	Archived    bool   `json:"archived"`
-	Owner       struct {
+	Stars      int    `json:"stargazers_count"`
+	Forks      int    `json:"forks_count"`
+	OpenIssues int    `json:"open_issues_count"`
+	Watchers   int    `json:"watchers_count"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+	PushedAt   string `json:"pushed_at"`
+	Private    bool   `json:"private"`
+	Fork       bool   `json:"fork"`
+	Archived   bool   `json:"archived"`
+	Owner      struct {
 		Login   string `json:"login"`
 		Type    string `json:"type"`
 		HTMLURL string `json:"html_url"`
@@ -150,18 +150,18 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		Tags:        tags,
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
-			"homepage":         info.Homepage,
-			"default_branch":   info.Default,
-			"forks":            info.Forks,
-			"open_issues":      info.OpenIssues,
-			"watchers":         info.Watchers,
-			"license":          licenseID,
-			"private":          info.Private,
-			"fork":             info.Fork,
-			"archived":         info.Archived,
-			"updated_at":       info.UpdatedAt,
-			"pushed_at":        info.PushedAt,
-			"recent_releases":  summarizeReleases(releases),
+			"homepage":        info.Homepage,
+			"default_branch":  info.Default,
+			"forks":           info.Forks,
+			"open_issues":     info.OpenIssues,
+			"watchers":        info.Watchers,
+			"license":         licenseID,
+			"private":         info.Private,
+			"fork":            info.Fork,
+			"archived":        info.Archived,
+			"updated_at":      info.UpdatedAt,
+			"pushed_at":       info.PushedAt,
+			"recent_releases": summarizeReleases(releases),
 		},
 	}
 	return item, nil

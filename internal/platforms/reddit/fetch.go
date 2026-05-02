@@ -57,20 +57,20 @@ type child struct {
 }
 
 type postData struct {
-	ID           string  `json:"id"`
-	Title        string  `json:"title"`
-	URL          string  `json:"url"`
-	Selftext     string  `json:"selftext"`
-	Author       string  `json:"author"`
-	Subreddit    string  `json:"subreddit"`
-	Score        int     `json:"score"`
-	UpvoteRatio  float64 `json:"upvote_ratio"`
-	NumComments  int     `json:"num_comments"`
-	CreatedUTC   float64 `json:"created_utc"`
-	Permalink    string  `json:"permalink"`
-	IsSelf       bool    `json:"is_self"`
-	LinkFlair    string  `json:"link_flair_text"`
-	Preview      preview `json:"preview"`
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	URL         string  `json:"url"`
+	Selftext    string  `json:"selftext"`
+	Author      string  `json:"author"`
+	Subreddit   string  `json:"subreddit"`
+	Score       int     `json:"score"`
+	UpvoteRatio float64 `json:"upvote_ratio"`
+	NumComments int     `json:"num_comments"`
+	CreatedUTC  float64 `json:"created_utc"`
+	Permalink   string  `json:"permalink"`
+	IsSelf      bool    `json:"is_self"`
+	LinkFlair   string  `json:"link_flair_text"`
+	Preview     preview `json:"preview"`
 }
 
 type preview struct {

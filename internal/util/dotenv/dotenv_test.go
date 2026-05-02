@@ -37,9 +37,9 @@ func TestLoadMissingFileIsOK(t *testing.T) {
 
 func TestParseLine(t *testing.T) {
 	cases := []struct {
-		in       string
-		k, v     string
-		ok       bool
+		in   string
+		k, v string
+		ok   bool
 	}{
 		{`FOO=bar`, "FOO", "bar", true},
 		{`FOO=bar  `, "FOO", "bar", true},

@@ -18,7 +18,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
 )
 
 // Options shape one timeline call. Kind values are provider-specific;

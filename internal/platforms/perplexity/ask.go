@@ -53,8 +53,8 @@ func New() *Provider { return &Provider{BaseURL: defaultBase} }
 func (*Provider) Name() string { return "perplexity" }
 
 type request struct {
-	Model    string     `json:"model"`
-	Messages []chatMsg  `json:"messages"`
+	Model    string    `json:"model"`
+	Messages []chatMsg `json:"messages"`
 	// SearchRecencyFilter narrows the corpus Perplexity searches.
 	SearchRecencyFilter string `json:"search_recency_filter,omitempty"`
 	MaxTokens           int    `json:"max_tokens,omitempty"`

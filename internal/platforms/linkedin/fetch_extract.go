@@ -116,14 +116,14 @@ var classDenyContains = []string{
 
 // roleDeny drops elements with these ARIA roles.
 var roleDeny = map[string]bool{
-	"banner":      true,
-	"navigation":  true,
+	"banner":        true,
+	"navigation":    true,
 	"complementary": true,
-	"dialog":      true,
-	"alertdialog": true,
-	"menu":        true,
-	"menubar":     true,
-	"toolbar":     true,
+	"dialog":        true,
+	"alertdialog":   true,
+	"menu":          true,
+	"menubar":       true,
+	"toolbar":       true,
 }
 
 // prune walks the tree and removes nodes matching dropTags / class /

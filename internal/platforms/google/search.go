@@ -2,11 +2,11 @@
 // Custom Search JSON API. Free tier: 100 q/day (then $5 per 1k).
 //
 // Setup:
-//   1. Get GOOGLE_API_KEY from https://console.cloud.google.com → enable
-//      "Custom Search API" → Credentials → Create API key.
-//   2. Create a CSE at https://programmablesearchengine.google.com →
-//      configure to "Search the entire web" → copy the engine ID.
-//   3. Set GOOGLE_API_KEY + GOOGLE_CSE_ID in your shell or .env.
+//  1. Get GOOGLE_API_KEY from https://console.cloud.google.com → enable
+//     "Custom Search API" → Credentials → Create API key.
+//  2. Create a CSE at https://programmablesearchengine.google.com →
+//     configure to "Search the entire web" → copy the engine ID.
+//  3. Set GOOGLE_API_KEY + GOOGLE_CSE_ID in your shell or .env.
 package google
 
 import (

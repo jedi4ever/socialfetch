@@ -85,12 +85,12 @@ func TestExtractActivitiesRespectsMax(t *testing.T) {
 func TestParseRelTime(t *testing.T) {
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	cases := map[string]time.Duration{
-		"5h •":        5 * time.Hour,
-		"2d •":        2 * 24 * time.Hour,
-		"3w":          3 * 7 * 24 * time.Hour,
-		"1mo •":       30 * 24 * time.Hour,
+		"5h •":                         5 * time.Hour,
+		"2d •":                         2 * 24 * time.Hour,
+		"3w":                           3 * 7 * 24 * time.Hour,
+		"1mo •":                        30 * 24 * time.Hour,
 		"View my services 5h • Edited": 5 * time.Hour,
-		"Just now":    0, // no match
+		"Just now":                     0, // no match
 	}
 	for in, want := range cases {
 		got := parseRelTime(in, now)

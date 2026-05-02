@@ -46,10 +46,10 @@ type apiResp struct {
 			VideoID string `json:"videoId"`
 		} `json:"id"`
 		Snippet struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
+			Title        string `json:"title"`
+			Description  string `json:"description"`
 			ChannelTitle string `json:"channelTitle"`
-			PublishedAt string `json:"publishedAt"`
+			PublishedAt  string `json:"publishedAt"`
 		} `json:"snippet"`
 	} `json:"items"`
 }

@@ -81,13 +81,13 @@ func NewAskRegistry(askers ...Asker) *AskRegistry {
 // Lowercase keys + values. See SearchRegistry.searchAliases for the
 // rationale.
 var askAliases = map[string]string{
-	"claude":     "anthropic",
-	"gpt":        "openai",
-	"chatgpt":    "openai",
-	"sonar":      "perplexity",
-	"pplx":       "perplexity",
-	"gemini":     "google",
-	"xai":        "grok",
+	"claude":  "anthropic",
+	"gpt":     "openai",
+	"chatgpt": "openai",
+	"sonar":   "perplexity",
+	"pplx":    "perplexity",
+	"gemini":  "google",
+	"xai":     "grok",
 }
 
 func (r *AskRegistry) Get(name string) (Asker, error) {

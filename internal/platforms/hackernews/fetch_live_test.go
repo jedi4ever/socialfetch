@@ -11,7 +11,8 @@ import (
 )
 
 // Live test — hits the real HN Firebase API. Run with:
-//   go test -tags=live ./internal/sources/hackernews/...
+//
+//	go test -tags=live ./internal/sources/hackernews/...
 //
 // Item 1 is "Y Combinator", the very first story; it's stable.
 func TestLiveHackerNewsItem1(t *testing.T) {

@@ -129,11 +129,11 @@ func stripZerosAndDot(s string) string {
 // tweetResponse models the subset of fields we read from the syndication
 // payload. The endpoint returns a lot more; we ignore it.
 type tweetResponse struct {
-	ID       string `json:"id_str"`
-	Text     string `json:"text"`
-	Created  string `json:"created_at"`
-	Lang     string `json:"lang"`
-	User     struct {
+	ID      string `json:"id_str"`
+	Text    string `json:"text"`
+	Created string `json:"created_at"`
+	Lang    string `json:"lang"`
+	User    struct {
 		Name       string `json:"name"`
 		ScreenName string `json:"screen_name"`
 		ProfileURL string `json:"profile_image_url_https"`
@@ -222,10 +222,10 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		Media:       media,
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
-			"screen_name":   tw.User.ScreenName,
-			"reply_count":   tw.ReplyCount,
+			"screen_name":    tw.User.ScreenName,
+			"reply_count":    tw.ReplyCount,
 			"favorite_count": tw.FavoriteCount,
-			"lang":          tw.Lang,
+			"lang":           tw.Lang,
 		},
 	}
 	return item, nil
@@ -266,7 +266,6 @@ func parseTwitterTime(s string) *time.Time {
 	}
 	return nil
 }
-
 
 // creds picks an explicit Creds field over $X_API_KEY/$X_API_SECRET so
 // tests can wire credentials without poking the environment.
@@ -436,7 +435,7 @@ type apiTweet struct {
 		ConversationID string `json:"conversation_id"`
 		CreatedAt      string `json:"created_at"`
 		Lang           string `json:"lang"`
-		PublicMetrics struct {
+		PublicMetrics  struct {
 			Likes   int `json:"like_count"`
 			Reposts int `json:"retweet_count"`
 			Replies int `json:"reply_count"`
@@ -521,8 +520,8 @@ type searchResp struct {
 		} `json:"users"`
 	} `json:"includes"`
 	Meta struct {
-		NextToken  string `json:"next_token"`
-		ResultCount int   `json:"result_count"`
+		NextToken   string `json:"next_token"`
+		ResultCount int    `json:"result_count"`
 	} `json:"meta"`
 }
 
@@ -717,4 +716,3 @@ func capCommentTree(cs []core.Comment, max int) []core.Comment {
 	}
 	return trim(cs)
 }
-

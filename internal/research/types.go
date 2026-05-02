@@ -60,14 +60,14 @@ type AngleResult struct {
 // renders this as markdown; the MCP layer (when wired) will return
 // it as JSON.
 type Report struct {
-	Question  string         `json:"question"`
-	Answer    string         `json:"answer"` // synthesized markdown
-	Sources   []core.Source  `json:"sources,omitempty"`
-	Angles    []AngleResult  `json:"angles"`
-	Started   time.Time      `json:"started"`
-	Finished  time.Time      `json:"finished"`
-	Rounds    int            `json:"rounds"` // 1 or 2
-	Orchestrator string      `json:"orchestrator"` // which Asker drove decompose/synth
+	Question     string        `json:"question"`
+	Answer       string        `json:"answer"` // synthesized markdown
+	Sources      []core.Source `json:"sources,omitempty"`
+	Angles       []AngleResult `json:"angles"`
+	Started      time.Time     `json:"started"`
+	Finished     time.Time     `json:"finished"`
+	Rounds       int           `json:"rounds"`       // 1 or 2
+	Orchestrator string        `json:"orchestrator"` // which Asker drove decompose/synth
 }
 
 // EventPhase enumerates the discrete steps of a research run. The
@@ -76,14 +76,14 @@ type Report struct {
 type EventPhase string
 
 const (
-	PhaseDecomposeStart EventPhase = "decompose-start"
-	PhaseDecomposeDone  EventPhase = "decompose-done"
-	PhaseFanoutStart    EventPhase = "fanout-start"
-	PhaseAngleStart     EventPhase = "angle-start"
-	PhaseAngleDone      EventPhase = "angle-done"
+	PhaseDecomposeStart  EventPhase = "decompose-start"
+	PhaseDecomposeDone   EventPhase = "decompose-done"
+	PhaseFanoutStart     EventPhase = "fanout-start"
+	PhaseAngleStart      EventPhase = "angle-start"
+	PhaseAngleDone       EventPhase = "angle-done"
 	PhaseSynthesizeStart EventPhase = "synthesize-start"
 	PhaseSynthesizeDone  EventPhase = "synthesize-done"
-	PhaseDone           EventPhase = "done"
+	PhaseDone            EventPhase = "done"
 )
 
 // Event is one progress notification fed to OnProgress.

@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel an in-flight CI run when a new commit lands on the same
+# branch — saves runners on rapid-fire pushes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Read the version from go.mod so a `go 1.27` bump there
+          # automatically rolls CI without editing this file.
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        # gofmt -l prints files that are not gofmt-compliant; if it
+        # prints anything, fail loudly with the list.
+        run: |
+          set -euo pipefail
+          out=$(gofmt -l .)
+          if [[ -n "$out" ]]; then
+            echo "::error::gofmt issues — run 'make fmt'"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (offline)
+        # No -tags=live — live tests hit real APIs and need keys CI
+        # doesn't have. The standalone `make test-live` covers them
+        # locally before release.
+        run: go test ./... -count=1
+
+      - name: go build
+        run: go build ./...
+
+      - name: Plugin SKILL.md is in sync
+        # Enforces the lockstep rule from CLAUDE.md: editing the
+        # standalone skill must be followed by `make plugin-build` so
+        # the marketplace install sees the same content. If the
+        # regenerated file differs from what's committed, fail.
+        run: |
+          make plugin-build
+          if ! git diff --exit-code claude-code-plugin/skills/socialfetch/SKILL.md; then
+            echo "::error::claude-code-plugin/skills/socialfetch/SKILL.md is stale — run 'make plugin-build' and commit the result"
+            exit 1
+          fi
+
+      - name: .mcpb manifest validates
+        # Catches manifest drift (e.g. user_config not matching the
+        # 0.3 schema) before a release run.
+        run: |
+          npm install --silent
+          ./node_modules/.bin/mcpb validate mcpb-extension/manifest.json

@@ -46,8 +46,8 @@ func fetchTranscriptYtDlp(ctx context.Context, videoID, lang string, audit *core
 	audit.Logf("youtube: yt-dlp transcript %s", videoID)
 	cmd := exec.CommandContext(ctx, bin,
 		"--skip-download",
-		"--write-subs",       // human-authored caption tracks (preferred)
-		"--write-auto-subs",  // fall back to YouTube's auto-generated ASR
+		"--write-subs",      // human-authored caption tracks (preferred)
+		"--write-auto-subs", // fall back to YouTube's auto-generated ASR
 		"--sub-langs", lang+",-live_chat",
 		"--sub-format", "json3",
 		"--quiet",

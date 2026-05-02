@@ -84,9 +84,9 @@ type response struct {
 		AuthorID      string `json:"author_id"`
 		CreatedAt     string `json:"created_at"`
 		PublicMetrics struct {
-			Likes    int `json:"like_count"`
-			Reposts  int `json:"retweet_count"`
-			Replies  int `json:"reply_count"`
+			Likes   int `json:"like_count"`
+			Reposts int `json:"retweet_count"`
+			Replies int `json:"reply_count"`
 		} `json:"public_metrics"`
 		NoteTweet *struct {
 			Text string `json:"text"`

@@ -24,7 +24,7 @@ type SearchResult struct {
 // providers with coarse granularity (Tavily's "last N days") round to
 // the closest supported window.
 type SearchOptions struct {
-	Max  int        // max results; <=0 means provider default
+	Max            int        // max results; <=0 means provider default
 	Before         *time.Time // only results published before this time
 	After          *time.Time // only results published after this time
 	IncludeDomains []string   // allowlist; if non-empty, restrict to these

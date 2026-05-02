@@ -70,10 +70,10 @@ func IsCloudflareBlocked(resp *http.Response, bodySnippet []byte) bool {
 // the snippet before matching. Order doesn't matter — first match
 // wins.
 var cfChallengeMarkers = [][]byte{
-	[]byte("just a moment"),                // visible heading on the challenge page
-	[]byte("__cf_bm"),                      // the bot-management cookie set by JS
-	[]byte("cf-error-details"),             // <div> wrapper on classic CF error pages
+	[]byte("just a moment"),    // visible heading on the challenge page
+	[]byte("__cf_bm"),          // the bot-management cookie set by JS
+	[]byte("cf-error-details"), // <div> wrapper on classic CF error pages
 	[]byte("checking if the site connection is secure"),
-	[]byte("__cf_chl_"),                    // challenge token prefix
-	[]byte("cdn-cgi/challenge-platform"),   // script src on every challenge page
+	[]byte("__cf_chl_"),                  // challenge token prefix
+	[]byte("cdn-cgi/challenge-platform"), // script src on every challenge page
 }

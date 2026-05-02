@@ -58,13 +58,13 @@ type rssChannel struct {
 }
 
 type rssItem struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link"`
-	GUID        string `xml:"guid"`
-	PubDate     string `xml:"pubDate"`
-	Author      string `xml:"creator"` // dc:creator usually
-	Description string `xml:"description"`
-	Content     string `xml:"encoded"` // content:encoded
+	Title       string   `xml:"title"`
+	Link        string   `xml:"link"`
+	GUID        string   `xml:"guid"`
+	PubDate     string   `xml:"pubDate"`
+	Author      string   `xml:"creator"` // dc:creator usually
+	Description string   `xml:"description"`
+	Content     string   `xml:"encoded"` // content:encoded
 	Categories  []string `xml:"category"`
 }
 
@@ -82,15 +82,15 @@ type atomLink struct {
 }
 
 type atomEntry struct {
-	Title    string     `xml:"title"`
-	ID       string     `xml:"id"`
-	Updated  string     `xml:"updated"`
-	Published string    `xml:"published"`
-	Author   atomAuthor `xml:"author"`
-	Summary  string     `xml:"summary"`
-	Content  string     `xml:"content"`
-	Links    []atomLink `xml:"link"`
-	Category []struct {
+	Title     string     `xml:"title"`
+	ID        string     `xml:"id"`
+	Updated   string     `xml:"updated"`
+	Published string     `xml:"published"`
+	Author    atomAuthor `xml:"author"`
+	Summary   string     `xml:"summary"`
+	Content   string     `xml:"content"`
+	Links     []atomLink `xml:"link"`
+	Category  []struct {
 		Term string `xml:"term,attr"`
 	} `xml:"category"`
 }

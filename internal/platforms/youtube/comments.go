@@ -35,13 +35,13 @@ type commentThreadsResp struct {
 }
 
 type commentSnippet struct {
-	AuthorDisplayName     string `json:"authorDisplayName"`
-	AuthorChannelURL      string `json:"authorChannelUrl"`
-	TextDisplay           string `json:"textDisplay"`
-	TextOriginal          string `json:"textOriginal"`
-	LikeCount             int    `json:"likeCount"`
-	PublishedAt           string `json:"publishedAt"`
-	UpdatedAt             string `json:"updatedAt"`
+	AuthorDisplayName string `json:"authorDisplayName"`
+	AuthorChannelURL  string `json:"authorChannelUrl"`
+	TextDisplay       string `json:"textDisplay"`
+	TextOriginal      string `json:"textOriginal"`
+	LikeCount         int    `json:"likeCount"`
+	PublishedAt       string `json:"publishedAt"`
+	UpdatedAt         string `json:"updatedAt"`
 }
 
 // pageSize is the YouTube API per-call limit. Setting it to 100 keeps
