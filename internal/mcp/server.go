@@ -37,6 +37,7 @@ import (
 
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/patrickdebois/social-skills/internal/research"
 )
 
 // Config bundles everything the MCP server needs. All fields are
@@ -77,6 +78,7 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addTimelineTool(s, cfg)
 	addListProvidersTool(s, cfg)
 	addBridgeStatusTool(s, cfg)
+	addResearchTool(s, cfg)
 }
 
 // openToolAudit opens the always-on global audit log scoped to an MCP
@@ -367,6 +369,103 @@ func addListProvidersTool(s *server.MCPServer, cfg Config) {
 			"timeline": []string{"x", "linkedin"},
 		})
 	})
+}
+
+// ---- research --------------------------------------------------------
+
+type researchArgs struct {
+	Question     string `json:"question"`
+	Orchestrator string `json:"orchestrator,omitempty"`
+	MaxAngles    int    `json:"max_angles,omitempty"`
+	Jobs         int    `json:"jobs,omitempty"`
+	JSON         bool   `json:"json,omitempty"`
+}
+
+func addResearchTool(s *server.MCPServer, cfg Config) {
+	tool := mcp.NewTool("socialfetch_research",
+		mcp.WithDescription("EXPERIMENTAL — multi-angle research workflow. Decomposes the question into 3-8 angles, fans each out concurrently to fetch/search/ask/timeline, then synthesizes a markdown answer with citations. Costs roughly 2 LLM calls + N tool calls per question. Use for questions where you'd otherwise issue 4-8 manual queries; skip for simple lookups (use socialfetch_ask or socialfetch_search directly)."),
+		mcp.WithString("question", mcp.Required(), mcp.Description("The research question")),
+		mcp.WithString("orchestrator", mcp.Description("Ask provider that drives decompose + synthesize. Default \"auto\" walks the standard ask chain. Override with anthropic, openai, perplexity, etc.")),
+		mcp.WithNumber("max_angles", mcp.Description("Cap decomposition output (default 5, max 8)")),
+		mcp.WithNumber("jobs", mcp.Description("Parallel angle workers (default 4)")),
+		mcp.WithBoolean("json", mcp.Description("Return the structured Report as JSON instead of rendered markdown (default false)")),
+	)
+	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args researchArgs) (*mcp.CallToolResult, error) {
+		audit, closeAudit := openToolAudit("research")
+		defer closeAudit()
+		ctx = core.WithAudit(ctx, audit)
+		audit.Logf("research %q via %s (max_angles=%d, jobs=%d)", args.Question, args.Orchestrator, args.MaxAngles, args.Jobs)
+
+		if strings.TrimSpace(args.Question) == "" {
+			return mcp.NewToolResultError("question is required"), nil
+		}
+		orchestrator, err := resolveAsker(cfg, args.Orchestrator)
+		if err != nil {
+			audit.Logf("research FAILED: %v", err)
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		opts := research.Options{
+			Orchestrator: orchestrator,
+			Fetchers:     cfg.Fetchers,
+			Searchers:    cfg.Searchers,
+			Askers:       cfg.Askers,
+			Timelines:    cfg.Timelines,
+			MaxAngles:    args.MaxAngles,
+			Concurrency:  args.Jobs,
+			OnProgress: func(e research.Event) {
+				// Re-emit research progress lines into the same
+				// audit logger so `socialfetch monitor` shows the
+				// fan-out unfolding next to the HTTP-level events.
+				audit.Logf("research %s: %s", e.Phase, e.Message)
+			},
+		}
+		rep, err := research.Run(ctx, args.Question, opts)
+		if err != nil {
+			audit.Logf("research FAILED: %v", err)
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		audit.Logf("research returned answer (%d chars, %d sources, %d angles)",
+			len(rep.Answer), len(rep.Sources), len(rep.Angles))
+
+		if args.JSON {
+			return jsonResult(rep)
+		}
+		// Render the report as markdown so the caller's first read is
+		// the answer, not a JSON blob. Same shape the CLI emits.
+		md := renderReportMarkdown(rep)
+		return mcp.NewToolResultText(md), nil
+	}))
+}
+
+// renderReportMarkdown emits a tight markdown view of the report —
+// answer first, then sources, then a compact angle log so the agent
+// can see what was actually run. Mirrors the CLI's renderResearchMarkdown
+// without depending on it.
+func renderReportMarkdown(r *research.Report) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Research: %s\n\n", r.Question)
+	fmt.Fprintf(&b, "*Orchestrator: %s · %d angles · %s elapsed*\n\n",
+		r.Orchestrator, len(r.Angles), r.Finished.Sub(r.Started).Round(time.Millisecond))
+	b.WriteString(r.Answer)
+	if len(r.Angles) > 0 {
+		b.WriteString("\n\n---\n\n## Angle log\n\n")
+		for i, a := range r.Angles {
+			label := a.Angle.Label
+			if label == "" {
+				label = fmt.Sprintf("angle %d", i+1)
+			}
+			fmt.Fprintf(&b, "%d. **%s** — `%s`", i+1, label, a.Angle.Tool)
+			if a.Angle.Provider != "" {
+				fmt.Fprintf(&b, "/%s", a.Angle.Provider)
+			}
+			fmt.Fprintf(&b, " (%s)", a.Duration.Round(time.Millisecond))
+			if a.Err != nil {
+				fmt.Fprintf(&b, " — *err: %v*", a.Err)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // ---- bridge_status ---------------------------------------------------

@@ -9,9 +9,22 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/patrickdebois/social-skills/internal/core"
 )
+
+// navigateMu serializes Navigate→GetTabHTML pairs across all bridge
+// clients in this process. Without it, two concurrent GetHTML calls
+// would issue two `navigate` commands to the extension; the extension
+// honors the active tab's URL last-write-wins, so both `get_html`s
+// would scrape whichever page won the navigate race — silently
+// returning the wrong content rather than erroring out.
+//
+// Bridge-bound research/fetch work effectively serializes through
+// this mutex. Direct HTTP fetches (article/medium/substack fallback,
+// every other platform) are unaffected.
+var navigateMu sync.Mutex
 
 // DefaultEndpoint is the local /cmd URL fetchers POST to.
 const DefaultEndpoint = "http://127.0.0.1:5555/cmd"
@@ -54,7 +67,14 @@ type reply struct {
 // The two-step navigate→get_html is required because the extension's
 // tab matcher broadens to origin-only patterns; a single get_html may
 // scrape whichever tab on the same origin is already open.
+//
+// Holds navigateMu for the whole pair so concurrent callers (the
+// research orchestrator's parallel angles, two CLI invocations
+// running at once) don't trample each other's active-tab URL. See
+// navigateMu's doc for the full rationale.
 func (c *Client) GetHTML(ctx context.Context, target string, audit *core.AuditLogger) (htmlStr, finalURL, title string, err error) {
+	navigateMu.Lock()
+	defer navigateMu.Unlock()
 	if err := c.Navigate(ctx, target, audit); err != nil {
 		return "", "", "", err
 	}

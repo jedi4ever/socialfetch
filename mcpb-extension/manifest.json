@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "socialfetch",
   "display_name": "socialfetch",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Fetch social-media URLs and run grounded web searches via MCP. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE) and ask (Perplexity Sonar, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI AI Overview).",
   "long_description": "socialfetch wraps content discovery and grounded answer engines as MCP tools. Use it to pull a HackerNews thread, search Bluesky for a topic, ask Perplexity a recency-filtered question, or scroll through a LinkedIn user's recent posts. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship an extension with whichever subset of API keys you've configured and the rest is silent.",
   "author": {
@@ -52,7 +52,8 @@
     {"name": "socialfetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI)."},
     {"name": "socialfetch_timeline", "description": "Recent activity for a user on X or LinkedIn."},
     {"name": "socialfetch_list_providers", "description": "Discover available providers at runtime."},
-    {"name": "socialfetch_bridge_status", "description": "Probe the local browser bridge (LinkedIn / Medium / Substack)."}
+    {"name": "socialfetch_bridge_status", "description": "Probe the local browser bridge (LinkedIn / Medium / Substack)."},
+    {"name": "socialfetch_research", "description": "EXPERIMENTAL — multi-angle research workflow: decomposes a question, fans out parallel fetch/search/ask/timeline, synthesizes a markdown answer with citations."}
   ],
   "compatibility": {
     "platforms": ["darwin"]
