@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
+	"github.com/patrickdebois/social-skills/internal/platforms/twitter"
 	"github.com/patrickdebois/social-skills/internal/render"
-	"github.com/patrickdebois/social-skills/internal/search/xsearch"
 	"github.com/patrickdebois/social-skills/internal/timeline"
 )
 
@@ -175,8 +176,8 @@ func runTimeline(args []string) error {
 	defer closeAudit()
 
 	reg := timeline.NewRegistry(
-		timeline.NewXProvider(xsearch.New()),
-		timeline.NewLinkedInProvider(),
+		twitter.NewXProvider(twitter.NewSearchProvider()),
+		linkedin.NewLinkedInProvider(),
 	)
 	p, err := reg.Get(provider)
 	if err != nil {

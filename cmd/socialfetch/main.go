@@ -31,42 +31,32 @@ import (
 	"time"
 
 	"github.com/patrickdebois/social-skills/internal/ask"
-	googleask "github.com/patrickdebois/social-skills/internal/ask/google"
-	"github.com/patrickdebois/social-skills/internal/ask/grok"
-	"github.com/patrickdebois/social-skills/internal/ask/perplexity"
-	"github.com/patrickdebois/social-skills/internal/ask/serpapiask"
-	"github.com/patrickdebois/social-skills/internal/ask/tavilyask"
 	"github.com/patrickdebois/social-skills/internal/bridge"
 	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/dotenv"
 	"github.com/patrickdebois/social-skills/internal/render"
 	"github.com/patrickdebois/social-skills/internal/search"
 
-	"github.com/patrickdebois/social-skills/internal/sources/article"
-	"github.com/patrickdebois/social-skills/internal/sources/arxiv"
-	"github.com/patrickdebois/social-skills/internal/sources/bluesky"
-	"github.com/patrickdebois/social-skills/internal/sources/github"
-	"github.com/patrickdebois/social-skills/internal/sources/hackernews"
-	"github.com/patrickdebois/social-skills/internal/sources/linkedin"
-	"github.com/patrickdebois/social-skills/internal/sources/medium"
-	"github.com/patrickdebois/social-skills/internal/sources/reddit"
-	"github.com/patrickdebois/social-skills/internal/sources/rss"
-	"github.com/patrickdebois/social-skills/internal/sources/substack"
-	"github.com/patrickdebois/social-skills/internal/sources/twitter"
-	"github.com/patrickdebois/social-skills/internal/sources/youtube"
-
-	"github.com/patrickdebois/social-skills/internal/search/arxivsearch"
-	"github.com/patrickdebois/social-skills/internal/search/bing"
-	bskysearch "github.com/patrickdebois/social-skills/internal/search/bluesky"
-	"github.com/patrickdebois/social-skills/internal/search/bravesearch"
-	"github.com/patrickdebois/social-skills/internal/search/duckduckgo"
-	googlesearch "github.com/patrickdebois/social-skills/internal/search/google"
-	"github.com/patrickdebois/social-skills/internal/search/hnsearch"
-	"github.com/patrickdebois/social-skills/internal/search/redditsearch"
-	"github.com/patrickdebois/social-skills/internal/search/serpapi"
-	"github.com/patrickdebois/social-skills/internal/search/tavily"
-	"github.com/patrickdebois/social-skills/internal/search/xsearch"
-	"github.com/patrickdebois/social-skills/internal/search/youtubesearch"
+	"github.com/patrickdebois/social-skills/internal/platforms/article"
+	"github.com/patrickdebois/social-skills/internal/platforms/arxiv"
+	"github.com/patrickdebois/social-skills/internal/platforms/bing"
+	"github.com/patrickdebois/social-skills/internal/platforms/bluesky"
+	"github.com/patrickdebois/social-skills/internal/platforms/brave"
+	"github.com/patrickdebois/social-skills/internal/platforms/duckduckgo"
+	"github.com/patrickdebois/social-skills/internal/platforms/github"
+	"github.com/patrickdebois/social-skills/internal/platforms/google"
+	"github.com/patrickdebois/social-skills/internal/platforms/grok"
+	"github.com/patrickdebois/social-skills/internal/platforms/hackernews"
+	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
+	"github.com/patrickdebois/social-skills/internal/platforms/medium"
+	"github.com/patrickdebois/social-skills/internal/platforms/perplexity"
+	"github.com/patrickdebois/social-skills/internal/platforms/reddit"
+	"github.com/patrickdebois/social-skills/internal/platforms/rss"
+	"github.com/patrickdebois/social-skills/internal/platforms/serpapi"
+	"github.com/patrickdebois/social-skills/internal/platforms/substack"
+	"github.com/patrickdebois/social-skills/internal/platforms/tavily"
+	"github.com/patrickdebois/social-skills/internal/platforms/twitter"
+	"github.com/patrickdebois/social-skills/internal/platforms/youtube"
 )
 
 // buildAskers returns the registry of "answer engines" used by the
@@ -76,9 +66,9 @@ func buildAskers() *ask.Registry {
 	return ask.NewRegistry(
 		perplexity.New(),
 		grok.New(),
-		googleask.New(),
-		tavilyask.New(),
-		serpapiask.New(),
+		google.NewAsker(),
+		tavily.NewAsker(),
+		serpapi.NewAsker(),
 	)
 }
 
@@ -105,17 +95,17 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 	)
 	searchers := search.NewRegistry(
 		duckduckgo.New(),
-		googlesearch.New(),
+		google.New(),
 		bing.New(),
-		bravesearch.New(),
+		brave.New(),
 		serpapi.New(),
 		tavily.New(),
-		hnsearch.New(),
-		redditsearch.New(),
-		xsearch.New(),
-		youtubesearch.New(),
-		bskysearch.New(),
-		arxivsearch.New(),
+		hackernews.NewSearchProvider(),
+		reddit.NewSearchProvider(),
+		twitter.NewSearchProvider(),
+		youtube.NewSearchProvider(),
+		bluesky.NewSearchProvider(),
+		arxiv.NewSearchProvider(),
 	)
 	return fetchers, searchers
 }
