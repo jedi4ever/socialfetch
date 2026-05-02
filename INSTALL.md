@@ -1,6 +1,6 @@
 # Installing socialfetch
 
-socialfetch ships in three flavors, all wrapping the same Go binary —
+socialfetch ships in four flavors, all wrapping the same Go binary —
 pick whichever matches your install style:
 
 - **Option A — Claude Desktop Extension (.mcpb)**: drag-into-Settings
@@ -13,6 +13,11 @@ pick whichever matches your install style:
 - **Option C — Skill**: file-based, drop SKILL.md + the binary into
   `~/.claude/skills/socialfetch/`, manage `.env` yourself. Works in
   Claude Desktop and Claude Code; no plan-tier gating.
+- **Option D — Claude Code plugin (marketplace)**:
+  `/plugin marketplace add jedi4ever/socialfetch` then
+  `/plugin install socialfetch`. Same skill content, distributed via
+  Claude Code's plugin system. Requires the `socialfetch` binary on
+  PATH separately.
 
 ## Option A — Claude Desktop Extension (.mcpb)
 
@@ -435,3 +440,42 @@ make skill-clean        # removes ~/.claude/skills/socialfetch and ./bin
 - File-level conventions: see [CLAUDE.md](CLAUDE.md) at the repo root.
 - Feature requests / bugs: open an issue at
   https://github.com/patrickdebois/social-skills/issues.
+
+---
+
+# Option D — Claude Code plugin (marketplace)
+
+For users who live in Claude Code (the CLI) rather than Claude Desktop,
+socialfetch ships as a Claude Code **plugin** that wraps the same skill
+markdown without an MCP server. One-line install via the plugin
+marketplace:
+
+```
+/plugin marketplace add jedi4ever/socialfetch
+/plugin install socialfetch
+```
+
+The plugin lives at [`claude-code-plugin/`](claude-code-plugin/) in
+this repo; the marketplace manifest is at
+[`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+
+**Prerequisite:** the `socialfetch` binary must be on your PATH. The
+plugin is purely the skill markdown + manifest — it does not bundle
+the binary. Install once with `go install` or by downloading a
+release:
+
+```bash
+go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
+# or download from https://github.com/jedi4ever/socialfetch/releases
+socialfetch version    # confirm
+```
+
+For local development (testing changes before publishing), point
+Claude Code at a working copy directly:
+
+```bash
+claude --plugin-dir ./claude-code-plugin
+```
+
+API keys come from your shell env or a nearby `.env` file — same as
+every other distribution path. See [API_KEYS.md](API_KEYS.md).

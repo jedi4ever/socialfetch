@@ -123,6 +123,20 @@ key (e.g. `NEW_API_KEY`) doesn't get an entry there, users won't
 know to set it during install. Keep `user_config` parallel with
 `API_KEYS.md` — both should list the same env vars.
 
+**The Claude Code plugin's SKILL.md is generated** from
+`skill/socialfetch/SKILL.md` via `make plugin-build` — it's the same
+content with `scripts/socialfetch` rewritten to bare `socialfetch`
+(plugin assumes PATH install). After editing the standalone SKILL.md,
+run `make plugin-build` and commit the regenerated
+`claude-code-plugin/skills/socialfetch/SKILL.md` so the marketplace
+install (`/plugin marketplace add jedi4ever/socialfetch`) picks up
+the change. Bump the version in
+`claude-code-plugin/.claude-plugin/plugin.json` and
+`.claude-plugin/marketplace.json` alongside
+`cmd/socialfetch/main.go`'s `Version` and
+`mcpb-extension/manifest.json` — all four version fields move
+together on every user-visible release.
+
 **The Chrome browser-bridge extension has its own version** in
 `extension/manifest.json` — independent of `cmd/socialfetch/main.go`'s
 `Version`. Bump the Chrome extension's version whenever you change

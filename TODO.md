@@ -1,13 +1,10 @@
 - Google search, ask
-- Throttle / random timing extension
 - Name of project - socialfetch - social-curl?
 - Homebrew / install
 - turn it into a library
 
-- Rename extension / extension permissions
+-  extension permissions
 - publish as marketplace ?
 - notes on why a mcbp - 
-- might live checks
 - build reolease git action
-- fix scroll later linkedin/ extension
 - analytics use

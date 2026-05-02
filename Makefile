@@ -17,7 +17,7 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
-        bridge-package
+        bridge-package plugin-build plugin-package
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -143,6 +143,31 @@ skill-package: skill-build  ## Package the skill as ./dist/socialfetch-skill-<ve
 	(cd $(SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(SKILL_PACKAGE_STAGE); \
 	echo "Packaged: dist/socialfetch-skill-$$VERSION.zip"
+
+# plugin-build regenerates the plugin's SKILL.md from skill/socialfetch/SKILL.md
+# with `scripts/socialfetch` rewritten to bare `socialfetch`. The plugin
+# assumes the binary is already on PATH (Claude Code plugins don't
+# auto-install dependencies); see claude-code-plugin/README.md.
+#
+# We commit the generated SKILL.md so `/plugin marketplace add jedi4ever/socialfetch`
+# works without a build step on the consumer side. Run this target whenever
+# skill/socialfetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
+PLUGIN_DIR    := claude-code-plugin
+PLUGIN_SKILL  := $(PLUGIN_DIR)/skills/socialfetch/SKILL.md
+SKILL_SOURCE  := skill/socialfetch/SKILL.md
+
+plugin-build:  ## Regenerate claude-code-plugin/skills/socialfetch/SKILL.md from skill/socialfetch/SKILL.md
+	@mkdir -p $(dir $(PLUGIN_SKILL))
+	sed -E 's|scripts/socialfetch|socialfetch|g; s|the `socialfetch` Go binary on PATH \(install separately — see the plugin README\)|the `socialfetch` Go binary on PATH (install separately — see the plugin README)|; s|Wraps the `socialfetch` Go binary at `socialfetch` \(relative to this skill\)\.|Wraps the `socialfetch` Go binary on the user'"'"'s PATH (install separately — see the plugin README).|' $(SKILL_SOURCE) > $(PLUGIN_SKILL)
+	@echo "Regenerated $(PLUGIN_SKILL)"
+
+plugin-package: plugin-build  ## Package the Claude Code plugin as ./dist/socialfetch-claude-code-plugin-<version>.zip
+	@mkdir -p $(CURDIR)/dist
+	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' $(PLUGIN_DIR)/.claude-plugin/plugin.json); \
+	OUT="$(CURDIR)/dist/socialfetch-claude-code-plugin-$$VERSION.zip"; \
+	rm -f "$$OUT"; \
+	(cd $(PLUGIN_DIR) && zip -qr "$$OUT" . -x "*.DS_Store" "bin/*" "node_modules/*"); \
+	echo "Packaged: dist/socialfetch-claude-code-plugin-$$VERSION.zip"
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch
