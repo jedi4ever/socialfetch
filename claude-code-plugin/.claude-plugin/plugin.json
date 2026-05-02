@@ -1,7 +1,7 @@
 {
   "name": "socialfetch",
   "description": "Fetch social-media URLs and run web/social searches via Claude Code. Wraps HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search and grounded-answer engines (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI).",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "author": {
     "name": "Patrick Debois"
   },
