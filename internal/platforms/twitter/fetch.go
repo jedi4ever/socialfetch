@@ -277,9 +277,20 @@ func (f *Fetcher) creds() (Credentials, bool) {
 	return FromEnv()
 }
 
-// fetchViaAPI calls X's v2 single-tweet endpoint. Long-form posts use
-// note_tweet; we always read it when available since the regular `text`
-// is a 280-char stub.
+// fetchViaAPI calls X's v2 single-tweet endpoint. We surface three
+// kinds of body content depending on what X stored:
+//
+//   - regular tweets → `data.text` (280-char field)
+//   - long-form tweets / "notes" → `data.note_tweet.text` (>280 chars
+//     in a single field, set by the legacy "long tweet" feature)
+//   - long-form articles → `data.article` (the newer feature where
+//     the user wrote a Substack-style post and X stored it under
+//     `x.com/i/article/<id>`; the parent tweet's `text` field just
+//     holds the article URL, while the actual prose lives in
+//     `data.article.plain_text` plus a `title` field)
+//
+// We request all three and pick the richest body present, so any of
+// the three rendering paths produces useful Content.
 func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials, opts core.Options) (*core.Item, error) {
 	bearer, err := BearerToken(ctx, creds)
 	if err != nil {
@@ -288,7 +299,7 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials,
 
 	q := url.Values{
 		"expansions":   {"author_id,attachments.media_keys"},
-		"tweet.fields": {"created_at,public_metrics,lang,note_tweet,entities,conversation_id"},
+		"tweet.fields": {"created_at,public_metrics,lang,note_tweet,article,entities,conversation_id"},
 		"user.fields":  {"username,name"},
 		"media.fields": {"url,type,variants"},
 	}
@@ -329,9 +340,19 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials,
 		}
 	}
 
+	// Pick the richest body the API gave us. Order matters: an article
+	// post still has a `text` field (just the article URL) and may
+	// also expose a note_tweet stub; the article body is what the
+	// reader actually wants. Falling back from longest to shortest:
+	// article → note_tweet → plain text.
 	text := body.Data.Text
+	title := ""
 	if body.Data.NoteTweet != nil && body.Data.NoteTweet.Text != "" {
 		text = body.Data.NoteTweet.Text
+	}
+	if body.Data.Article != nil && body.Data.Article.PlainText != "" {
+		text = body.Data.Article.PlainText
+		title = body.Data.Article.Title
 	}
 	for _, u := range body.Data.Entities.URLs {
 		if u.URL != "" && u.ExpandedURL != "" {
@@ -355,12 +376,21 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials,
 	}
 
 	published := parseTwitterTime(body.Data.CreatedAt)
+	// Articles get their own title field; for regular and note tweets
+	// the title is just the first line, capped.
+	if title == "" {
+		title = firstLine(text, 80)
+	}
+	kind := "tweet"
+	if body.Data.Article != nil && body.Data.Article.PlainText != "" {
+		kind = "article"
+	}
 	item := &core.Item{
 		Source:      "twitter",
-		Kind:        "tweet",
+		Kind:        kind,
 		URL:         fmt.Sprintf("https://x.com/%s/status/%s", user.Username, body.Data.ID),
 		CanonicalID: body.Data.ID,
-		Title:       firstLine(text, 80),
+		Title:       title,
 		Author:      user.Name,
 		AuthorURL:   "https://x.com/" + user.Username,
 		Published:   published,
@@ -414,6 +444,14 @@ type apiTweet struct {
 		NoteTweet *struct {
 			Text string `json:"text"`
 		} `json:"note_tweet"`
+		// Article carries X's long-form post body (the /i/article/<id>
+		// feature). Title + plain_text together replace the parent
+		// tweet's truncated `text` field, which for these posts is
+		// just the article URL.
+		Article *struct {
+			Title     string `json:"title"`
+			PlainText string `json:"plain_text"`
+		} `json:"article"`
 		Entities struct {
 			URLs []struct {
 				URL         string `json:"url"`
