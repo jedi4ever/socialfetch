@@ -84,7 +84,7 @@ claude-extension-package: extension-validate  ## Package as Claude Desktop Exten
 	@mkdir -p $(EXTENSION_STAGE)/scripts
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
 	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
-	@VERSION=$$($(EXTENSION_STAGE)/scripts/socialfetch version 2>/dev/null | awk '{print $$2}' || echo unknown); \
+	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' mcpb-extension/manifest.json); \
 	OUT="$(CURDIR)/dist/socialfetch-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
 	rm -f "$$OUT"; \
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
