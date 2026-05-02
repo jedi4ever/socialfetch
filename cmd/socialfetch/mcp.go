@@ -133,19 +133,49 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 		defer closeGlobal()
 	}
 
-	// Stack: request log → bearer auth → MCP handler. Logging
-	// outermost so we record the request even when auth rejects it
-	// (so brute-force probes against the public URL are visible).
-	handler := http.Handler(streamable)
+	// Build the routing tree. Three buckets:
+	//
+	//   GET / and GET /health → unauthenticated JSON status. Lets
+	//     anyone probe-via-browser see the server is alive without
+	//     hitting the SSE stream that /mcp opens on GET (which
+	//     visually "hangs"). Token deliberately not required —
+	//     leaks no secrets, the response is identical for everyone.
+	//
+	//   /mcp (any method) → Streamable HTTP transport, gated by
+	//     bearer auth. POST is request/response; GET upgrades to
+	//     SSE for server-pushed events. claude.ai's connector
+	//     uses both.
+	//
+	//   everything else → 404.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		writeStatusJSON(w, token != "")
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		writeStatusJSON(w, token != "")
+	})
+
+	// Stack on /mcp: request log → bearer auth → MCP handler.
+	// Logging outermost so we record the request even when auth
+	// rejects it (so brute-force probes against the public URL are
+	// visible).
+	mcpHandler := http.Handler(streamable)
 	if token != "" {
-		handler = bearerAuth(token, handler)
+		mcpHandler = bearerAuth(token, mcpHandler)
 		fmt.Fprintf(os.Stderr, "socialfetch mcp: bearer-token auth enabled (%s)\n", tokenSource)
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"socialfetch mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
 				"  Set MCP_AUTH_TOKEN before exposing the listener via ngrok or any public URL.\n")
 	}
-	handler = requestLog(audit, handler)
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler) // trailing-slash forgiveness
+
+	handler := requestLog(audit, mux)
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -302,6 +332,34 @@ func randomHex(n int) string {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+// writeStatusJSON answers `GET /` and `GET /health` with a small
+// JSON document the operator (or claude.ai's connector preflight)
+// can use to confirm the server is alive without engaging the
+// Streamable HTTP SSE stream — that endpoint at /mcp holds the
+// connection open on GET, which looks like a hang from a browser.
+//
+// Deliberately unauthenticated. Reveals only:
+//   - server name + version (already public via the binary itself)
+//   - whether bearer-auth is required on /mcp (so the operator can
+//     tell at a glance whether they remembered to set MCP_AUTH_TOKEN)
+//   - the protocol-endpoint path
+//
+// No secrets, no environment, no per-instance state.
+func writeStatusJSON(w http.ResponseWriter, authRequired bool) {
+	w.Header().Set("Content-Type", "application/json")
+	body := map[string]any{
+		"name":          "socialfetch",
+		"version":       Version,
+		"mcp_endpoint":  "/mcp",
+		"transport":     "streamable-http",
+		"auth_required": authRequired,
+		"docs":          "https://github.com/jedi4ever/socialfetch",
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(body)
 }
 
 // requestLog writes one line per HTTP request to stderr (so the
