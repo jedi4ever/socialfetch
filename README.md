@@ -50,22 +50,69 @@ socialfetch research "tessl harness engineering" -p anthropic
 
 ## Install
 
-Four distribution channels, all wrapping the same Go binary. Pick
-whichever matches your install style — full step-by-step in
+socialfetch is built to plug into AI agents — pick whichever channel
+matches the agent you're working with. Full step-by-step in
 [INSTALL.md](INSTALL.md).
 
-| Channel | When to use | Install |
-|---|---|---|
-| **Claude Desktop Extension (`.mcpb`)** | One-click install with API-key prompts in macOS Keychain | Download from [Releases](https://github.com/jedi4ever/socialfetch/releases/latest) → drag the `.mcpb` into Claude Desktop → Settings → Extensions |
-| **Remote MCP (ngrok)** | claude.ai, Perplexity, Claude Code remote MCP | `socialfetch mcp --ngrok` — prints a public URL + bearer token to paste into your client |
-| **Skill** | Claude Desktop or Claude Code, file-based with manual `.env` | `make skill-install` — copies `SKILL.md` + binary to `~/.claude/skills/socialfetch/` |
-| **Claude Code plugin (marketplace)** | One-line install for Claude Code users | `/plugin marketplace add jedi4ever/socialfetch` then `/plugin install socialfetch` (requires `socialfetch` on PATH separately) |
+### 1. Claude Desktop Extension (`.mcpb`) — recommended
 
-Bare CLI for shell scripts:
+One-click install with API-key prompts that go straight into the
+macOS Keychain. Best UX if you live in Claude Desktop.
+
+```
+1. Download socialfetch-claude-extension-<version>-darwin-arm64.mcpb
+   from https://github.com/jedi4ever/socialfetch/releases/latest
+2. Double-click the .mcpb (or drag it onto Claude Desktop →
+   Settings → Extensions).
+3. Fill in whichever API keys you have — every key is optional.
+```
+
+### 2. Claude Code plugin (marketplace)
+
+One-line install if you use Claude Code:
+
+```
+/plugin marketplace add jedi4ever/socialfetch
+/plugin install socialfetch
+```
+
+Requires the `socialfetch` binary on your PATH separately (the
+plugin is the skill markdown + manifest, not the binary).
+
+### 3. Skill (file-based, Claude Desktop or Claude Code)
+
+`SKILL.md` + binary dropped into `~/.claude/skills/socialfetch/`.
+Useful when you want to manage `.env` yourself or work offline:
+
+```bash
+git clone https://github.com/jedi4ever/socialfetch.git
+cd socialfetch
+make skill-install
+```
+
+### 4. Remote MCP server (claude.ai, Perplexity, Claude Code)
+
+`socialfetch mcp --ngrok` runs the MCP protocol over HTTPS, prints
+a public URL + bearer token, and lets cloud-hosted clients reach
+your local binary:
+
+```bash
+socialfetch mcp --ngrok           # prints URL + token
+# paste both into Settings → Connectors / Custom Connector in
+# claude.ai, Perplexity Pro, or `claude mcp add http <url> --header …`
+```
+
+API keys stay in your local `.env` — never sent over the wire.
+
+---
+
+### Bare CLI (shell scripts, library use)
+
+If you don't need any of the above and just want the binary:
 
 ```bash
 go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
-# or download a platform binary from the releases page:
+# or download a release tarball:
 #   socialfetch-0.9.0-darwin-arm64.tar.gz
 #   socialfetch-0.9.0-darwin-amd64.tar.gz
 #   socialfetch-0.9.0-linux-amd64.tar.gz
