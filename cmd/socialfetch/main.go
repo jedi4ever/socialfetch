@@ -246,6 +246,8 @@ func run(args []string) error {
 		return runTimeline(rest)
 	case "ask":
 		return runAsk(rest)
+	case "research":
+		return runResearch(rest)
 	case "bridge":
 		return runBridge(rest)
 	case "monitor":
@@ -1705,6 +1707,7 @@ USAGE
   socialfetch search   "<query>" [flags]
   socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
   socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok, openai, anthropic, google, tavily, serpapi)
+  socialfetch research "<question>" [flags]    EXPERIMENTAL — multi-angle research workflow (decompose → fan-out → synthesize)
   socialfetch monitor  [flags]                 live tail of the global audit log
   socialfetch mcp                              run as MCP server on stdio (Claude Desktop Extension entry)
   socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
