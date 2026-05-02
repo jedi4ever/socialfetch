@@ -16,7 +16,12 @@ GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
-        skill-build skill-install skill-clean
+        skill-build skill-install skill-clean skill-package
+
+# Staging dir used when building the redistributable skill zip. Wiped
+# before each package run and again after the zip is sealed, so the
+# work tree never carries leftover artifacts.
+SKILL_PACKAGE_STAGE := $(CURDIR)/bin/.skill-stage
 
 all: help  ## Default target: print this help
 
@@ -57,6 +62,27 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 		echo "No skill at $(SKILL_INSTALL_DIR) (already clean)"; \
 	fi
 	rm -f $(SKILL_BIN)
+
+# skill-package builds a self-contained zip of the skill ready to
+# upload (skills marketplace, file share, attached to a release). The
+# archive contains SKILL.md and scripts/socialfetch at the top level
+# — same layout `skill-install` expects on disk — so consumers can
+# unzip directly into ~/.claude/skills/socialfetch/.
+#
+# The version string comes from `socialfetch version` so the zip
+# filename always tracks the binary's reported version, not a stale
+# Makefile constant.
+skill-package: skill-build  ## Package the skill as ./bin/socialfetch-skill-<version>.zip
+	@rm -rf $(SKILL_PACKAGE_STAGE)
+	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts
+	@cp skill/socialfetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
+	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch
+	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
+	OUT="$(CURDIR)/bin/socialfetch-skill-$$VERSION.zip"; \
+	rm -f "$$OUT"; \
+	(cd $(SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
+	rm -rf $(SKILL_PACKAGE_STAGE); \
+	echo "Packaged: bin/socialfetch-skill-$$VERSION.zip"
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch
