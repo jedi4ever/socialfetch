@@ -88,7 +88,7 @@ Free tier: 100 searches/month. The ask path uses the `google_ai_overview` engine
 
 ## Perplexity — `PERPLEXITY_API_KEY`
 
-**Used by:** `perplexity` ask provider (Sonar models).
+**Used by:** `perplexity` ask provider (Sonar models) **and** `perplexity` search provider (the dedicated `/search` endpoint that returns raw results — title/url/snippet — without LLM synthesis. Same key, cheaper per call since no tokens are billed).
 
 1. Go to **[www.perplexity.ai/settings/api](https://www.perplexity.ai/settings/api)** → sign in.
 2. **API Keys → Generate** → copy.

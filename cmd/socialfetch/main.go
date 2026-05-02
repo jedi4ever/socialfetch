@@ -72,12 +72,13 @@ var defaultAskChain = []string{
 }
 
 // defaultSearchChain is the fallback order used by `-p auto` for the
-// search subcommand. Tavily first (highest signal-to-noise on
-// AI-tuned queries), then Brave (paid but no quota cliff), then
-// SerpAPI (cheap free tier), DuckDuckGo last (no auth, but ranking
+// search subcommand. Perplexity first (the index that powers Sonar —
+// strongest signal for AI/news/research queries), Tavily second (also
+// AI-tuned), Brave third (paid but no quota cliff), SerpAPI fourth
+// (Google-results proxy, cheap free tier), DuckDuckGo last (no auth,
 // quality varies).
 var defaultSearchChain = []string{
-	"tavily", "brave", "serpapi", "duckduckgo",
+	"perplexity", "tavily", "brave", "serpapi", "duckduckgo",
 }
 
 // resolveAsker picks an Asker from the user-supplied -p / --fallback
@@ -171,6 +172,7 @@ func buildRegistries() (*core.Registry, *core.SearchRegistry) {
 		brave.New(),
 		serpapi.New(),
 		tavily.New(),
+		perplexity.NewSearchProvider(),
 		hackernews.NewSearchProvider(),
 		reddit.NewSearchProvider(),
 		twitter.NewSearchProvider(),
@@ -1193,6 +1195,8 @@ func searchAuthHint(name string) string {
 	switch name {
 	case "duckduckgo":
 		return "(no auth)"
+	case "perplexity":
+		return "(requires PERPLEXITY_API_KEY; raw search results, no LLM synthesis)"
 	case "google":
 		return "(requires GOOGLE_API_KEY + GOOGLE_CSE_ID; 100 q/day free)"
 	case "brave":

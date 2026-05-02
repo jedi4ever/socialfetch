@@ -50,10 +50,11 @@ Already-exported shell vars always win over file entries.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `scripts/socialfetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
 - **A grounded question → ask.** `scripts/socialfetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
-- **A query → search.** Pick the provider that matches the user's intent. `-p auto` walks `tavily → brave → serpapi → duckduckgo`; comma-lists like `-p tavily,duckduckgo` define a custom fallback order. Each falls through on missing key / error / 0 results.
+- **A query → search.** Pick the provider that matches the user's intent. `-p auto` walks `perplexity → tavily → brave → serpapi → duckduckgo`; comma-lists like `-p tavily,duckduckgo` define a custom fallback order. Each falls through on missing key / error / 0 results.
   - "search the web" / unspecified → `duckduckgo` (no auth)
   - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
   - "high-quality web search for AI agents" → `tavily` (needs `TAVILY_API_KEY`)
+  - "Perplexity index without synthesis" → `perplexity` (needs `PERPLEXITY_API_KEY`; same key as `ask -p perplexity`, but cheaper since no LLM tokens)
   - "search Bluesky" → `bluesky` (no auth, native date filter)
   - "search arXiv" / academic papers → `arxiv` (no auth, sorted newest-first)
   - "search HN" → `hackernews`
