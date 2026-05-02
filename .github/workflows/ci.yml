@@ -11,6 +11,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt actions/checkout, actions/setup-go, etc. into the Node.js 24
+# runtime ahead of GitHub's forced migration on 2026-06-02. Drop this
+# env once setup-go/checkout ship versions that default to Node 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-test:
     name: build + test
