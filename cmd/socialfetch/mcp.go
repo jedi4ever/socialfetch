@@ -122,6 +122,20 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 		token = randomHex(32)
 		tokenSource = "auto-generated (--ngrok)"
 	}
+
+	// Open the global audit log once at startup so per-request lines
+	// show up under `socialfetch monitor` next to every other audit
+	// event (CLI, MCP-stdio, etc.). Audit failures don't gate the
+	// HTTP server — operator can still tail server stderr.
+	audit := core.NewAuditLogger(nil)
+	if globalW, closeGlobal, err := core.OpenGlobalAudit("mcp:http"); err == nil && globalW != nil {
+		audit.AttachGlobal(globalW)
+		defer closeGlobal()
+	}
+
+	// Stack: request log → bearer auth → MCP handler. Logging
+	// outermost so we record the request even when auth rejects it
+	// (so brute-force probes against the public URL are visible).
 	handler := http.Handler(streamable)
 	if token != "" {
 		handler = bearerAuth(token, handler)
@@ -131,6 +145,7 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 			"socialfetch mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
 				"  Set MCP_AUTH_TOKEN before exposing the listener via ngrok or any public URL.\n")
 	}
+	handler = requestLog(audit, handler)
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
@@ -287,6 +302,60 @@ func randomHex(n int) string {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+// requestLog writes one line per HTTP request to stderr (so the
+// operator running `socialfetch mcp --ngrok` can see traffic in
+// real time) and to the global audit log (so `socialfetch monitor`
+// in another shell sees it tagged `cmd=mcp:http`). Records:
+//
+//   - method, path
+//   - remote address (rightmost X-Forwarded-For entry if present —
+//     ngrok and most reverse proxies put the real client IP there;
+//     local-only deploys see "127.0.0.1:nnnnn")
+//   - response status code (via a tiny ResponseWriter wrapper)
+//   - request duration
+//
+// Sensitive fields (Authorization header, ?token= query string,
+// request body) are intentionally NOT logged — query string is
+// stripped from the path so a leaked log file doesn't reveal the
+// auth token.
+func requestLog(audit *core.AuditLogger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rw, r)
+		dur := time.Since(start).Round(time.Millisecond)
+
+		remote := r.Header.Get("X-Forwarded-For")
+		if remote == "" {
+			remote = r.RemoteAddr
+		} else if i := strings.Index(remote, ","); i >= 0 {
+			// XFF can be a list; the original client is leftmost.
+			remote = strings.TrimSpace(remote[:i])
+		}
+		path := r.URL.Path
+		// Strip the query string entirely so ?token=... never lands
+		// in stderr or audit logs.
+		line := fmt.Sprintf("http %s %s from %s status=%d in %s",
+			r.Method, path, remote, rw.status, dur)
+		fmt.Fprintln(os.Stderr, "socialfetch mcp: "+line)
+		audit.Logf("%s", line)
+	})
+}
+
+// statusRecorder is a tiny http.ResponseWriter wrapper that captures
+// the status code so requestLog can include it. No body buffering
+// — Streamable HTTP responses can be large + chunked, and we don't
+// want to keep them in memory.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
 }
 
 // bearerAuth gates `next` on the supplied token. Accepts the token
