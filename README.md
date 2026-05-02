@@ -369,6 +369,47 @@ on a `local` fetch and falls back to Jina Reader on its own (no
 config required) — `HTML2MD_READER=jina` only forces Jina for
 *every* generic article fetch.
 
+## Browser bridge (LinkedIn, Medium / Substack paywalls)
+
+LinkedIn (and the member-only paths of Medium / Substack) only
+return useful content to an authenticated session. socialfetch's
+answer is a small Chrome MV3 extension at `chrome-extension/` that
+opens a WebSocket to a local daemon (`socialfetch bridge run`) and
+brokers requests through your real, logged-in browser tab. Public
+content keeps going direct over HTTP — the bridge is only used
+when a fetcher explicitly opts in.
+
+```bash
+# one-time: load chrome-extension/ in chrome://extensions/
+#   (Developer mode → Load unpacked → pick the directory)
+socialfetch bridge start         # daemonize on :5555
+socialfetch bridge status        # 0 connected / 1 not connected / 2 not running
+socialfetch bridge stop          # SIGTERM the daemon
+```
+
+> ⚠️ **The extension declares broad host permissions: `https://*/*`
+> in both `host_permissions` and content-script matches.** This is
+> required so the bridge can navigate the active tab to whichever
+> URL the agent asks for and read the rendered DOM — a LinkedIn
+> post, a Medium article, an X tweet — without you pre-allowlisting
+> each domain. Practical implications:
+>
+> - The extension can read and inject scripts on every HTTPS page
+>   you visit while it's enabled, not only the social sites it
+>   targets. Treat it like any other dev-tools-grade extension.
+> - It only acts on commands sent over the localhost WebSocket
+>   (no remote control surface), and the daemon listens on
+>   `127.0.0.1:5555` — not exposed to the network. But anything
+>   running on your machine that can reach that port can drive
+>   the extension.
+> - Source is in `chrome-extension/` (~10 small files); audit
+>   `background.js` + `content.js` if you'd like to know what
+>   actually runs.
+> - **Disable it when you're not using socialfetch.** Chrome's
+>   `chrome://extensions/` page has a per-extension toggle —
+>   flip it off, the host_permissions stop applying, and re-enable
+>   when you next want to fetch through the bridge.
+
 ## Credentials
 
 All API keys are **optional** — features gated on a missing key
