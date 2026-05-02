@@ -15,17 +15,17 @@ stored in the macOS Keychain.
 ```bash
 git clone https://github.com/jedi4ever/socialfetch.git
 cd social-skills
-make extension-package
+make claude-extension-package
 ```
 
-Produces `dist/socialfetch-extension-<version>-darwin-arm64.mcpb`
+Produces `dist/socialfetch-claude-extension-<version>-darwin-arm64.mcpb`
 (macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
 / Windows builds).
 
 ### Install (fastest path)
 
 ```bash
-open dist/socialfetch-extension-0.2.0-darwin-arm64.mcpb
+open dist/socialfetch-claude-extension-0.2.0-darwin-arm64.mcpb
 ```
 
 That hands the file off to Claude Desktop. Skip ahead to step 3 below.
@@ -56,7 +56,7 @@ Update Claude Desktop and try again.
 
 ### Update / uninstall
 
-- **Update (preserves API keys)**: `git pull && make extension-package`,
+- **Update (preserves API keys)**: `git pull && make claude-extension-package`,
   then drag the new `.mcpb` straight onto Settings → Extensions —
   **without** uninstalling first. Claude Desktop matches by manifest
   `name` and updates in place, keeping every keychain entry. The
@@ -72,7 +72,7 @@ Update Claude Desktop and try again.
 ### Validate the manifest
 
 The `@anthropic-ai/mcpb` CLI is a local devDependency (see
-`package.json`). `make extension-package` already chains through
+`package.json`). `make claude-extension-package` already chains through
 validation, but you can run it standalone:
 
 ```bash

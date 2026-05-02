@@ -10,3 +10,4 @@
 - might live checks
 - build reolease git action
 - fix scroll later linkedin/ extension
+- analytics use
