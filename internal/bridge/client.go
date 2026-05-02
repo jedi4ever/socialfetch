@@ -26,6 +26,20 @@ import (
 // every other platform) are unaffected.
 var navigateMu sync.Mutex
 
+// SessionLock acquires the bridge lock for a multi-step interaction
+// (Navigate + several GetTabHTML/Scroll cycles, e.g. LinkedIn
+// timeline / search infinite-scroll). Caller must invoke the
+// returned unlock function — typically via `defer` — exactly once.
+//
+// Single-shot fetches should use Client.GetHTML, which acquires the
+// lock internally. SessionLock is for callers that drive the bridge
+// across multiple round-trips and need the active tab pinned on
+// their URL the whole time.
+func SessionLock() (unlock func()) {
+	navigateMu.Lock()
+	return navigateMu.Unlock
+}
+
 // DefaultEndpoint is the local /cmd URL fetchers POST to.
 const DefaultEndpoint = "http://127.0.0.1:5555/cmd"
 

@@ -60,7 +60,7 @@ import (
 
 // Version is the user-visible socialfetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.6.1"
+const Version = "0.6.2"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -179,6 +179,7 @@ func buildRegistries() (*core.Registry, *core.SearchRegistry) {
 		youtube.NewSearchProvider(),
 		bluesky.NewSearchProvider(),
 		arxiv.NewSearchProvider(),
+		linkedin.NewSearchProvider(),
 	)
 	return fetchers, searchers
 }
@@ -1154,6 +1155,8 @@ func searchAuthHint(name string) string {
 		return "(requires X_API_KEY + X_API_SECRET; recent 7d only)"
 	case "youtube":
 		return "(requires YOUTUBE_API_KEY; native --last 7d)"
+	case "linkedin":
+		return "(requires bridge + login; cap 50 results, infinite-scroll)"
 	case "bluesky":
 		return "(requires BLUESKY_HANDLE + BLUESKY_APP_PASSWORD)"
 	case "arxiv":

@@ -57,6 +57,13 @@ func FetchTimeline(ctx context.Context, bridgeURL, user string, kind TimelineKin
 	}
 	client := &bridge.Client{Endpoint: bridgeURL}
 
+	// Hold the bridge for the entire navigate + scroll-loop. Without
+	// this, a concurrent GetHTML or another scrapeWithScroll could
+	// retarget the active tab mid-loop and we'd end up scraping the
+	// wrong page silently.
+	unlock := bridge.SessionLock()
+	defer unlock()
+
 	if err := client.Navigate(ctx, target, audit); err != nil {
 		return nil, target, wrapBridgeErr(err)
 	}

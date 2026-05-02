@@ -48,10 +48,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       });
       break;
 
-    case "scroll":
-      window.scrollBy(0, msg.amount || 1000);
-      sendResponse({ scrollY: window.scrollY });
+    case "scroll": {
+      // Three-tier fallback. Most pages scroll the document body
+      // (handled by window.scrollBy). React SPAs like LinkedIn's new
+      // SDUI search results scroll an inner overflow:auto container
+      // — for those, window.scrollBy is a no-op (we observed scrollY
+      // stuck at 0 even after multiple commands). We try the simple
+      // path first, then escalate to scrollingElement, then hunt for
+      // the largest scrollable element.
+      const amount = msg.amount || 1000;
+      const before = window.scrollY;
+      window.scrollBy(0, amount);
+
+      // After window.scrollBy: did the document actually move?
+      let moved = window.scrollY !== before;
+      let scroller = null;
+      if (!moved) {
+        // Try the modern scrolling element (HTML5 spec).
+        scroller = document.scrollingElement || document.documentElement;
+        const beforeS = scroller.scrollTop;
+        scroller.scrollBy(0, amount);
+        moved = scroller.scrollTop !== beforeS;
+      }
+      if (!moved) {
+        // Last resort: find the largest visible element with
+        // overflow-y: auto/scroll that has content beyond its
+        // viewport. SPAs typically have ONE such container holding
+        // their main content area.
+        scroller = findLargestScrollable();
+        if (scroller) scroller.scrollBy(0, amount);
+      }
+      sendResponse({
+        scrollY: window.scrollY,
+        innerScrollTop: scroller ? scroller.scrollTop : 0,
+      });
       break;
+    }
 
     case "get_feed": {
       const extractor = window._patai_feed.extractUrls;
@@ -84,6 +116,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ---------------------------------------------------------------------------
 // Generic link extraction fallback
 // ---------------------------------------------------------------------------
+
+/**
+ * Find the largest visible element on the page with vertical overflow
+ * and content past its viewport. Used as a fallback for the scroll
+ * command on SPAs (LinkedIn's new SDUI, etc.) that scroll an inner
+ * container rather than the document body.
+ *
+ * "Largest" = biggest clientWidth × clientHeight. Picks the dominant
+ * content region in nearly all cases. We skip elements with tiny
+ * dimensions (<200×200) to avoid sidebar widgets and toolbars.
+ */
+function findLargestScrollable() {
+  let best = null;
+  let bestArea = 0;
+  const all = document.querySelectorAll("*");
+  for (const el of all) {
+    if (el.clientWidth < 200 || el.clientHeight < 200) continue;
+    if (el.scrollHeight <= el.clientHeight + 1) continue;
+    const style = getComputedStyle(el);
+    const overflow = style.overflowY;
+    if (overflow !== "auto" && overflow !== "scroll" && overflow !== "overlay") continue;
+    const area = el.clientWidth * el.clientHeight;
+    if (area > bestArea) {
+      best = el;
+      bestArea = area;
+    }
+  }
+  return best;
+}
 
 /**
  * Extract all unique links from the page as a simple fallback

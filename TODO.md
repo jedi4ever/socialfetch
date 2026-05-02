@@ -7,3 +7,6 @@
 - Rename extension / extension permissions
 - publish as marketplace ?
 - notes on why a mcbp - 
+- might live checks
+- build reolease git action
+- fix scroll later linkedin/ extension
