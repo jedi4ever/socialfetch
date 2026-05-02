@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // unsupportedOpRE matches X v2 search operators that aren't available

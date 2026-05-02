@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // XSearcher is the subset of core.SearchProvider this package needs from

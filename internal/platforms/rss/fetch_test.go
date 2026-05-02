@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 const rssXML = `<?xml version="1.0" encoding="UTF-8"?>

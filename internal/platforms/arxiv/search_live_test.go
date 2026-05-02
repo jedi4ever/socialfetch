@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // TestLiveArxivSearch hits the public Atom search endpoint. "transformer"

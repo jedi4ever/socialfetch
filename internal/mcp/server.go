@@ -36,9 +36,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/research"
+	"github.com/jedi4ever/socialfetch/internal/bridge"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/research"
 )
 
 // Config bundles everything the MCP server needs. All fields are

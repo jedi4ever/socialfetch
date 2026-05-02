@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/util/htmlmd"
+	"github.com/jedi4ever/socialfetch/internal/bridge"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/util/htmlmd"
 )
 
 // DefaultBridgeURL is the local bridge endpoint the fetcher POSTs to.

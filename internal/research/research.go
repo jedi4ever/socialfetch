@@ -12,7 +12,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 //go:embed prompts/decompose.md

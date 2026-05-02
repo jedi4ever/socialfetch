@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // fakeXSearcher records the query it received and returns canned results.

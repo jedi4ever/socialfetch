@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // runMonitor tails the global audit JSONL file and pretty-prints events

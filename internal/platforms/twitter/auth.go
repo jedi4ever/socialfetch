@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // TokenURL is the OAuth2 token endpoint. Exposed as a var so tests can

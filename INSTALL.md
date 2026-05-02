@@ -28,7 +28,7 @@ stored in the macOS Keychain.
 
 ```bash
 git clone https://github.com/jedi4ever/socialfetch.git
-cd social-skills
+cd socialfetch
 make claude-extension-package
 ```
 
@@ -255,8 +255,8 @@ read skills from the same location: `~/.claude/skills/<name>/`.
 ## At a glance
 
 ```bash
-git clone https://github.com/patrickdebois/social-skills.git
-cd social-skills
+git clone https://github.com/jedi4ever/socialfetch.git
+cd socialfetch
 make skill-install                  # builds the binary and copies it +
                                     # SKILL.md to ~/.claude/skills/socialfetch/
 ```
@@ -439,7 +439,7 @@ make skill-clean        # removes ~/.claude/skills/socialfetch and ./bin
 
 - File-level conventions: see [CLAUDE.md](CLAUDE.md) at the repo root.
 - Feature requests / bugs: open an issue at
-  https://github.com/patrickdebois/social-skills/issues.
+  https://github.com/jedi4ever/socialfetch/issues.
 
 ---
 

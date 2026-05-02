@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // TestLiveBlueskyFetch hits the public AppView (no auth). If Bluesky

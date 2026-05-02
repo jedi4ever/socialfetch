@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // Live test — hits DDG's lite endpoint (no auth). DDG occasionally

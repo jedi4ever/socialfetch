@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // jinaReaderBase is the public Jina Reader endpoint. The full URL

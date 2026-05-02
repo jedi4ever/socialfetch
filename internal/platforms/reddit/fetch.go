@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 const defaultMaxDepth = 5

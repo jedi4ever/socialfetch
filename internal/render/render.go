@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // Format names a supported output format.

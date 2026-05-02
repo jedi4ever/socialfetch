@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 func TestSearchRequiresKey(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/bridge"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // Live tests for LinkedIn require the local browser-extension bridge

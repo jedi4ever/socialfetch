@@ -30,11 +30,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/mcp"
-	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
-	"github.com/patrickdebois/social-skills/internal/platforms/twitter"
+	"github.com/jedi4ever/socialfetch/internal/bridge"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/mcp"
+	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
+	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
 )
 
 func runMCP(args []string) error {

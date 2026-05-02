@@ -32,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 const defaultBase = "https://api.x.ai/v1/responses"

@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // lastIndex is strings.LastIndex; tiny alias for readability at call site.

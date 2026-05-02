@@ -15,9 +15,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/patrickdebois/social-skills/internal/bridge"
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
+	"github.com/jedi4ever/socialfetch/internal/bridge"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
 )
 
 type Fetcher struct {

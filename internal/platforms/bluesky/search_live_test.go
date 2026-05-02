@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/util/dotenv"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/util/dotenv"
 )
 
 // TestLiveBlueskySearch exercises the authenticated searchPosts XRPC

@@ -3,9 +3,9 @@ package substack
 import (
 	"strings"
 
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/platforms/article"
-	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/platforms/article"
+	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
 )
 
 // articleSelectors lists Substack's article body containers in

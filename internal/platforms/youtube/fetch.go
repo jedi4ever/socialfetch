@@ -21,7 +21,7 @@ import (
 
 	yt "github.com/kkdai/youtube/v2"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 type Fetcher struct {

@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 func applyDomainOpsSerp(query string, opts core.SearchOptions) string {

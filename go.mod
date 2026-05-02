@@ -1,4 +1,4 @@
-module github.com/patrickdebois/social-skills
+module github.com/jedi4ever/socialfetch
 
 go 1.26
 

@@ -18,7 +18,7 @@ package research
 import (
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // Angle is one piece of the decomposed question, executable as a

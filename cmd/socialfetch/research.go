@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
-	"github.com/patrickdebois/social-skills/internal/platforms/linkedin"
-	"github.com/patrickdebois/social-skills/internal/platforms/twitter"
-	"github.com/patrickdebois/social-skills/internal/research"
+	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
+	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
+	"github.com/jedi4ever/socialfetch/internal/research"
 )
 
 type researchFlags struct {

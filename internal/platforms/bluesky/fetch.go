@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // AppViewBase is the public AppView XRPC base URL. Callable without

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // TestLiveGitHubGoRepo hits the real GitHub API. golang/go is stable.

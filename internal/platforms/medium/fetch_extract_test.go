@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/util/htmlmeta"
+	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
 )
 
 // Verifies the Medium extractor picks the host-specific .pw-post-body

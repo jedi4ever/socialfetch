@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 // TestLiveMediumFetch hits a real Medium post. The fetcher is

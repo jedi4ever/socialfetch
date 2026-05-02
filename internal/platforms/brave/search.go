@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 type Provider struct {

@@ -11,7 +11,7 @@
 package htmlmd
 
 import (
-	"github.com/patrickdebois/social-skills/internal/render/htmlmd"
+	"github.com/jedi4ever/socialfetch/internal/render/htmlmd"
 )
 
 // Convert delegates to the package-level Convert in

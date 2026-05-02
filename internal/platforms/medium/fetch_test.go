@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/patrickdebois/social-skills/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/core"
 )
 
 func TestMatch(t *testing.T) {
