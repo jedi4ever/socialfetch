@@ -387,28 +387,39 @@ socialfetch bridge status        # 0 connected / 1 not connected / 2 not running
 socialfetch bridge stop          # SIGTERM the daemon
 ```
 
-> ⚠️ **The extension declares broad host permissions: `https://*/*`
-> in both `host_permissions` and content-script matches.** This is
-> required so the bridge can navigate the active tab to whichever
-> URL the agent asks for and read the rendered DOM — a LinkedIn
-> post, a Medium article, an X tweet — without you pre-allowlisting
-> each domain. Practical implications:
+> **Permissions model — narrow by default, broad on opt-in.**
 >
-> - The extension can read and inject scripts on every HTTPS page
->   you visit while it's enabled, not only the social sites it
->   targets. Treat it like any other dev-tools-grade extension.
-> - It only acts on commands sent over the localhost WebSocket
->   (no remote control surface), and the daemon listens on
->   `127.0.0.1:5555` — not exposed to the network. But anything
->   running on your machine that can reach that port can drive
->   the extension.
+> The extension's static `host_permissions` cover only the named
+> social sites: `linkedin.com`, `x.com` / `twitter.com`,
+> `medium.com`, `substack.com`. Those are what the install dialog
+> asks for; nothing else.
+>
+> If you want to fetch arbitrary HTTPS pages through your
+> authenticated browser (Reddit, GitHub, Notion, …), open the
+> extension popup → **Site permissions** → toggle **"Allow on all
+> sites"**. That triggers Chrome's standard runtime-permission
+> prompt and grants `https://*/*` until you toggle it off again
+> (or remove it from `chrome://extensions/`). The toggle is
+> reflected back from Chrome's permission state, so an external
+> revoke shows up the next time you open the popup.
+>
+> Without the broad toggle on, asking the bridge to fetch a
+> non-listed site fails fast with a `permission_required` error
+> — the daemon surfaces it to the CLI so you know exactly what to
+> click.
+>
+> Other practical bits:
+>
+> - The daemon listens on `127.0.0.1:5555` only — not exposed to
+>   the network. Anything running locally that can reach that port
+>   can still drive the extension, so treat the bridge like any
+>   other localhost dev service.
 > - Source is in `chrome-extension/` (~10 small files); audit
->   `background.js` + `content.js` if you'd like to know what
->   actually runs.
-> - **Disable it when you're not using socialfetch.** Chrome's
->   `chrome://extensions/` page has a per-extension toggle —
->   flip it off, the host_permissions stop applying, and re-enable
->   when you next want to fetch through the bridge.
+>   `background.js` + `content.js` if you'd like to see the
+>   actual surface.
+> - Toggle the extension off in `chrome://extensions/` when you're
+>   not using socialfetch and the host permissions stop applying
+>   entirely.
 
 ## Credentials
 

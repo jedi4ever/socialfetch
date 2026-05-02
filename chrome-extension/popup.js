@@ -75,6 +75,52 @@ serverUrlInput.addEventListener("change", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Optional host permissions toggle
+//
+// `https://*/*` is declared under optional_host_permissions in the
+// manifest so the install dialog doesn't show a scary "read all your
+// browsing data" warning. This toggle requests / drops it at runtime
+// — checkbox state mirrors whatever Chrome currently records, not
+// what we'd like it to be, so an external "remove permission" from
+// chrome://extensions/ is reflected on the next popup open.
+// ---------------------------------------------------------------------------
+
+const broadPermsCheckbox = document.getElementById("broadPermissions");
+const BROAD_ORIGINS = ["https://*/*"];
+
+async function refreshBroadPermissionsUI() {
+  try {
+    const granted = await chrome.permissions.contains({ origins: BROAD_ORIGINS });
+    broadPermsCheckbox.checked = granted;
+  } catch (err) {
+    console.warn("[socialfetch] permissions.contains failed:", err);
+  }
+}
+
+refreshBroadPermissionsUI();
+
+broadPermsCheckbox.addEventListener("change", async () => {
+  // Save the user's intent immediately so the UI feels snappy, then
+  // sync up once Chrome's prompt resolves.
+  const wanted = broadPermsCheckbox.checked;
+  try {
+    if (wanted) {
+      // Chrome requires this call to be in direct response to a user
+      // gesture (the click on the checkbox counts).
+      const granted = await chrome.permissions.request({ origins: BROAD_ORIGINS });
+      if (!granted) {
+        broadPermsCheckbox.checked = false;
+      }
+    } else {
+      await chrome.permissions.remove({ origins: BROAD_ORIGINS });
+    }
+  } catch (err) {
+    console.warn("[socialfetch] permissions.request/remove failed:", err);
+    await refreshBroadPermissionsUI();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Settings panel
 // ---------------------------------------------------------------------------
 

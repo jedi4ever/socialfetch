@@ -240,6 +240,22 @@ async function sendToContent(tab, action, params = {}) {
 // Command handlers
 // ---------------------------------------------------------------------------
 
+// hasHostPermission checks whether the extension is allowed to inject
+// scripts into / read DOM from the given URL. Returns false for
+// origins not covered by either the static host_permissions in the
+// manifest or any optional permissions the user has granted via
+// the popup. Used to fail fast with a clear message before we try
+// to navigate a tab into a site we can't actually scrape.
+async function hasHostPermission(url) {
+  try {
+    const u = new URL(url);
+    const origin = `${u.protocol}//${u.host}/*`;
+    return await chrome.permissions.contains({ origins: [origin] });
+  } catch (e) {
+    return false;
+  }
+}
+
 async function handleCommand(msg) {
   const { id, command } = msg;
   console.log(`[socialfetch] Command: ${command} (id=${id})`);
@@ -252,6 +268,24 @@ async function handleCommand(msg) {
     }
 
     const targetUrl = msg.url || "https://www.linkedin.com/feed/";
+
+    // Fail fast if the user hasn't granted host permission for this
+    // site — much friendlier than letting the navigate succeed and
+    // then having executeScript fail with a cryptic error. Surfaces
+    // as a "permission_required" status the bridge daemon can turn
+    // into an actionable message for the agent / CLI user.
+    if (!(await hasHostPermission(targetUrl))) {
+      const host = (() => { try { return new URL(targetUrl).host; } catch { return targetUrl; } })();
+      safeSend({
+        id, command,
+        status: "error",
+        error: "permission_required",
+        host,
+        message: `bridge has no host permission for ${host} — open the extension popup and toggle "Allow on all sites" on, or add the host to the manifest's host_permissions.`,
+      });
+      return;
+    }
+
     const tab = await getTab(targetUrl);
     let result;
 

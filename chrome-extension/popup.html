@@ -162,7 +162,7 @@
 
   <!-- Status panel -->
   <div class="panel active" id="panel-status">
-    <h1>PatAI Browser Bridge</h1>
+    <h1>socialfetch Browser Bridge</h1>
 
     <div class="status">
       <span class="dot disconnected" id="dot"></span>
@@ -178,8 +178,23 @@
     </div>
 
     <div class="info">
-      The extension relays commands from the PatAI server through your authenticated browser sessions.
-      Managed tabs appear in a collapsed "PatAI" tab group.
+      Relays commands from the socialfetch CLI through your authenticated
+      browser sessions. Managed tabs appear in a collapsed "socialfetch"
+      tab group.
+    </div>
+
+    <div class="section" style="margin-top:16px;">
+      <h2>Site permissions</h2>
+      <div class="checkbox-row">
+        <input type="checkbox" id="broadPermissions">
+        <label for="broadPermissions">Allow on all sites (<code>https://*/*</code>)</label>
+      </div>
+      <div class="info" id="permInfo">
+        By default the bridge only runs on LinkedIn, X / Twitter, Medium,
+        and Substack. Toggle this on to fetch through your authenticated
+        session on <em>any</em> HTTPS page (Reddit, GitHub, Notion, …).
+        Off when you're not actively using socialfetch.
+      </div>
     </div>
   </div>
 
