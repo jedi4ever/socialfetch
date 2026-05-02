@@ -3,8 +3,8 @@ name: release
 # Builds + uploads release artifacts when you push a `v<version>`
 # tag (e.g. `git tag v0.8.3 && git push --tags`). Artifacts:
 #
-#   - socialfetch-<version>-<os>-<arch>.{tar.gz,zip}     bare binaries
-#       darwin/arm64, darwin/amd64, linux/amd64, windows/amd64
+#   - socialfetch-<version>-<os>-<arch>.tar.gz           bare binaries
+#       darwin/arm64, darwin/amd64, linux/amd64
 #   - socialfetch-claude-extension-<version>-darwin-arm64.mcpb
 #       Claude Desktop Extension (drag into Settings → Extensions)
 #   - socialfetch-skill-<version>.zip
@@ -14,6 +14,10 @@ name: release
 #   - socialfetch-chrome-extension-<version>.zip
 #       Chrome browser-bridge extension (independent version,
 #       read from chrome-extension/manifest.json at package time)
+#
+# Windows is intentionally not in the matrix: the bridge daemon
+# code uses Unix-only syscalls (syscall.Kill, SysProcAttr.Setsid).
+# Windows users can run via WSL until the bridge daemon is ported.
 #
 # A separate `live` workflow auto-runs against the published release
 # (release.published trigger) so provider compatibility is verified
@@ -79,31 +83,26 @@ jobs:
           mkdir -p dist/binaries
           V="${{ steps.ver.outputs.value }}"
           build() {
-            local os="$1" arch="$2" ext="${3:-}"
+            local os="$1" arch="$2"
             local dir="dist/binaries/socialfetch-${V}-${os}-${arch}"
             mkdir -p "$dir"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
               go build -ldflags="-s -w" -trimpath \
-              -o "$dir/socialfetch${ext}" ./cmd/socialfetch
+              -o "$dir/socialfetch" ./cmd/socialfetch
             cp README.md INSTALL.md API_KEYS.md HINTS.md "$dir/"
           }
-          build darwin  arm64
-          build darwin  amd64
-          build linux   amd64
-          build windows amd64 .exe
+          build darwin arm64
+          build darwin amd64
+          build linux  amd64
 
-      - name: Archive bare binaries (.tar.gz / .zip)
+      - name: Archive bare binaries (.tar.gz)
         run: |
           set -euo pipefail
           cd dist/binaries
           for d in socialfetch-*-*-*; do
-            if [[ "$d" == *windows* ]]; then
-              zip -qr "../${d}.zip" "$d"
-            else
-              tar -czf "../${d}.tar.gz" "$d"
-            fi
+            tar -czf "../${d}.tar.gz" "$d"
           done
-          ls -lh ../*.tar.gz ../*.zip
+          ls -lh ../*.tar.gz
 
       - name: Package Claude Desktop Extension (.mcpb)
         run: make claude-extension-package
