@@ -120,10 +120,41 @@ func buildRegistries() (*core.Registry, *search.Registry) {
 
 func main() {
 	loadDotEnv()
-	if err := run(os.Args[1:]); err != nil {
+	start := time.Now()
+	cmd := ""
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+	err := run(os.Args[1:])
+	emitExitAudit(cmd, start, err)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// emitExitAudit appends a single "exit ..." line to the global audit
+// log so a `monitor` watcher can see when an invocation finished and
+// whether it succeeded. Skipped for the monitor subcommand itself
+// (it never naturally exits — Ctrl-C kills it — and we'd be writing
+// to the same file we're tailing).
+func emitExitAudit(cmd string, start time.Time, runErr error) {
+	if cmd == "monitor" || cmd == "" {
+		return
+	}
+	globalW, closeFn, err := core.OpenGlobalAudit(cmd)
+	if err != nil || globalW == nil {
+		return
+	}
+	defer closeFn()
+	audit := core.NewAuditLogger(nil)
+	audit.AttachGlobal(globalW)
+	dur := time.Since(start).Round(time.Millisecond)
+	if runErr != nil {
+		audit.Logf("exit %s code=1 in %s: %v", cmd, dur, runErr)
+		return
+	}
+	audit.Logf("exit %s code=0 in %s", cmd, dur)
 }
 
 // loadDotEnv pulls KEY=VALUE pairs from .env files in two locations,
@@ -318,6 +349,7 @@ func runFetch(args []string) error {
 
 	registry, _ := buildRegistries()
 	ctx, cancel := signalContext(flags.timeout)
+	ctx = core.WithAudit(ctx, audit)
 	defer cancel()
 
 	// Decide where output goes. For stdout / single file: stream as we go.
@@ -625,6 +657,7 @@ func runSearch(args []string) error {
 	}
 
 	ctx, cancel := signalContext(flags.timeout)
+	ctx = core.WithAudit(ctx, audit)
 	defer cancel()
 
 	audit.Logf("search %q via %s (max=%d)", flags.query, provider.Name(), flags.max)
@@ -765,6 +798,7 @@ func runAsk(args []string) error {
 	}
 
 	ctx, cancel := signalContext(timeout)
+	ctx = core.WithAudit(ctx, audit)
 	defer cancel()
 
 	audit.Logf("ask %q via %s (model=%s, recency=%s)", question, asker.Name(), model, recency)

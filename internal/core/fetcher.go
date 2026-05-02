@@ -53,10 +53,11 @@ func (r *Registry) Fetch(ctx context.Context, raw string, opts Options) (*Item, 
 	opts.Audit.Logf("fetch %s via %s", raw, f.Name())
 	item, err := f.Fetch(ctx, raw, opts)
 	if err != nil {
-		opts.Audit.Logf("fetch %s FAILED: %v", raw, err)
+		opts.Audit.Logf("fetch %s FAILED via %s: %v", raw, f.Name(), err)
 		return nil, err
 	}
-	opts.Audit.Logf("fetch %s ok (%d comments, %d media)", raw, len(item.Comments), len(item.Media))
+	opts.Audit.Logf("fetch %s ok via %s bytes=%d comments=%d media=%d",
+		raw, f.Name(), len(item.Content), len(item.Comments), len(item.Media))
 	return item, nil
 }
 

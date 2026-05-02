@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -25,7 +26,7 @@ const UserAgent = "Mozilla/5.0 (compatible; social-skills/0.1; +https://github.c
 // callers can see when a URL has moved.
 var HTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
-	Transport: &http.Transport{
+	Transport: &loggingRoundTripper{base: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   32,
@@ -34,8 +35,100 @@ var HTTPClient = &http.Client{
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     true,
-	},
+	}},
 	CheckRedirect: trackRedirects,
+}
+
+// loggingRoundTripper wraps every HTTP call and emits one audit line
+// per request:
+//
+//	http GET news.ycombinator.com/item status=200 bytes=12345 in 234ms
+//
+// or on failure:
+//
+//	http GET host/path FAILED in 1.2s: dial tcp: i/o timeout
+//
+// The audit logger is read from the request's context (set via
+// core.WithAudit). If no logger is attached, the transport is a
+// straight pass-through.
+//
+// Bytes are counted by wrapping the response body so the actual
+// transferred size is recorded — including streaming responses where
+// Content-Length is missing or wrong. The log line fires when the
+// body is closed (typical idiom: `defer resp.Body.Close()`).
+//
+// The URL is logged as host+path only — query strings often carry API
+// keys / bearer tokens / signed URLs and must never reach the audit
+// log.
+type loggingRoundTripper struct{ base http.RoundTripper }
+
+func (l *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := l.base.RoundTrip(req)
+	audit, _ := req.Context().Value(auditCtxKey).(*AuditLogger)
+	if err != nil {
+		if audit != nil {
+			audit.Logf("http %s %s FAILED in %s: %v",
+				req.Method, safeURL(req.URL.String()),
+				time.Since(start).Round(time.Millisecond), err)
+		}
+		return resp, err
+	}
+	if audit == nil {
+		return resp, nil
+	}
+	resp.Body = &countingBody{
+		ReadCloser: resp.Body,
+		onClose: func(n int64) {
+			audit.Logf("http %s %s status=%d bytes=%d in %s",
+				req.Method, safeURL(req.URL.String()),
+				resp.StatusCode, n,
+				time.Since(start).Round(time.Millisecond))
+		},
+	}
+	return resp, nil
+}
+
+// safeURL returns host+path, stripping query strings so API keys
+// passed via ?key=... don't end up in the audit log. Very long paths
+// are truncated to keep one event readable on a single line.
+func safeURL(raw string) string {
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		raw = raw[:i]
+	}
+	// Drop scheme://; keep host + path.
+	if i := strings.Index(raw, "://"); i >= 0 {
+		raw = raw[i+3:]
+	}
+	if len(raw) > 200 {
+		raw = raw[:199] + "…"
+	}
+	return raw
+}
+
+// countingBody wraps an http.Response.Body to count bytes read and
+// invoke onClose with the total when the caller closes the body. Pure
+// pass-through otherwise.
+type countingBody struct {
+	io.ReadCloser
+	n       int64
+	closed  bool
+	onClose func(int64)
+}
+
+func (c *countingBody) Read(p []byte) (int, error) {
+	n, err := c.ReadCloser.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func (c *countingBody) Close() error {
+	err := c.ReadCloser.Close()
+	if !c.closed && c.onClose != nil {
+		c.closed = true
+		c.onClose(c.n)
+	}
+	return err
 }
 
 // MovedError is returned when fetching a URL ultimately fails because the

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/patrickdebois/social-skills/internal/core"
 	"github.com/patrickdebois/social-skills/internal/render"
 	"github.com/patrickdebois/social-skills/internal/search/xsearch"
 	"github.com/patrickdebois/social-skills/internal/timeline"
@@ -183,6 +184,7 @@ func runTimeline(args []string) error {
 	}
 
 	ctx, cancel := signalContext(flags.timeout)
+	ctx = core.WithAudit(ctx, audit)
 	defer cancel()
 
 	audit.Logf("timeline %s/%s (kind=%s, max=%d)", provider, user, flags.kind, flags.max)
