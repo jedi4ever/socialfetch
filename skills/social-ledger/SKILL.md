@@ -69,10 +69,21 @@ full, then summarise.
 
 ## Recording content from outside social-fetch
 
-When the user asks the agent to fetch content via Claude's
-WebFetch tool (or any other non-social-fetch path), the result
-isn't in the ledger automatically. Add it after, so the next
-conversation finds it:
+> **DO NOT call `record` for content fetched via `social-fetch`.**
+> `social-fetch fetch / search / ask / timeline / research`
+> all auto-ingest into the ledger via the auto-detected
+> sibling binary. Calling `record` on top creates a duplicate
+> row. The two are mutually exclusive.
+>
+> **DO call `record` for content fetched outside social-fetch:**
+>   - Claude's `WebFetch` tool (the built-in one)
+>   - Claude's research / search tool result snippets
+>   - Ad-hoc `curl`, `wget`, hand-pasted text
+>   - Any source that didn't go through a `social-*` binary
+
+When the user asks the agent to fetch content via one of those
+non-social-fetch paths, the result isn't in the ledger
+automatically. Add it after, so the next conversation finds it:
 
 ```bash
 # 1. fetch via Claude's WebFetch tool (output: markdown)
@@ -93,8 +104,10 @@ optional. Source defaults to `webfetch`; override to
 `research-tool`, `manual`, etc. for cleaner `list --source`
 filtering later.
 
-**Workflow recipe** for the most common case — user asks to read
-some URL the agent fetches via WebFetch:
+**Workflow recipe** for the WebFetch case — user asks the agent
+to read a URL that the agent fetches via Claude's WebFetch tool
+(NOT social-fetch — if you used `social-fetch fetch`, skip the
+record step entirely; it's already in the ledger):
 
 1. `seen <url>` → if seen, skip 2-3, use `get <url>` for the body.
 2. WebFetch the URL → capture markdown.
@@ -105,6 +118,15 @@ some URL the agent fetches via WebFetch:
    handful of lines** — file paths avoid bloating the agent's
    token budget and the MCP escape-encoding overhead.
 4. Reason / summarize from the recorded content.
+
+**The mirror workflow for the social-fetch case** (read this so
+you don't double-record):
+
+1. `seen <url>` → if seen, skip 2, use `get <url>`.
+2. `social-fetch fetch <url>` (or search / ask / etc.) — this
+   auto-ingests into the ledger; the agent does NOT need to call
+   record. Verify with `seen <url>` afterwards if uncertain.
+3. Reason / summarize from the fetched content.
 
 The ledger's deduplication (key = `source::canonical_id`) means
 re-recording the same URL with the same content is a no-op
