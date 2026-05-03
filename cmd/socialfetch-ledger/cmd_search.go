@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/store"
+	"github.com/jedi4ever/socialfetch/internal/ledger/store"
 )
 
 // cmdSearch runs FTS5 over title/summary/content/author/tags and

@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/item"
-	"github.com/jedi4ever/socialfetch-ledger/internal/mirror"
-	"github.com/jedi4ever/socialfetch-ledger/internal/store"
+	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/mirror"
+	"github.com/jedi4ever/socialfetch/internal/ledger/store"
 )
 
 // cmdIngest reads JSONL from stdin and ingests every line into the

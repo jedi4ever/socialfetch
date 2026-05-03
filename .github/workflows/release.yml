@@ -82,6 +82,13 @@ jobs:
           set -euo pipefail
           mkdir -p dist/binaries
           V="${{ steps.ver.outputs.value }}"
+          # Each platform archive contains BOTH binaries so users
+          # get a complete kit. socialfetch-ledger is optional at
+          # runtime (the auto-ingest hook is a no-op without it),
+          # but shipping them together avoids a "where do I get
+          # the ledger?" round-trip when someone wants to flip it
+          # on. Keeps the JSONL contract decoupled at runtime;
+          # tighter coupling at packaging time.
           build() {
             local os="$1" arch="$2"
             local dir="dist/binaries/socialfetch-${V}-${os}-${arch}"
@@ -89,7 +96,10 @@ jobs:
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
               go build -ldflags="-s -w" -trimpath \
               -o "$dir/socialfetch" ./cmd/socialfetch
-            cp README.md INSTALL.md API_KEYS.md HINTS.md "$dir/"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -ldflags="-s -w" -trimpath \
+              -o "$dir/socialfetch-ledger" ./cmd/socialfetch-ledger
+            cp README.md INSTALL.md API_KEYS.md HINTS.md docs/ledger.md "$dir/"
           }
           build darwin arm64
           build darwin amd64

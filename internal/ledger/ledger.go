@@ -172,9 +172,9 @@ func IngestSources(ctx context.Context, sources ...core.Source) {
 //
 //  1. $SOCIALFETCH_LEDGER_BIN — explicit override
 //  2. $PATH lookup via exec.LookPath
-//  3. ../ledger/bin/socialfetch-ledger relative to the parent
-//     binary's dir — handy during in-tree dev where you ran
-//     `make ledger-build` but didn't `go install` the result
+//  3. socialfetch-ledger as a sibling of the running socialfetch
+//     binary — handy during in-tree dev where `make build` and
+//     `make ledger-build` both drop into ./dist/.
 //
 // Errors with a message naming what was tried so the operator can
 // fix it without spelunking the source.
@@ -188,13 +188,14 @@ func binaryPath() (string, error) {
 	if p, err := exec.LookPath("socialfetch-ledger"); err == nil {
 		return p, nil
 	}
-	// Sibling-directory dev convenience.
+	// Same-dir dev convenience: dist/socialfetch + dist/socialfetch-ledger
+	// after `make build && make ledger-build`.
 	self, err := os.Executable()
 	if err == nil {
-		guess := filepath.Join(filepath.Dir(self), "..", "ledger", "bin", "socialfetch-ledger")
+		guess := filepath.Join(filepath.Dir(self), "socialfetch-ledger")
 		if _, err := os.Stat(guess); err == nil {
 			return guess, nil
 		}
 	}
-	return "", fmt.Errorf("socialfetch-ledger not on $PATH (set %s or install via `make ledger-build && go install ./ledger/...`)", BinaryEnv)
+	return "", fmt.Errorf("socialfetch-ledger not on $PATH (set %s or install via `go install ./cmd/socialfetch-ledger`)", BinaryEnv)
 }

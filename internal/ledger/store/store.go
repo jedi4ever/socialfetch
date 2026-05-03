@@ -21,7 +21,7 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go driver — no CGO, keeps static-binary story.
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/item"
 )
 
 // Store is the SQLite-backed ledger.

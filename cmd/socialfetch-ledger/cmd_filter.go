@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/item"
-	"github.com/jedi4ever/socialfetch-ledger/internal/store"
+	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/store"
 )
 
 // cmdFilter is a Unix-style filter: read JSONL on stdin, emit JSONL

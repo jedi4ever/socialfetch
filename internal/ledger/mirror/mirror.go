@@ -30,7 +30,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/item"
 )
 
 // Mirror writes Items into a directory under Root.

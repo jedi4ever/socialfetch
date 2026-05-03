@@ -15,7 +15,7 @@ GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 #   make skill-install SKILL_INSTALL_DIR=~/.claude/skills/socialfetch
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
-.PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
+.PHONY: all help build install test test-integration test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
         bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
         ledger-build ledger-test
@@ -176,20 +176,28 @@ gh-sync-secrets-dry:  ## Preview which .env keys would be uploaded to GitHub Act
 gh-sync-secrets:  ## Push API keys from .env to GitHub Actions secrets (powers .github/workflows/live.yml)
 	@./scripts/gh-sync-secrets.sh
 
-# socialfetch-ledger lives in ledger/ as its own Go module so it can
-# be lifted into a sibling repo (jedi4ever/socialfetch-ledger) with
-# a single mv. These targets just delegate to its Makefile.
-ledger-build:  ## Build the ledger binary at ledger/dist/socialfetch-ledger
-	@$(MAKE) -C ledger build
+# socialfetch-ledger is the second binary in this module — same
+# `go.mod`, separate `cmd/` entry point. Imports the SQLite-backed
+# packages under internal/ledger/{store,mirror,item}; the parent
+# socialfetch binary doesn't link those, so its size / dep tree
+# stays unaffected.
+LEDGER_BIN := ./dist/socialfetch-ledger
+ledger-build: $(LEDGER_BIN)  ## Build dist/socialfetch-ledger
+$(LEDGER_BIN):
+	@mkdir -p dist
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_BIN) ./cmd/socialfetch-ledger
 
-ledger-test:  ## Run the ledger module's unit tests
-	@$(MAKE) -C ledger test
+ledger-test:  ## Run the ledger sub-package tests only
+	go test ./internal/ledger/... ./cmd/socialfetch-ledger/... -count=1
 
-install:  ## go install into $GOBIN
-	go install ./cmd/socialfetch
+install:  ## go install into $GOBIN (both binaries)
+	go install ./cmd/socialfetch ./cmd/socialfetch-ledger
 
 test:  ## Run fast (offline) unit tests
 	go test $(PKG)
+
+test-integration:  ## Run integration tests (build tag `integration`)
+	go test -tags=integration ./cmd/socialfetch/ -count=1
 
 test-live:  ## Run live tests that hit real network endpoints
 	go test -tags=live $(PKG) -count=1

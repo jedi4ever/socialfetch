@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch-ledger/internal/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/item"
 )
 
 // newStore opens a fresh on-disk SQLite in t.TempDir. We don't use
