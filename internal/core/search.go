@@ -29,6 +29,13 @@ type SearchOptions struct {
 	After          *time.Time // only results published after this time
 	IncludeDomains []string   // allowlist; if non-empty, restrict to these
 	ExcludeDomains []string   // denylist
+
+	// Start is the pagination offset (0-based result index, not page
+	// number). Providers that support paging respect this; ones that
+	// don't ignore it. SerpAPI / Brave / DuckDuckGo all support
+	// pagination natively. Use it to get results 11-20, 21-30, etc.
+	// without forcing the provider to return everything in one shot.
+	Start int
 }
 
 // DefaultOptions returns options with the provider's own defaults.

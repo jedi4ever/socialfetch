@@ -61,7 +61,7 @@ import (
 
 // Version is the user-visible social-fetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.10.6"
+const Version = "0.10.7"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -172,6 +172,7 @@ func buildRegistries() (*core.Registry, *core.SearchRegistry) {
 		google.New(),
 		brave.New(),
 		serpapi.New(),
+		serpapi.NewNewsProvider(),
 		tavily.New(),
 		perplexity.NewSearchProvider(),
 		hackernews.NewSearchProvider(),
@@ -553,6 +554,7 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 type searchFlags struct {
 	provider       string
 	max            int
+	start          int
 	format         string
 	output         string
 	logFile        string
@@ -594,6 +596,20 @@ func parseSearchFlags(args []string) (*searchFlags, error) {
 				return nil, err
 			}
 			f.max = n
+		case "--start":
+			// 0-based result offset for paging through long result
+			// sets without forcing the provider to dump the whole
+			// list in one shot. Honored by SerpAPI; ignored by
+			// providers without native pagination.
+			i++
+			if i >= len(args) {
+				return nil, fmt.Errorf("--start needs a value")
+			}
+			n, err := atoi(args[i])
+			if err != nil {
+				return nil, err
+			}
+			f.start = n
 		case "-f", "--format":
 			i++
 			if i >= len(args) {
@@ -734,9 +750,10 @@ func runSearch(args []string) error {
 	ctx = core.WithAudit(ctx, audit)
 	defer cancel()
 
-	audit.Logf("search %q via %s (max=%d)", flags.query, provider.Name(), flags.max)
+	audit.Logf("search %q via %s (max=%d, start=%d)", flags.query, provider.Name(), flags.max, flags.start)
 	results, err := provider.Search(ctx, flags.query, core.SearchOptions{
 		Max:            flags.max,
+		Start:          flags.start,
 		Before:         flags.before,
 		After:          flags.after,
 		IncludeDomains: flags.includeDomains,

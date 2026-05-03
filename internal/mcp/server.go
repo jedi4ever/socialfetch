@@ -353,6 +353,7 @@ type searchArgs struct {
 	Query    string `json:"query"`
 	Provider string `json:"provider,omitempty"`
 	Max      int    `json:"max,omitempty"`
+	Start    int    `json:"start,omitempty"`
 	After    string `json:"after,omitempty"`
 	Before   string `json:"before,omitempty"`
 	Last     string `json:"last,omitempty"`
@@ -361,10 +362,11 @@ type searchArgs struct {
 
 func addSearchTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_search",
-		mcp.WithDescription("Run a search query. Provider names: duckduckgo (default for unauthed), google, brave, serpapi, tavily, perplexity, hackernews, reddit, x (Twitter), youtube, bluesky, arxiv. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
+		mcp.WithDescription("Run a search query. Provider names: duckduckgo (default for unauthed), google, brave, serpapi, serpapi-news (Google News tab), tavily, perplexity, hackernews, reddit, x (Twitter), youtube, bluesky, arxiv. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
 		mcp.WithNumber("max", mcp.Description("Max results (default 10)")),
+		mcp.WithNumber("start", mcp.Description("Pagination offset (0-based result index). Honored by serpapi / serpapi-news; ignored by providers without native paging. Use to walk through results page-by-page: max=10 + start=0, then start=10, start=20, etc.")),
 		mcp.WithString("after", mcp.Description("Only results after this date (yyyy-mm-dd or RFC3339)")),
 		mcp.WithString("before", mcp.Description("Only results before this date")),
 		mcp.WithString("last", mcp.Description("Sugar for `after`: \"7d\", \"24h\", \"1m\"")),
@@ -385,7 +387,7 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 			audit.Logf("search FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		opts := core.SearchOptions{Max: args.Max}
+		opts := core.SearchOptions{Max: args.Max, Start: args.Start}
 		if t, err := parseDate(args.After); err != nil {
 			return mcp.NewToolResultError("after: " + err.Error()), nil
 		} else if t != nil {
