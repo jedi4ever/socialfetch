@@ -47,7 +47,7 @@ Already-exported shell vars always win over file entries.
 ## Decision rules
 
 - **One URL → fetch it.** `scripts/socialfetch fetch <url>` auto-detects the source from the host (HN, Reddit, GitHub, X, RSS, or generic article).
-- **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | scripts/socialfetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
+- **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | scripts/socialfetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order. **When to use batch:** the user already has ≥3 URLs in hand (pasted bookmarks, an RSS dump, a link list) and you don't need to reason between fetches. Connection-pool reuse + parallel workers make it ~3-4× faster than calling `fetch <url>` once per URL. **When NOT to use batch:** an iterative research loop where you'd fetch one URL, read it, then decide what to fetch next — call `fetch <url>` per URL so the result is cleanly attributed and you can reason between hops.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `scripts/socialfetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
 - **A grounded question → ask.** `scripts/socialfetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.

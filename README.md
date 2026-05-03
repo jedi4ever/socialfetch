@@ -258,6 +258,16 @@ Multiple URLs + `-f json` auto-promotes to `jsonl` (one item per
 line). Stdin auto-detected when piped: `cat urls.txt | socialfetch fetch`.
 `-j N` keeps results in input order despite concurrency.
 
+**When batch mode pays off:** ≥3 URLs known up front (pasted
+bookmarks, RSS dump, link list). Connection-pool reuse and parallel
+workers make `fetch -i urls.txt -j 8` ~3-4× faster than one
+`fetch <url>` call per URL. **When it doesn't:** an iterative
+research loop where you read one result before deciding the next —
+keep one fetch per URL so attribution stays clean and you can
+reason between hops. The MCP `socialfetch_fetch` tool is shaped
+for that case (one URL per call) and pools connections internally
+across calls in the same server process.
+
 ### `search`
 
 ```
