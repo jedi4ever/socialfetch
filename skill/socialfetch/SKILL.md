@@ -6,14 +6,22 @@ allowed-tools: |
   Bash(scripts/socialfetch search *)
   Bash(scripts/socialfetch timeline *)
   Bash(scripts/socialfetch ask *)
+  Bash(scripts/socialfetch research *)
   Bash(scripts/socialfetch bridge start)
   Bash(scripts/socialfetch bridge stop)
   Bash(scripts/socialfetch bridge status)
   Bash(scripts/socialfetch bridge status *)
   Bash(scripts/socialfetch bridge run)
+  Bash(scripts/socialfetch monitor *)
   Bash(scripts/socialfetch list)
   Bash(scripts/socialfetch help *)
   Bash(scripts/socialfetch version)
+  Bash(scripts/socialfetch-ledger list *)
+  Bash(scripts/socialfetch-ledger search *)
+  Bash(scripts/socialfetch-ledger get *)
+  Bash(scripts/socialfetch-ledger stats)
+  Bash(scripts/socialfetch-ledger forget *)
+  Bash(scripts/socialfetch-ledger filter *)
 ---
 
 # socialfetch skill
@@ -256,6 +264,34 @@ When `X_API_KEY` + `X_API_SECRET` are set, fetching a tweet also pulls its repli
 - Search is limited to the **last 7 days** by X's API tier — older tweets return 0 replies. The audit log (`--log -`) makes this explicit.
 - Without creds, the syndication fallback is used and returns 0 replies (no API support).
 - `--no-comments` and `--max-comments N` apply.
+
+## Ledger (history of every fetch)
+
+A companion binary `scripts/socialfetch-ledger` ships alongside
+`scripts/socialfetch`. When both are present (always true for this
+skill), every successful `fetch` / `timeline` / `research` call is
+auto-recorded — content into a SQLite + FTS5 store, plus a
+markdown mirror tree on disk. No env-var setup needed; auto-detect
+flips it on.
+
+Useful queries against the ledger from inside the skill:
+
+```bash
+scripts/socialfetch-ledger list                         # newest first
+scripts/socialfetch-ledger list --source hackernews     # filter by source
+scripts/socialfetch-ledger search "harness engineering" # full-text search
+scripts/socialfetch-ledger get https://example.com/foo  # one item back
+scripts/socialfetch-ledger stats                        # counts + sizes
+scripts/socialfetch-ledger forget https://...           # drop one entry
+```
+
+When the user asks a question that resembles "have we seen X
+before?" or "what did we learn about Y last week?" — the ledger is
+where to look first, before re-fetching.
+
+To explicitly disable: set `SOCIALFETCH_LEDGER=0` in the env. To
+override the storage location: `SOCIALFETCH_LEDGER_DIR=...`
+(default `~/.local/share/socialfetch-ledger`).
 
 ## When NOT to use this skill
 

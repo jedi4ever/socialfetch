@@ -9,25 +9,33 @@ This plugin is purely the skill markdown + a manifest. It does **not**
 bundle an MCP server (use the [`.mcpb` Desktop Extension](https://github.com/jedi4ever/socialfetch/blob/main/INSTALL.md)
 for that path) and it does **not** ship the `socialfetch` binary.
 
-## Prerequisite — install the `socialfetch` binary
+## Prerequisite — install both binaries
 
-The skill calls a `socialfetch` command. Install it once before
-enabling the plugin:
+The plugin calls two binaries: `socialfetch` (always required) and
+`socialfetch-ledger` (optional, but auto-enabled when present —
+gives you a SQLite + FTS5 history of every fetch / research run
+the agent does). Install both with one `go install`:
 
 ```bash
-# from source (Go 1.22+)
+# from source (Go 1.26+)
 go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
+go install github.com/jedi4ever/socialfetch/cmd/socialfetch-ledger@latest
 
-# or download a release binary from
+# or download a release tarball that includes both:
 # https://github.com/jedi4ever/socialfetch/releases
 ```
 
 Confirm:
 
 ```bash
-socialfetch version
-# socialfetch 0.8.2
+socialfetch version           # socialfetch 0.9.x
+socialfetch-ledger            # prints help banner with version
 ```
+
+Without `socialfetch-ledger` on PATH the plugin still works for
+fetch / search / ask / timeline / research — the ledger auto-detect
+just stays off silently. Drop the binary in later and ledger
+queries become available immediately.
 
 ## Install the plugin
 

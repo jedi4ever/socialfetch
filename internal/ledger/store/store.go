@@ -225,6 +225,34 @@ func (s *Store) Has(key string) (bool, error) {
 	return true, nil
 }
 
+// HasURL checks whether any row's `url` column matches the supplied
+// string exactly. Cheaper than List + scan when the caller only
+// needs the boolean — used by the `seen` subcommand as a fallback
+// when none of the candidate-source keys hit. There's no index on
+// `url` (the primary key is `key`), so this is a table scan; for a
+// single-user ledger of <100K items it's <100ms. If that becomes a
+// bottleneck, add `CREATE INDEX idx_items_url ON items(url)` in a
+// migration.
+//
+// Caveat — this is a literal-string match. URLs that differ by
+// redirects, trailing slash, fragment, or query-param ordering
+// will NOT match even if they point at the same content. The
+// `seen` subcommand normalizes some trivial variants (trim
+// fragment, drop trailing slash) before calling. Tracking
+// canonical-vs-request URL pairs is a separate work item — see
+// notes.md.
+func (s *Store) HasURL(url string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT 1 FROM items WHERE url = ? LIMIT 1`, url).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Get returns one Item by Key. Returns (nil, nil) when not found —
 // callers branch on the nil pointer rather than a sentinel error
 // because "not found" is normal flow control here.

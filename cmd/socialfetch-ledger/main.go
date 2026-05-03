@@ -60,6 +60,8 @@ func run(args []string) error {
 		return cmdStats(args[1:])
 	case "forget":
 		return cmdForget(args[1:])
+	case "seen":
+		return cmdSeen(args[1:])
 	case "mirror":
 		return cmdMirror(args[1:])
 	case "version", "--version", "-v":
@@ -127,6 +129,8 @@ COMMANDS
   list                   browse items, newest first (-source, -since)
   stats                  counts, sizes, oldest/newest
   forget <url>           drop one item from store + mirror
+  seen [<url>...]        check whether URL(s) are in the ledger
+                         (URLs from args, -i FILE, or stdin pipe)
   mirror sync            reconcile on-disk tree with the store
   mirror rebuild         nuke and recreate the tree from the store
   version                print version

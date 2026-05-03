@@ -6,14 +6,22 @@ allowed-tools: |
   Bash(socialfetch search *)
   Bash(socialfetch timeline *)
   Bash(socialfetch ask *)
+  Bash(socialfetch research *)
   Bash(socialfetch bridge start)
   Bash(socialfetch bridge stop)
   Bash(socialfetch bridge status)
   Bash(socialfetch bridge status *)
   Bash(socialfetch bridge run)
+  Bash(socialfetch monitor *)
   Bash(socialfetch list)
   Bash(socialfetch help *)
   Bash(socialfetch version)
+  Bash(socialfetch-ledger list *)
+  Bash(socialfetch-ledger search *)
+  Bash(socialfetch-ledger get *)
+  Bash(socialfetch-ledger stats)
+  Bash(socialfetch-ledger forget *)
+  Bash(socialfetch-ledger filter *)
 ---
 
 # socialfetch skill
@@ -256,6 +264,34 @@ When `X_API_KEY` + `X_API_SECRET` are set, fetching a tweet also pulls its repli
 - Search is limited to the **last 7 days** by X's API tier — older tweets return 0 replies. The audit log (`--log -`) makes this explicit.
 - Without creds, the syndication fallback is used and returns 0 replies (no API support).
 - `--no-comments` and `--max-comments N` apply.
+
+## Ledger (history of every fetch)
+
+A companion binary `socialfetch-ledger` ships alongside
+`socialfetch`. When both are present (always true for this
+skill), every successful `fetch` / `timeline` / `research` call is
+auto-recorded — content into a SQLite + FTS5 store, plus a
+markdown mirror tree on disk. No env-var setup needed; auto-detect
+flips it on.
+
+Useful queries against the ledger from inside the skill:
+
+```bash
+socialfetch-ledger list                         # newest first
+socialfetch-ledger list --source hackernews     # filter by source
+socialfetch-ledger search "harness engineering" # full-text search
+socialfetch-ledger get https://example.com/foo  # one item back
+socialfetch-ledger stats                        # counts + sizes
+socialfetch-ledger forget https://...           # drop one entry
+```
+
+When the user asks a question that resembles "have we seen X
+before?" or "what did we learn about Y last week?" — the ledger is
+where to look first, before re-fetching.
+
+To explicitly disable: set `SOCIALFETCH_LEDGER=0` in the env. To
+override the storage location: `SOCIALFETCH_LEDGER_DIR=...`
+(default `~/.local/share/socialfetch-ledger`).
 
 ## When NOT to use this skill
 

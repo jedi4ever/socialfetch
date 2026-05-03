@@ -38,26 +38,81 @@ func failingBinary(t *testing.T) string {
 	return bin
 }
 
-func TestEnabledTruthyForms(t *testing.T) {
+func TestEnabledExplicitForms(t *testing.T) {
+	// Explicit values bypass auto-detection entirely. Pin the env
+	// var to a non-empty BIN path that doesn't resolve so the
+	// auto-detect fallback (if accidentally taken) would fail —
+	// a regression that broke the explicit semantics would show
+	// up as "1 → false" instead of silently defaulting.
+	t.Setenv(BinaryEnv, "/nonexistent/socialfetch-ledger")
+
 	cases := map[string]bool{
-		"":      false,
-		"0":     false,
-		"false": false,
-		"no":    false,
 		"1":     true,
 		"true":  true,
 		"yes":   true,
 		"on":    true,
-		"  1  ": true,  // trim whitespace
-		"True":  true,  // case-insensitive
+		"  1  ": true, // trim whitespace
+		"True":  true, // case-insensitive
 		"YES":   true,
+		"0":     false,
+		"false": false,
+		"no":    false,
+		"off":   false,
 	}
 	for v, want := range cases {
+		resetAutoDetectForTests()
 		t.Setenv(EnabledEnv, v)
 		if got := Enabled(); got != want {
 			t.Errorf("Enabled() with %q: got %v, want %v", v, got, want)
 		}
 	}
+}
+
+func TestEnabledAutoDetect(t *testing.T) {
+	t.Run("binary present → auto enables", func(t *testing.T) {
+		resetAutoDetectForTests()
+		// Use the fake binary as the BIN target so binaryPath()
+		// resolves successfully without depending on $PATH.
+		bin := fakeBinary(t, filepath.Join(t.TempDir(), "ignored.jsonl"))
+		t.Setenv(BinaryEnv, bin)
+		t.Setenv(EnabledEnv, "")
+		if !Enabled() {
+			t.Error("Enabled() with empty env + binary present: got false, want true")
+		}
+	})
+
+	t.Run("binary missing → auto stays off", func(t *testing.T) {
+		resetAutoDetectForTests()
+		// Empty BIN, $PATH won't have socialfetch-ledger in a
+		// fresh test process either (we're not running an
+		// integration build).
+		t.Setenv(BinaryEnv, "")
+		t.Setenv(EnabledEnv, "")
+		t.Setenv("PATH", "/nonexistent")
+		if Enabled() {
+			t.Error("Enabled() with empty env + no binary: got true, want false")
+		}
+	})
+
+	t.Run("auto literal works the same as empty", func(t *testing.T) {
+		resetAutoDetectForTests()
+		t.Setenv(BinaryEnv, "")
+		t.Setenv(EnabledEnv, "auto")
+		t.Setenv("PATH", "/nonexistent")
+		if Enabled() {
+			t.Error("Enabled() with auto + no binary: got true, want false")
+		}
+	})
+
+	t.Run("explicit off beats present binary", func(t *testing.T) {
+		resetAutoDetectForTests()
+		bin := fakeBinary(t, filepath.Join(t.TempDir(), "ignored.jsonl"))
+		t.Setenv(BinaryEnv, bin)
+		t.Setenv(EnabledEnv, "0")
+		if Enabled() {
+			t.Error("Enabled() with =0 + binary present: got true, want false")
+		}
+	})
 }
 
 func TestIngestPipesJSONLToBinary(t *testing.T) {
@@ -96,7 +151,11 @@ func TestIngestNoOpWhenDisabled(t *testing.T) {
 	capture := filepath.Join(t.TempDir(), "captured.jsonl")
 	bin := fakeBinary(t, capture)
 
-	t.Setenv(EnabledEnv, "")
+	// SOCIALFETCH_LEDGER=0 is explicit-off and beats auto-detect
+	// even when the binary path resolves successfully — the
+	// no-op-when-disabled guarantee.
+	resetAutoDetectForTests()
+	t.Setenv(EnabledEnv, "0")
 	t.Setenv(BinaryEnv, bin)
 
 	Ingest(context.Background(), core.Item{URL: "x"})

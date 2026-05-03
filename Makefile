@@ -1,8 +1,10 @@
 # socialfetch — build and test targets.
 # Run 'make' with no arguments to see all available targets.
 
-BIN          := ./dist/socialfetch
-SKILL_BIN    := ./skill/socialfetch/scripts/socialfetch
+BIN              := ./dist/socialfetch
+LEDGER_CMD_BIN   := ./dist/socialfetch-ledger
+SKILL_BIN        := ./skill/socialfetch/scripts/socialfetch
+SKILL_LEDGER_BIN := ./skill/socialfetch/scripts/socialfetch-ledger
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
 
@@ -41,29 +43,36 @@ build: skill-build  ## Build ./dist/socialfetch and refresh the bundled skill bi
 
 # The skill target depends on every Go source file so the bundled binary
 # is rebuilt whenever the implementation changes — guarantees the skill
-# can never go stale relative to the working tree.
+# can never go stale relative to the working tree. Both the parent
+# socialfetch binary and socialfetch-ledger ride along; the auto-detect
+# in `internal/ledger.binaryPath()` finds the ledger as a sibling of
+# socialfetch in scripts/, so the skill gets ledger functionality
+# without any env-var setup on the user's side.
 SKILL_DEPS := $(shell find cmd internal -type f -name '*.go' 2>/dev/null) go.mod go.sum
 $(SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p dist $(dir $(SKILL_BIN))
 	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/socialfetch
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/socialfetch-ledger
 	cp $(BIN) $(SKILL_BIN)
+	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
-skill-build: $(SKILL_BIN)  ## Build and copy the binary into skill/socialfetch/scripts/
+skill-build: $(SKILL_BIN)  ## Build both binaries and copy into skill/socialfetch/scripts/
 
 skill-install: skill-build  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/socialfetch)
 	@mkdir -p $(SKILL_INSTALL_DIR)/scripts
 	cp skill/socialfetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
 	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch
+	cp $(SKILL_LEDGER_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch-ledger
 	@echo "Installed skill to $(SKILL_INSTALL_DIR)"
 
-skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bundled binary
+skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bundled binaries
 	@if [ -d "$(SKILL_INSTALL_DIR)" ]; then \
 		rm -rf "$(SKILL_INSTALL_DIR)"; \
 		echo "Uninstalled skill from $(SKILL_INSTALL_DIR)"; \
 	else \
 		echo "No skill at $(SKILL_INSTALL_DIR) (already clean)"; \
 	fi
-	rm -f $(SKILL_BIN)
+	rm -f $(SKILL_BIN) $(SKILL_LEDGER_BIN)
 
 # extension-package builds a Claude Desktop Extension (.mcpb) for
 # darwin/arm64. The .mcpb format is just a zip with a manifest at root
@@ -84,6 +93,7 @@ claude-extension-package: extension-validate  ## Package as Claude Desktop Exten
 	@rm -rf $(EXTENSION_STAGE)
 	@mkdir -p $(EXTENSION_STAGE)/scripts
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
+	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch-ledger ./cmd/socialfetch-ledger
 	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
 	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' mcpb-extension/manifest.json); \
 	OUT="$(CURDIR)/dist/socialfetch-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
@@ -138,6 +148,7 @@ skill-package: skill-build  ## Package the skill as ./dist/socialfetch-skill-<ve
 	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts
 	@cp skill/socialfetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
 	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch
+	@cp $(SKILL_LEDGER_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch-ledger
 	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
 	OUT="$(CURDIR)/dist/socialfetch-skill-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
@@ -182,8 +193,7 @@ gh-sync-secrets:  ## Push API keys from .env to GitHub Actions secrets (powers .
 # socialfetch binary doesn't link those, so its size / dep tree
 # stays unaffected.
 LEDGER_BIN := ./dist/socialfetch-ledger
-ledger-build: $(LEDGER_BIN)  ## Build dist/socialfetch-ledger
-$(LEDGER_BIN):
+ledger-build:  ## Build dist/socialfetch-ledger
 	@mkdir -p dist
 	go build $(GO_BUILD_FLAGS) -o $(LEDGER_BIN) ./cmd/socialfetch-ledger
 

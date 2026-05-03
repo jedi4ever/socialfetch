@@ -37,6 +37,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jedi4ever/socialfetch/internal/core"
@@ -50,11 +51,52 @@ const (
 	DirEnv     = "SOCIALFETCH_LEDGER_DIR"
 )
 
-// Enabled reports whether SOCIALFETCH_LEDGER is set to a truthy
-// value. Cheap; safe to call before every fetch.
+// Enabled reports whether the auto-ingest hook should fire on this
+// invocation. Three states map to SOCIALFETCH_LEDGER:
+//
+//	1 / true / yes / on    → explicit enable
+//	0 / false / no / off   → explicit disable (skip even if a
+//	                         binary is on PATH)
+//	auto / "" / unset      → auto-detect: enable when binaryPath()
+//	                         resolves, otherwise no-op silently
+//
+// Default is auto so users who install socialfetch-ledger get the
+// ingest "for free" — and users who haven't installed it never see
+// any failure noise. Cached via sync.Once so the auto-detection's
+// stat call doesn't repeat on every fetch in a long-running
+// process (MCP server, research orchestrator, etc.).
 func Enabled() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(EnabledEnv)))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	// Empty / "auto" / unrecognised → auto-detect.
+	return autoDetectEnabled()
+}
+
+var (
+	autoDetectOnce   sync.Once
+	autoDetectResult bool
+)
+
+func autoDetectEnabled() bool {
+	autoDetectOnce.Do(func() {
+		_, err := binaryPath()
+		autoDetectResult = err == nil
+	})
+	return autoDetectResult
+}
+
+// resetAutoDetectForTests clears the cached auto-detection result
+// so tests that mutate $PATH or $SOCIALFETCH_LEDGER_BIN see fresh
+// behaviour. Not exported for production use — t.Setenv already
+// implies a single-test scope, this just bridges the cache.
+func resetAutoDetectForTests() {
+	autoDetectOnce = sync.Once{}
+	autoDetectResult = false
 }
 
 // Ingest pipes the supplied items into `socialfetch-ledger ingest`

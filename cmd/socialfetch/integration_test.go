@@ -74,11 +74,10 @@ real-world API quota.</p></article>
 	}))
 }
 
-// TestFetchWithoutLedger verifies a plain fetch returns the article
-// content on stdout and creates NO ledger artifacts on disk. The
-// ledger storage env var still points at a real path so we can
-// assert the dir stays empty.
-func TestFetchWithoutLedger(t *testing.T) {
+// TestFetchExplicitlyDisabled verifies SOCIALFETCH_LEDGER=0 wins
+// over a present binary — the explicit off-switch beats the
+// auto-detect default.
+func TestFetchExplicitlyDisabled(t *testing.T) {
 	sf, ledger := buildBinaries(t)
 	srv := fakeArticle(t)
 	defer srv.Close()
@@ -86,7 +85,7 @@ func TestFetchWithoutLedger(t *testing.T) {
 
 	cmd := exec.Command(sf, "fetch", srv.URL, "--no-comments")
 	cmd.Env = append(os.Environ(),
-		// SOCIALFETCH_LEDGER deliberately absent / unset.
+		"SOCIALFETCH_LEDGER=0",
 		"SOCIALFETCH_LEDGER_BIN="+ledger,
 		"SOCIALFETCH_LEDGER_DIR="+dataDir,
 	)
@@ -97,14 +96,13 @@ func TestFetchWithoutLedger(t *testing.T) {
 	if !strings.Contains(string(out), "The Integration Test Article") {
 		t.Errorf("expected article title in output, got:\n%s", out)
 	}
-	// Ledger dir should be empty — disabled means zero side-effects.
 	entries, _ := os.ReadDir(dataDir)
 	if len(entries) != 0 {
 		var names []string
 		for _, e := range entries {
 			names = append(names, e.Name())
 		}
-		t.Errorf("ledger dir should be empty when disabled, got: %v", names)
+		t.Errorf("ledger dir should be empty when LEDGER=0, got: %v", names)
 	}
 }
 
@@ -196,18 +194,16 @@ func TestFetchLedgerSurvivesMissingBinary(t *testing.T) {
 	}
 }
 
-// TestFetchLedgerDisabledByEnvUnset confirms a literal unset (not
-// just empty) of SOCIALFETCH_LEDGER skips the ingest path. The
-// previous test sets it via -e; this one explicitly unsets to
-// catch a bug where Go's env-handling might re-introduce a stale
-// value via os.Environ().
-func TestFetchLedgerDisabledByEnvUnset(t *testing.T) {
+// TestFetchAutoDetectEnabled confirms the new tri-state default:
+// SOCIALFETCH_LEDGER unset + a discoverable binary auto-enables
+// the ingest. This is the path most users will hit if they install
+// both binaries — no env-var tinkering required.
+func TestFetchAutoDetectEnabled(t *testing.T) {
 	sf, ledger := buildBinaries(t)
 	srv := fakeArticle(t)
 	defer srv.Close()
 	dataDir := t.TempDir()
 
-	// Filter SOCIALFETCH_LEDGER out of the parent env entirely.
 	clean := []string{}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "SOCIALFETCH_LEDGER=") {
@@ -223,8 +219,35 @@ func TestFetchLedgerDisabledByEnvUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "ledger.db")); !os.IsNotExist(err) {
-		t.Errorf("ledger.db should NOT exist when SOCIALFETCH_LEDGER unset: %v", err)
+	if !strings.Contains(string(out), "The Integration Test Article") {
+		t.Errorf("expected article title in output, got:\n%s", out)
 	}
-	_ = out
+	if _, err := os.Stat(filepath.Join(dataDir, "ledger.db")); err != nil {
+		t.Fatalf("ledger.db should be created via auto-detect, got: %v", err)
+	}
+}
+
+// TestFetchAutoDetectDisabled confirms auto-detect stays off when
+// no binary is discoverable — env unset, BIN unset, $PATH cleared.
+// The fetch still works; the parent never sees a failure.
+func TestFetchAutoDetectDisabled(t *testing.T) {
+	sf, _ := buildBinaries(t)
+	srv := fakeArticle(t)
+	defer srv.Close()
+
+	clean := []string{}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "SOCIALFETCH_LEDGER") && !strings.HasPrefix(kv, "PATH=") {
+			clean = append(clean, kv)
+		}
+	}
+	cmd := exec.Command(sf, "fetch", srv.URL, "--no-comments")
+	cmd.Env = append(clean, "PATH=/nonexistent")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fetch: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "The Integration Test Article") {
+		t.Errorf("expected article title in output, got:\n%s", out)
+	}
 }
