@@ -2,9 +2,14 @@
 // public Atom search API. No auth.
 //
 // arXiv's query syntax is field-prefixed: `all:foo`, `ti:foo`,
-// `au:smith`, `cat:cs.LG`. We pass the user query through as-is into
-// `search_query` so power users can craft precise queries; bare words
-// default to all-fields search via `all:`.
+// `au:smith`, `cat:cs.LG`. Bare-word queries get rewritten so the
+// terms AND together — arXiv's default for multi-token queries is
+// surprisingly OR (so `harness engineering` matches every paper
+// about harnesses *or* engineering, dominated by today's
+// engineering submissions when the sort is by date), which is
+// almost never what users expect when they type two words. Power
+// users who explicitly write boolean operators or field prefixes
+// get their query passed through unchanged.
 package arxiv
 
 import (
@@ -41,6 +46,66 @@ type searchAtomFeed struct {
 	} `xml:"entry"`
 }
 
+// buildArxivQuery rewrites a user query string into arXiv's
+// search_query syntax. Three branches:
+//
+//  1. The query already looks "advanced" (contains a field prefix
+//     like `ti:`, an explicit boolean operator, parens, or a phrase
+//     quote) — pass through verbatim. Power users who care about
+//     query precision get the literal arXiv DSL.
+//
+//  2. Single bare term — wrap in `all:` so the term searches across
+//     every field (title, abstract, authors, comments, etc.).
+//
+//  3. Multi-word bare query — wrap each term in `all:` and join
+//     with explicit ` AND `. Without this, arXiv's default OR
+//     semantics + sortBy=submittedDate produces "today's papers
+//     that mention any of these words" instead of "papers about
+//     this topic", which is the bug that motivated this rewrite.
+//
+// Bare alphanumerics with hyphens (`harness-engineering`) get
+// quoted as a phrase since arXiv's parser splits on the hyphen
+// otherwise.
+func buildArxivQuery(q string) string {
+	if q == "" {
+		return ""
+	}
+	if looksLikeArxivAdvancedQuery(q) {
+		return q
+	}
+	parts := strings.Fields(q)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		// Hyphenated terms get phrase-quoted so arXiv treats
+		// them as a single token rather than splitting on `-`.
+		if strings.ContainsAny(p, "-") {
+			p = `"` + p + `"`
+		}
+		out = append(out, "all:"+p)
+	}
+	return strings.Join(out, " AND ")
+}
+
+// looksLikeArxivAdvancedQuery decides whether a query string already
+// uses arXiv's search DSL and should pass through unchanged. We
+// recognize the common signals: a field prefix (anything with a
+// colon — `ti:`, `abs:`, `au:`, `cat:`, `all:`, `id:`), explicit
+// boolean operators (`AND`/`OR`/`NOT` as standalone tokens), parens
+// for grouping, or quote-bracketed phrases. Anything else is a
+// "bare-word" query that gets rewritten via buildArxivQuery.
+func looksLikeArxivAdvancedQuery(q string) bool {
+	if strings.ContainsAny(q, `:()`) {
+		return true
+	}
+	if strings.Contains(q, `"`) {
+		return true
+	}
+	upper := " " + strings.ToUpper(q) + " "
+	return strings.Contains(upper, " AND ") ||
+		strings.Contains(upper, " OR ") ||
+		strings.Contains(upper, " NOT ")
+}
+
 func (p *SearchProvider) Search(ctx context.Context, query string, opts core.SearchOptions) ([]core.SearchResult, error) {
 	maxN := opts.Max
 	if maxN <= 0 {
@@ -50,17 +115,24 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts core.Sea
 		maxN = 50
 	}
 
-	// If the user didn't field-prefix their query (e.g. "ti:..."),
-	// default to all-fields search.
-	q := strings.TrimSpace(query)
-	if !strings.ContainsAny(q, ":+") {
-		q = "all:" + q
+	q := buildArxivQuery(strings.TrimSpace(query))
+	// Pick the sort order based on whether the caller cares about
+	// recency. Bare topic queries default to `relevance` so the
+	// best-matching paper is at the top regardless of submission date
+	// (the original "Attention is All You Need" beats today's
+	// preprints when searching `transformer`). When the caller passes
+	// a date filter (--after / --before / --last) recency is the
+	// whole point, so flip to `submittedDate` desc and rely on the
+	// client-side filter below to drop anything outside the window.
+	sortBy := "relevance"
+	if opts.After != nil || opts.Before != nil {
+		sortBy = "submittedDate"
 	}
 
 	v := url.Values{
 		"search_query": {q},
 		"max_results":  {strconv.Itoa(maxN)},
-		"sortBy":       {"submittedDate"},
+		"sortBy":       {sortBy},
 		"sortOrder":    {"descending"},
 	}
 	base := p.BaseURL
