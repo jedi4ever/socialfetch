@@ -6,12 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/socialfetch/internal/ledger/urlutil"
 )
 
 // cmdSeen answers "is this URL already in the ledger?" for one or
@@ -187,20 +187,22 @@ func isatty(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// lookupURL tries every candidate key shape so a "seen" check
-// works regardless of which source originally indexed the URL.
-// Mirrors the fallback list cmdGet uses; refactored so both
-// commands stay in lockstep when knownSources() grows.
+// lookupURL answers "is this URL in the ledger" across every
+// possible storage shape:
 //
-// We try the URL as-given first, then the normalized form, so
-// trivial variants (trailing slash, lowercase host, fragment) hit
-// the cache. **Redirects are NOT handled** — if the user asks
-// about `https://t.co/abc` but the ledger only knows the
-// post-redirect target, this returns false. Tracking
-// request-vs-canonical URL pairs is on the roadmap (notes.md).
+//   - source-prefixed key forms ("hackernews::<url>", "github::<url>", …)
+//   - bare URL match against either `url` or `request_url`
+//
+// Both the supplied form and the normalized form are tried, so a
+// `seen` query for `https://Example.com/foo/#anchor` finds an
+// entry stored as `https://example.com/foo`. Redirect handling
+// (e.g. https://t.co/abc → post-redirect target) works because
+// HasURL queries both columns and the auto-ingest pipeline now
+// records both — see internal/core/fetcher.go's Registry.Fetch
+// and internal/ledger/store/store.go's HasURL.
 func lookupURL(s *store.Store, raw string) (bool, error) {
 	candidates := []string{raw}
-	if norm := normalizeURL(raw); norm != "" && norm != raw {
+	if norm := urlutil.Normalize(raw); norm != raw {
 		candidates = append(candidates, norm)
 	}
 	for _, c := range candidates {
@@ -222,28 +224,4 @@ func lookupURL(s *store.Store, raw string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// normalizeURL flattens trivial URL variants — fragment, trailing
-// slash, lowercase scheme + host — so `seen` matches "the same
-// URL with slightly different surface form". Returns "" when raw
-// isn't parseable; caller treats that as "no normalized form to
-// also try".
-//
-// Deliberately conservative: we don't reorder query params, drop
-// utm_* trackers, or follow redirects. Those are content-aware
-// decisions that should live in a normalization library, not in
-// a one-shot lookup helper.
-func normalizeURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	u.Fragment = ""
-	if len(u.Path) > 1 && strings.HasSuffix(u.Path, "/") {
-		u.Path = strings.TrimRight(u.Path, "/")
-	}
-	return u.String()
 }

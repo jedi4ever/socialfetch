@@ -22,6 +22,7 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver — no CGO, keeps static-binary story.
 
 	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/socialfetch/internal/ledger/urlutil"
 )
 
 // Store is the SQLite-backed ledger.
@@ -60,7 +61,8 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS items (
 			key            TEXT PRIMARY KEY,    -- source::canonical_id|url
 			source         TEXT NOT NULL,
-			url            TEXT NOT NULL,
+			url            TEXT NOT NULL,        -- canonical / post-redirect
+			request_url    TEXT,                 -- original input when ≠ url
 			canonical_id   TEXT,
 			title          TEXT,
 			author         TEXT,
@@ -81,6 +83,16 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_items_source ON items(source)`,
 		`CREATE INDEX IF NOT EXISTS idx_items_last_seen ON items(last_seen_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_items_pending ON items(mirror_status) WHERE mirror_status='pending'`,
+		// request_url tracks the URL the user originally asked for
+		// when it differs from the canonical URL the fetcher
+		// produced (typically a t.co / bit.ly / 301 redirect).
+		// Added after the v0 schema landed, so this is a non-
+		// breaking ADD COLUMN: the table-creation step CREATE TABLE
+		// IF NOT EXISTS won't re-add it on existing dbs, but the
+		// idempotent ALTER below will populate older databases on
+		// first open. ALTER TABLE … ADD COLUMN succeeds-then-errors
+		// on re-run, hence the IGNORE-style sentinel below.
+		`CREATE INDEX IF NOT EXISTS idx_items_request_url ON items(request_url) WHERE request_url IS NOT NULL`,
 		// Contentless FTS5 — we keep the body in items.content, FTS5
 		// only stores the inverted index. Cheap, and reorganizing the
 		// FTS index is just DROP + repopulate.
@@ -112,6 +124,17 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w (stmt: %s)", err, firstLine(q))
 		}
 	}
+	// Best-effort additive migration for databases created before
+	// the request_url column existed. SQLite has no IF NOT EXISTS
+	// for ALTER TABLE ADD COLUMN, so we run it and swallow the
+	// duplicate-column error. New databases (where CREATE TABLE
+	// already includes the column) hit the duplicate-column path
+	// too — same outcome.
+	if _, err := s.db.Exec(`ALTER TABLE items ADD COLUMN request_url TEXT`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate: add request_url: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -141,6 +164,14 @@ const (
 // Idempotent: calling it twice with the same Item is cheap and only
 // touches last_seen_at on the second call.
 func (s *Store) Ingest(it item.Item) (IngestResult, error) {
+	// Normalize the URL on the way in so trivial variants (case,
+	// fragment, trailing slash) collapse to a single canonical
+	// row. Querystring is preserved — HN's ?id=N, GitHub's
+	// ?tab=…, and UTM trackers all stay intact (per
+	// urlutil.Normalize's contract). Without this, two ingests
+	// of the same URL with different surface form would create
+	// two rows, defeating the dedup purpose.
+	it.URL = urlutil.Normalize(it.URL)
 	now := time.Now().Unix()
 	hash := it.Hash()
 	key := it.Key()
@@ -170,14 +201,23 @@ func (s *Store) Ingest(it item.Item) (IngestResult, error) {
 		firstSeen = existingFirst
 	}
 
+	// Normalize request_url too if set, then drop it when it
+	// equals the canonical URL — saves a row of redundant data
+	// for the no-redirect case.
+	requestURL := urlutil.Normalize(it.RequestURL)
+	if requestURL == it.URL {
+		requestURL = ""
+	}
+
 	_, err := s.db.Exec(`
 		INSERT INTO items (
-			key, source, url, canonical_id, title, author, summary, content,
+			key, source, url, request_url, canonical_id, title, author, summary, content,
 			score, tags, published_at, fetched_at, first_seen_at, last_seen_at,
 			content_hash, extra, mirror_status
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')
 		ON CONFLICT(key) DO UPDATE SET
 			url           = excluded.url,
+			request_url   = excluded.request_url,
 			title         = excluded.title,
 			author        = excluded.author,
 			summary       = excluded.summary,
@@ -192,7 +232,7 @@ func (s *Store) Ingest(it item.Item) (IngestResult, error) {
 			mirror_status = CASE WHEN content_hash = excluded.content_hash
 			                     THEN mirror_status ELSE 'pending' END
 	`,
-		key, it.Source, it.URL, it.CanonicalID, it.Title, it.Author,
+		key, it.Source, it.URL, nullIfEmpty(requestURL), it.CanonicalID, it.Title, it.Author,
 		it.Summary, it.Content, it.Score, strings.Join(it.Tags, ","),
 		pubAt, it.FetchedAt.Unix(), firstSeen, now, hash, string(extraJSON),
 	)
@@ -225,25 +265,29 @@ func (s *Store) Has(key string) (bool, error) {
 	return true, nil
 }
 
-// HasURL checks whether any row's `url` column matches the supplied
-// string exactly. Cheaper than List + scan when the caller only
-// needs the boolean — used by the `seen` subcommand as a fallback
-// when none of the candidate-source keys hit. There's no index on
-// `url` (the primary key is `key`), so this is a table scan; for a
-// single-user ledger of <100K items it's <100ms. If that becomes a
-// bottleneck, add `CREATE INDEX idx_items_url ON items(url)` in a
-// migration.
+// HasURL checks whether any row's `url` OR `request_url` column
+// matches the supplied string. Both columns participate so a
+// `seen` lookup against the user-typed shortener URL
+// (`https://t.co/abc`) finds the row stored under its canonical
+// post-redirect URL (`https://example.com/article`).
 //
-// Caveat — this is a literal-string match. URLs that differ by
-// redirects, trailing slash, fragment, or query-param ordering
-// will NOT match even if they point at the same content. The
-// `seen` subcommand normalizes some trivial variants (trim
-// fragment, drop trailing slash) before calling. Tracking
-// canonical-vs-request URL pairs is a separate work item — see
-// notes.md.
+// Performance: `url` has no index (primary key is `key`), so this
+// is a table scan; `request_url` has a partial index from the
+// migration above. For a single-user ledger of <100K items the
+// scan is <100ms. If it becomes a bottleneck, add
+// `CREATE INDEX idx_items_url ON items(url)` in a migration.
+//
+// The supplied URL is matched literally — callers should call
+// urlutil.Normalize first (or use the seen subcommand which
+// already does that). Round-tripping the normalization on the
+// way in (in Ingest) keeps the stored values canonical so a
+// literal match here works for trivial surface variants.
 func (s *Store) HasURL(url string) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT 1 FROM items WHERE url = ? LIMIT 1`, url).Scan(&n)
+	err := s.db.QueryRow(
+		`SELECT 1 FROM items WHERE url = ? OR request_url = ? LIMIT 1`,
+		url, url,
+	).Scan(&n)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -251,6 +295,18 @@ func (s *Store) HasURL(url string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// nullIfEmpty returns the SQL NULL when s is empty so the
+// request_url column stays NULL (rather than empty string) for
+// items where there was no redirect. Keeps the partial index
+// `idx_items_request_url ... WHERE request_url IS NOT NULL`
+// honest — empty strings would still get indexed.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // Get returns one Item by Key. Returns (nil, nil) when not found —

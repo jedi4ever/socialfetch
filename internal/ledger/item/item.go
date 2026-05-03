@@ -24,19 +24,29 @@ import (
 // ledger needs to index and retrieve. Unknown fields land in Extra
 // so they survive a round-trip.
 type Item struct {
-	Source      string    `json:"source"`
-	Kind        string    `json:"kind,omitempty"`
-	URL         string    `json:"url"`
-	CanonicalID string    `json:"canonical_id,omitempty"`
-	Title       string    `json:"title,omitempty"`
-	Author      string    `json:"author,omitempty"`
-	AuthorURL   string    `json:"author_url,omitempty"`
+	Source string `json:"source"`
+	Kind   string `json:"kind,omitempty"`
+
+	// URL is the canonical / post-redirect address.
+	URL string `json:"url"`
+
+	// RequestURL is the URL the user originally asked for —
+	// distinct from URL when a redirect was followed (t.co,
+	// bit.ly, 301 redirects). Empty when equal to URL.
+	// Indexed separately so `seen` lookups against the
+	// user-typed shortener URL match the stored canonical URL.
+	RequestURL string `json:"request_url,omitempty"`
+
+	CanonicalID string     `json:"canonical_id,omitempty"`
+	Title       string     `json:"title,omitempty"`
+	Author      string     `json:"author,omitempty"`
+	AuthorURL   string     `json:"author_url,omitempty"`
 	Published   *time.Time `json:"published,omitempty"`
-	Summary     string    `json:"summary,omitempty"`
-	Content     string    `json:"content,omitempty"`
-	Score       int       `json:"score,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
-	FetchedAt   time.Time `json:"fetched_at"`
+	Summary     string     `json:"summary,omitempty"`
+	Content     string     `json:"content,omitempty"`
+	Score       int        `json:"score,omitempty"`
+	Tags        []string   `json:"tags,omitempty"`
+	FetchedAt   time.Time  `json:"fetched_at"`
 
 	// Extra captures every field we don't have a typed slot for.
 	// Populated by UnmarshalJSON, written back by MarshalJSON, so a

@@ -213,3 +213,98 @@ func TestExtraSurvivesRoundTrip(t *testing.T) {
 		t.Errorf("Extra.comment_count lost across round-trip: %v", got.Extra)
 	}
 }
+
+// TestIngestNormalizesURL — surface variants of the same URL
+// (uppercase host, trailing slash, fragment) collapse to one row.
+// Regression guard for the fix that introduced urlutil.Normalize
+// on the ingest path.
+func TestIngestNormalizesURL(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	variants := []string{
+		"https://EXAMPLE.com/post",
+		"https://example.com/post/",
+		"https://example.com/post#anchor",
+		"https://example.com/post",
+	}
+	for _, u := range variants {
+		_, err := s.Ingest(item.Item{
+			Source: "article", URL: u, CanonicalID: "post-1",
+			Title: "x", Content: "y", FetchedAt: now,
+		})
+		if err != nil {
+			t.Fatalf("ingest %q: %v", u, err)
+		}
+	}
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.Total != 1 {
+		t.Errorf("expected 1 row after 4 normalized ingests, got %d", stats.Total)
+	}
+}
+
+// TestHasURLMatchesRequestURL — when a fetcher follows a redirect
+// (t.co → canonical), HasURL should find the row regardless of
+// which URL the caller asks about. This is the core "seen via
+// shortener" guarantee — without it, the agent re-fetches the
+// same content every time it sees the short link.
+func TestHasURLMatchesRequestURL(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	_, err := s.Ingest(item.Item{
+		Source:     "article",
+		URL:        "https://example.com/canonical",
+		RequestURL: "https://t.co/abc",
+		Title:      "redirect demo",
+		FetchedAt:  now,
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	cases := []struct {
+		probe string
+		want  bool
+		desc  string
+	}{
+		{"https://example.com/canonical", true, "canonical url column"},
+		{"https://t.co/abc", true, "request_url column (redirect short form)"},
+		{"https://example.com/different", false, "unrelated url"},
+		{"https://t.co/different", false, "unrelated short url"},
+	}
+	for _, c := range cases {
+		got, err := s.HasURL(c.probe)
+		if err != nil {
+			t.Errorf("%s: HasURL err=%v", c.desc, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: HasURL(%q)=%v, want %v", c.desc, c.probe, got, c.want)
+		}
+	}
+}
+
+// TestIngestRequestURLEqualToURLDropsField — when the fetcher's
+// canonical URL matches the user's request, we want the
+// request_url column to stay NULL so the partial index doesn't
+// double-count and JSON output stays clean.
+func TestIngestRequestURLEqualToURLDropsField(t *testing.T) {
+	s := newStore(t)
+	now := time.Now()
+	_, err := s.Ingest(item.Item{
+		Source:     "hackernews",
+		URL:        "https://news.ycombinator.com/item?id=1",
+		RequestURL: "https://news.ycombinator.com/item?id=1", // same as URL
+		Title:      "no redirect",
+		FetchedAt:  now,
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	// Re-fetching by the exact same URL via either column should hit.
+	hit, err := s.HasURL("https://news.ycombinator.com/item?id=1")
+	if err != nil || !hit {
+		t.Errorf("HasURL miss on stored item, err=%v hit=%v", err, hit)
+	}
+}
