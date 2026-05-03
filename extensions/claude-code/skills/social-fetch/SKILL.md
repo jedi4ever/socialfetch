@@ -36,7 +36,7 @@ Wraps the `social-fetch` Go binary on the user's PATH (install separately — se
 social-fetch fetch    <url> [<url>...]    [flags]
 social-fetch search   "<query>"           [flags]
 social-fetch timeline <user-or-url>       [flags]   recent activity for a user (X / LinkedIn)
-social-fetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / anthropic / google / tavily / serpapi)
+social-fetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / anthropic / gemini / tavily / serpapi)
 social-fetch research "<question>"        [flags]   EXPERIMENTAL — multi-angle research (decompose → parallel fan-out → synthesize)
 social-fetch bridge   {start|stop|status|run}
 ```
@@ -58,7 +58,7 @@ Already-exported shell vars always win over file entries.
 - **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | social-fetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `social-fetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
-- **A grounded question → ask.** `social-fetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
+- **A grounded question → ask.** `social-fetch ask "<question>" -p perplexity|grok|openai|anthropic|gemini|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
 - **A multi-angle research question → research (EXPERIMENTAL).** `social-fetch research "<question>" --max-angles 5 --jobs 4`. Decomposes into 3-8 angles, fans out parallel queries, synthesizes a final answer with citations. Use when you'd otherwise issue 4-8 manual queries. Costs roughly 2 LLM calls + N tool calls per question; use `ask` for simple lookups instead.
 - **A query → search.** Pick the provider that matches the user's intent. `-p auto` walks `perplexity → tavily → brave → serpapi → duckduckgo`; comma-lists like `-p tavily,duckduckgo` define a custom fallback order. Each falls through on missing key / error / 0 results.
   - "search the web" / unspecified → `duckduckgo` (no auth)

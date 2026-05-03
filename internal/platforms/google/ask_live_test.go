@@ -47,8 +47,8 @@ func TestLiveGoogleAsk(t *testing.T) {
 	if strings.TrimSpace(answer.Text) == "" {
 		t.Errorf("answer text is empty")
 	}
-	if answer.Provider != "google" {
-		t.Errorf("answer.Provider = %q, want google", answer.Provider)
+	if answer.Provider != "gemini" {
+		t.Errorf("answer.Provider = %q, want gemini", answer.Provider)
 	}
 	if answer.Model == "" {
 		t.Errorf("answer.Model not set")

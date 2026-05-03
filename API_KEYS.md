@@ -22,7 +22,7 @@ PERPLEXITY_API_KEY=...
 XAI_API_KEY=...
 OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
-GEMINI_API_KEY=...                   # for `google` ask provider (or reuse GOOGLE_API_KEY)
+GEMINI_API_KEY=...                   # for `gemini` ask provider; GOOGLE_API_KEY also accepted as fallback
 GOOGLE_API_KEY=...
 GOOGLE_CSE_ID=...
 
@@ -153,37 +153,59 @@ searches aren't billed.
 
 ---
 
-## Google — `GOOGLE_API_KEY` (+ `GOOGLE_CSE_ID` for search)
+## Google APIs — three independent keys, three independent providers
 
-One key powers **three** providers:
+The Google ecosystem looks unified but is split across three different
+APIs that each take their own key and have their own free tier. Set
+each only if you want that specific provider:
 
-- **`youtube` fetch + search** — YouTube Data API v3 (also accepts `YOUTUBE_API_KEY` if you want to keep them separate).
-- **`google` ask** — Gemini API with the built-in `google_search` tool (also accepts `GEMINI_API_KEY`).
-- **`google` search** — Custom Search JSON API. Requires an additional **engine ID**.
+| Provider | Env var | API |
+|---|---|---|
+| `gemini` ask | `GEMINI_API_KEY` (or `GOOGLE_API_KEY` as fallback) | Gemini Generative Language API |
+| `youtube` fetch + search | `YOUTUBE_API_KEY` | YouTube Data API v3 |
+| `google` search | `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | Custom Search JSON API |
 
-### Step 1 — get a key
+### Gemini ask — `GEMINI_API_KEY`
+
+Easiest path: **[aistudio.google.com](https://aistudio.google.com/)**
+→ Get API key → Create API key in new project → copy. No billing
+account required for the free tier (1,500 req/day on
+`gemini-2.5-flash`, plenty for agent use). Built-in `google_search`
+tool grounds answers with citations automatically.
+
+If you already have a Google Cloud project with the **Generative
+Language API** enabled, the same console.cloud.google.com key works
+— set `GOOGLE_API_KEY` instead and the binary will fall back to it
+when `GEMINI_API_KEY` isn't set.
+
+### YouTube — `YOUTUBE_API_KEY`
 
 1. Go to **[console.cloud.google.com](https://console.cloud.google.com/)** → New Project (or existing).
-2. **APIs & Services → Library** → enable any of:
-   - **YouTube Data API v3**
-   - **Custom Search API** (for `google` search)
-   - **Generative Language API** (for `google` ask via Gemini)
-3. **APIs & Services → Credentials → + Create Credentials → API key** → copy.
-4. Optional: click **Edit** → restrict the key to only the APIs above.
+2. **APIs & Services → Library** → enable **YouTube Data API v3**.
+3. **APIs & Services → Credentials → + Create Credentials → API key** → copy → set as `YOUTUBE_API_KEY`.
 
-### Step 2 — Custom Search Engine ID (only if using `google` search)
+### Google Custom Search — `GOOGLE_API_KEY` + `GOOGLE_CSE_ID`
 
-1. Go to **[programmablesearchengine.google.com](https://programmablesearchengine.google.com/)** → **Add**.
-2. Configure to **"Search the entire web"**.
-3. Copy the **Search engine ID** (looks like `xx0xxx00x0xxxxx0x`).
+1. console.cloud.google.com → enable **Custom Search API** on your project.
+2. Create an API key (Credentials → Create credentials → API key) → set as `GOOGLE_API_KEY`.
+3. Go to **[programmablesearchengine.google.com](https://programmablesearchengine.google.com/)** → **Add**.
+4. Configure (see note below).
+5. Copy the **Search engine ID** (looks like `xx0xxx00x0xxxxx0x`) → set as `GOOGLE_CSE_ID`.
+
+**Important:** Google removed the "Search the entire web" toggle for
+new Custom Search Engines in early 2024. New CSEs are restricted to
+your listed sites only — useless as a general web-search alternative.
+For general web search, prefer `serpapi`, `brave`, or `tavily` instead.
+The `google` search provider remains useful for **site-restricted**
+queries (e.g. "search only the Anthropic docs domain").
 
 ### Free quotas
 
 | API | Free tier |
 |---|---|
+| Gemini (Generative Language) | 1,500 requests/day on `gemini-2.5-flash`, generous for casual agent use; the `gemini-flash-latest` alias and `gemini-2.5-pro` require paid tier. |
 | YouTube Data API v3 | 10,000 units/day. Metadata + comments calls = 1 unit each; search = 100 units. |
 | Custom Search JSON | 100 q/day (then $5 per 1k). |
-| Gemini (Generative Language) | 1,500 requests/day on `gemini-2.5-flash` free tier, generous for casual use. |
 
 ---
 

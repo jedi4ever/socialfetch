@@ -55,7 +55,11 @@ type AskProvider struct {
 
 func NewAsker() *AskProvider { return &AskProvider{BaseURL: defaultAskBase} }
 
-func (*AskProvider) Name() string { return "google" }
+// Name returns the canonical provider name. Was "google" historically;
+// renamed to "gemini" so it doesn't collide with the unrelated Google
+// Custom Search provider (which is a different API and has different
+// auth — keeping both under "google" caused confusion).
+func (*AskProvider) Name() string { return "gemini" }
 
 type askRequest struct {
 	Contents          []askContent `json:"contents"`
@@ -181,7 +185,7 @@ func (p *AskProvider) Ask(ctx context.Context, question string, opts core.AskOpt
 
 	return &core.Answer{
 		Question: question,
-		Provider: "google",
+		Provider: "gemini",
 		Model:    model,
 		Text:     answer,
 		Sources:  sources,

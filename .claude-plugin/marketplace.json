@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "social-skills-marketplace",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "description": "Patrick Debois' marketplace for social-skills — social-web skills for AI agents.",
   "owner": {
     "name": "Patrick Debois"

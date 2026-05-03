@@ -61,7 +61,7 @@ import (
 
 // Version is the user-visible social-fetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.10.7"
+const Version = "0.10.8"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -69,7 +69,7 @@ const Version = "0.10.7"
 // rest. SerpAPI and Tavily go last because their answers tend to be
 // shallower than the LLM-grounded providers.
 var defaultAskChain = []string{
-	"perplexity", "grok", "openai", "anthropic", "google", "tavily", "serpapi",
+	"perplexity", "grok", "openai", "anthropic", "gemini", "tavily", "serpapi",
 }
 
 // defaultSearchChain is the fallback order used by `-p auto` for the
@@ -1205,8 +1205,8 @@ func askAuthHint(name string) string {
 		return "(requires OPENAI_API_KEY; gpt-5 / gpt-5-mini)"
 	case "anthropic":
 		return "(requires ANTHROPIC_API_KEY; claude-opus-4-7 / claude-sonnet-4-6)"
-	case "google":
-		return "(requires GEMINI_API_KEY or GOOGLE_API_KEY; gemini-2.5-pro / 2.5-flash)"
+	case "gemini":
+		return "(requires GEMINI_API_KEY or GOOGLE_API_KEY; gemini-2.5-pro / 2.5-flash; built-in google_search grounding)"
 	case "tavily":
 		return "(requires TAVILY_API_KEY; AI-tuned web search → synthesized answer)"
 	case "serpapi":

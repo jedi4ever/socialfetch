@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "social-skills",
   "display_name": "social-skills — for AI agents",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "description": "Social-web skills for AI agents. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE), ask (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI), and a local SQLite-backed ledger of every fetched URL.",
   "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status / read_file plus seven social_ledger_* tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Big-payload tools (fetch / ask / research / ledger_get) write the rendered body to a temp file and return a small JSON envelope with metadata + a content_file path — keeps article bodies off the JSON-RPC encode path. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits.",
   "author": {
@@ -33,6 +33,7 @@
         "OPENAI_API_KEY": "${user_config.openai_api_key}",
         "PERPLEXITY_API_KEY": "${user_config.perplexity_api_key}",
         "XAI_API_KEY": "${user_config.xai_api_key}",
+        "GEMINI_API_KEY": "${user_config.gemini_api_key}",
         "GOOGLE_API_KEY": "${user_config.google_api_key}",
         "GOOGLE_CSE_ID": "${user_config.google_cse_id}",
         "TAVILY_API_KEY": "${user_config.tavily_api_key}",
@@ -109,10 +110,18 @@
       "required": false,
       "default": ""
     },
+    "gemini_api_key": {
+      "type": "string",
+      "title": "Gemini API key (`gemini` ask provider)",
+      "description": "For the `gemini` ask provider. Easiest path: aistudio.google.com → Get API key → Create key → copy. Free tier: 1,500 req/day on gemini-2.5-flash. Gemini's built-in google_search tool grounds answers with citations.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
     "google_api_key": {
       "type": "string",
-      "title": "Google API key (Gemini + YouTube + CSE)",
-      "description": "One key powers Gemini ask, YouTube, and Google search — console.cloud.google.com",
+      "title": "Google API key (Custom Search)",
+      "description": "For the `google` search provider (Custom Search API only). Get from console.cloud.google.com — enable the Custom Search API on your project. Note: Google removed 'Search the entire web' for new CSEs in 2024 — google search is now restricted to your listed sites; prefer serpapi/brave/tavily for general web search. (Gemini ask uses GEMINI_API_KEY; YouTube uses YOUTUBE_API_KEY — three independent keys.)",
       "sensitive": true,
       "required": false,
       "default": ""

@@ -228,7 +228,7 @@ daemon uses Unix-only syscalls — run via WSL).
 | `grok` | `XAI_API_KEY` | xAI's `/v1/responses` Agent Tools API |
 | `openai` | `OPENAI_API_KEY` | GPT with `web_search` tool — billing must be enabled |
 | `anthropic` | `ANTHROPIC_API_KEY` | Claude with `web_search` tool — $10 per 1k searches |
-| `google` | `GOOGLE_API_KEY` | Gemini Generative Language API |
+| `gemini` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini API with built-in `google_search` grounding |
 | `tavily` | `TAVILY_API_KEY` | Search-then-summarize |
 | `serpapi` | `SERPAPI_KEY` | Google AI Overview pass-through (per-query availability) |
 

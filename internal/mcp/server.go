@@ -442,13 +442,13 @@ type askArgs struct {
 
 func addAskTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_ask",
-		mcp.WithDescription("Ask a question of a grounded answer engine. Returns a synthesized answer plus citations. Provider names: perplexity, grok, openai, anthropic, google, tavily, serpapi. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
+		mcp.WithDescription("Ask a question of a grounded answer engine. Returns a synthesized answer plus citations. Provider names: perplexity, grok, openai, anthropic, gemini (Gemini API with built-in google_search grounding), tavily, serpapi. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("question", mcp.Required(), mcp.Description("The question to ask")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
 		mcp.WithString("model", mcp.Description("Override the provider's default model (empty = provider picks where supported)")),
 		mcp.WithString("recency", mcp.Description("Search horizon: day, week, month, year (provider-dependent)")),
 		mcp.WithNumber("max_tokens", mcp.Description("Cap response length")),
-		mcp.WithString("instructions", mcp.Description("System-prompt-style preamble (honored by perplexity, grok, openai, anthropic, google)")),
+		mcp.WithString("instructions", mcp.Description("System-prompt-style preamble (honored by perplexity, grok, openai, anthropic, gemini)")),
 		mcp.WithBoolean("inline", mcp.Description("Return the full Answer (text + sources) inline. Default false — answer text is written to a temp file, the response is a small envelope {provider, model, sources, content_file, content_bytes}. Saves MCP encoding cost when answers are long.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args askArgs) (*mcp.CallToolResult, error) {

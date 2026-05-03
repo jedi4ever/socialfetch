@@ -63,7 +63,7 @@ func EnvReqs(category, name string) [][]string {
 			return [][]string{{"OPENAI_API_KEY"}}
 		case "anthropic":
 			return [][]string{{"ANTHROPIC_API_KEY"}}
-		case "google":
+		case "gemini":
 			return [][]string{{"GEMINI_API_KEY"}, {"GOOGLE_API_KEY"}}
 		case "tavily":
 			return [][]string{{"TAVILY_API_KEY"}}

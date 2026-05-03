@@ -355,7 +355,7 @@ to obtain each one. Free tier coverage:
 | `grok` | `XAI_API_KEY` (or `GROK_API_KEY`) | pay-per-token + per-tool fee |
 | `openai` | `OPENAI_API_KEY` | pay-per-token + per-tool fee; no free tier |
 | `anthropic` | `ANTHROPIC_API_KEY` | pay-per-token + $10/1k searches; no free tier |
-| `google` | `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) | free tier: 1,500 req/day on `gemini-flash-latest` |
+| `gemini` | `GEMINI_API_KEY` (or `GOOGLE_API_KEY` as fallback) | free tier: 1,500 req/day on `gemini-2.5-flash`. Uses Gemini's built-in `google_search` tool — answers are grounded with citations. |
 | `tavily` | `TAVILY_API_KEY` | free: 1,000 searches/month |
 | `serpapi` | `SERPAPI_KEY` | free: 100 searches/month |
 

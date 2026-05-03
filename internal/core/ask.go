@@ -86,8 +86,17 @@ var askAliases = map[string]string{
 	"chatgpt": "openai",
 	"sonar":   "perplexity",
 	"pplx":    "perplexity",
-	"gemini":  "google",
 	"xai":     "grok",
+}
+
+// deprecatedAskNames produces a friendly redirect when a caller uses
+// a name that USED to work but has been removed. Different from the
+// alias map: aliases silently resolve, deprecations error out with a
+// "use X instead" hint so existing scripts / configs / agent prompts
+// fail loudly with actionable text rather than a bare "unknown
+// provider" stack trace.
+var deprecatedAskNames = map[string]string{
+	"google": "use `gemini` — the Gemini-API ask provider was renamed in v0.10.8 to free up the `google` name for the unrelated Custom Search provider",
 }
 
 func (r *AskRegistry) Get(name string) (Asker, error) {
@@ -99,6 +108,9 @@ func (r *AskRegistry) Get(name string) (Asker, error) {
 		if strings.EqualFold(a.Name(), name) {
 			return a, nil
 		}
+	}
+	if hint, ok := deprecatedAskNames[name]; ok {
+		return nil, fmt.Errorf("ask provider %q is no longer available: %s", name, hint)
 	}
 	return nil, fmt.Errorf("unknown ask provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
