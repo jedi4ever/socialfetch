@@ -1086,11 +1086,16 @@ func runHelp(args []string) error {
 
 func runList() error {
 	w := os.Stdout
+	fmt.Fprintln(w, "Legend: [ok] = ready · [!auth] = missing API keys · [bridge] = needs local browser bridge")
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Fetch providers (URL → Item):")
 	writeFetchTable(w)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Search providers (query → []Result):")
 	writeSearchTable(w)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Ask providers (question → grounded answer):")
+	writeAskTable(w)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Timeline providers (user → activity feed):")
 	writeTimelineTable(w)
@@ -1108,20 +1113,89 @@ func runList() error {
 func writeFetchTable(w io.Writer) {
 	fetchers, _ := buildRegistries()
 	for _, f := range fetchers.Fetchers() {
-		fmt.Fprintf(w, "  %-12s  %s\n", f.Name(), exampleFor(f.Name()))
+		fmt.Fprintf(w, "  %s %-12s  %s%s\n",
+			statusBadge("fetch", f.Name()),
+			f.Name(),
+			exampleFor(f.Name()),
+			statusSuffix("fetch", f.Name()),
+		)
 	}
 }
 
 func writeSearchTable(w io.Writer) {
 	_, searchers := buildRegistries()
 	for _, p := range searchers.Providers() {
-		fmt.Fprintf(w, "  %-12s  %s\n", p.Name(), searchAuthHint(p.Name()))
+		fmt.Fprintf(w, "  %s %-12s  %s%s\n",
+			statusBadge("search", p.Name()),
+			p.Name(),
+			searchAuthHint(p.Name()),
+			statusSuffix("search", p.Name()),
+		)
+	}
+}
+
+func writeAskTable(w io.Writer) {
+	for _, name := range buildAskers().Names() {
+		fmt.Fprintf(w, "  %s %-12s  %s%s\n",
+			statusBadge("ask", name),
+			name,
+			askAuthHint(name),
+			statusSuffix("ask", name),
+		)
 	}
 }
 
 func writeTimelineTable(w io.Writer) {
-	fmt.Fprintln(w, "  x           (requires X_API_KEY + X_API_SECRET; recent 7d, kinds: all|tweets|replies|retweets)")
-	fmt.Fprintln(w, "  linkedin    (requires bridge; kinds: all|posts|comments|reactions)")
+	for _, name := range []string{"x", "linkedin"} {
+		hint := ""
+		switch name {
+		case "x":
+			hint = "(requires X_API_KEY + X_API_SECRET; recent 7d, kinds: all|tweets|replies|retweets)"
+		case "linkedin":
+			hint = "(requires bridge; kinds: all|posts|comments|reactions)"
+		}
+		fmt.Fprintf(w, "  %s %-12s  %s%s\n",
+			statusBadge("timeline", name),
+			name,
+			hint,
+			statusSuffix("timeline", name),
+		)
+	}
+}
+
+// statusSuffix appends the live availability reason to the right of
+// each list row when the provider isn't fully configured. Empty for
+// ready providers — keeps the [ok] rows clean.
+func statusSuffix(category, name string) string {
+	s := providerStatus(category, name)
+	if s == "" {
+		return ""
+	}
+	return "  → " + s
+}
+
+// askAuthHint mirrors searchAuthHint for the ask category. Each
+// provider names its required env var so list output stays
+// self-documenting; the actual availability check is in
+// providerEnvReqs.
+func askAuthHint(name string) string {
+	switch name {
+	case "perplexity":
+		return "(requires PERPLEXITY_API_KEY; sonar / sonar-pro / sonar-reasoning)"
+	case "grok":
+		return "(requires XAI_API_KEY; live X data; grok-4 / grok-4-fast-reasoning)"
+	case "openai":
+		return "(requires OPENAI_API_KEY; gpt-5 / gpt-5-mini)"
+	case "anthropic":
+		return "(requires ANTHROPIC_API_KEY; claude-opus-4-7 / claude-sonnet-4-6)"
+	case "google":
+		return "(requires GEMINI_API_KEY or GOOGLE_API_KEY; gemini-2.5-pro / 2.5-flash)"
+	case "tavily":
+		return "(requires TAVILY_API_KEY; AI-tuned web search → synthesized answer)"
+	case "serpapi":
+		return "(requires SERPAPI_KEY; pulls Google's AI Overview block)"
+	}
+	return ""
 }
 
 func exampleFor(name string) string {

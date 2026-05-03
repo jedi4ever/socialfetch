@@ -39,6 +39,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/jedi4ever/social-skills/internal/availability"
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/ledger"
@@ -575,7 +576,7 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 
 func addListProvidersTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_list_providers",
-		mcp.WithDescription("List all available fetch / search / ask / timeline providers. Useful for the agent to discover capabilities at runtime."),
+		mcp.WithDescription("List every fetch / search / ask / timeline provider with its current availability. Each entry has {name, status, missing}. Status is 'ok' (ready to use), 'missing-auth' (one or more required env vars not set — `missing` lists which), or 'needs-bridge' (requires the local browser bridge — call social_fetch_bridge_status to check liveness). DO NOT invoke a provider whose status is anything but 'ok' or 'needs-bridge' (after confirming the bridge is connected); pick a different provider in the same category instead."),
 	)
 	s.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "list_providers")
@@ -587,12 +588,46 @@ func addListProvidersTool(s *server.MCPServer, cfg Config) {
 			fetchNames = append(fetchNames, f.Name())
 		}
 		return jsonResult(map[string]any{
-			"fetch":    fetchNames,
-			"search":   cfg.Searchers.Names(),
-			"ask":      cfg.Askers.Names(),
-			"timeline": []string{"x", "linkedin"},
+			"fetch":    annotateProviders("fetch", fetchNames),
+			"search":   annotateProviders("search", cfg.Searchers.Names()),
+			"ask":      annotateProviders("ask", cfg.Askers.Names()),
+			"timeline": annotateProviders("timeline", []string{"x", "linkedin"}),
 		})
 	})
+}
+
+// annotateProviders attaches per-provider availability to a flat name
+// list so the agent reading list_providers sees status alongside each
+// name. Three statuses, picked to map cleanly to "should I try this":
+//
+//   - "ok"           — fully configured, fire away
+//   - "missing-auth" — required env vars not set; use a different provider
+//   - "needs-bridge" — bridge required; fine after social_fetch_bridge_status
+//     confirms `connected: true`, otherwise will fail
+//
+// The `missing` field lists the actual env var names the agent (or
+// human reader) needs to set, so the diagnostic is actionable rather
+// than just "missing auth somewhere".
+func annotateProviders(category string, names []string) []map[string]any {
+	out := make([]map[string]any, 0, len(names))
+	for _, n := range names {
+		entry := map[string]any{"name": n}
+		s := availability.Status(category, n)
+		switch {
+		case s == "":
+			entry["status"] = "ok"
+		case strings.HasPrefix(s, "missing"):
+			entry["status"] = "missing-auth"
+			entry["missing"] = strings.TrimPrefix(s, "missing ")
+		case strings.HasPrefix(s, "needs bridge"):
+			entry["status"] = "needs-bridge"
+		default:
+			entry["status"] = "unknown"
+			entry["detail"] = s
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // ---- research --------------------------------------------------------
