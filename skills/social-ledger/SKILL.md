@@ -107,6 +107,87 @@ re-recording the same URL with the same content is a no-op
 existing row — agents can run record liberally without worrying
 about duplicates.
 
+### Worked example — record the result of a Claude WebFetch
+
+The agent has been asked to summarize a Vercel blog post that
+isn't on a platform `social-fetch` natively recognises. It
+WebFetches the URL, then records the result so future "have we
+seen this?" queries hit cache.
+
+Step 1 — check if the ledger already has it:
+
+```bash
+scripts/social-ledger seen "https://vercel.com/blog/agent-skills"
+# unseen   https://vercel.com/blog/agent-skills
+```
+
+Step 2 — call Claude's WebFetch tool. The agent's tool result
+arrives as markdown content; it captures it into a temp file (or
+straight to stdin in step 3).
+
+```bash
+# (pseudocode for the agent's perspective)
+# WebFetch("https://vercel.com/blog/agent-skills")
+# →  markdown body returned, captured into $body
+```
+
+Step 3 — record it. Pipe the WebFetch markdown into stdin, pass
+the URL + title + source as flags:
+
+```bash
+scripts/social-ledger record \
+  --title "Agent Skills on Vercel" \
+  --summary "How Vercel ships agent skills via npx skills add" \
+  --source webfetch \
+  --author "vercel-labs" \
+  "https://vercel.com/blog/agent-skills" <<'EOF'
+# Agent Skills on Vercel
+
+Vercel-labs ships agent skills as npm-installable packages.
+The `npx skills add` command pulls a SKILL.md plus optional
+binary into the user's local `~/.claude/skills/` tree.
+
+(...full WebFetch markdown body...)
+EOF
+# stderr: recorded: https://vercel.com/blog/agent-skills (new)
+```
+
+Step 4 — confirm + summarize. The ledger now has the entry; a
+second `seen` returns `seen`, and `get` dumps the markdown back
+on demand:
+
+```bash
+scripts/social-ledger seen "https://vercel.com/blog/agent-skills"
+# seen     https://vercel.com/blog/agent-skills
+
+scripts/social-ledger get "https://vercel.com/blog/agent-skills"
+# # Agent Skills on Vercel
+# source: webfetch
+# url: https://vercel.com/blog/agent-skills
+# author: vercel-labs
+# (...full body...)
+```
+
+Subsequent conversations that ask "what did we save about Vercel
+agent skills?" will find this entry via `search`:
+
+```bash
+scripts/social-ledger search "vercel agent skills"
+# webfetch    Agent Skills on Vercel    https://vercel.com/blog/agent-skills
+#   How Vercel ships agent skills via npx skills add
+```
+
+**One-liner template for the common case:**
+
+```bash
+scripts/social-ledger record \
+  --title "$TITLE" --source webfetch "$URL" < /tmp/webfetch-output.md
+```
+
+Stdin is the body (markdown that came out of WebFetch); URL
+and title are positional/flag args. `--summary`, `--author`,
+`--canonical-id` are optional.
+
 ## Listing + filtering
 
 ```bash

@@ -134,6 +134,20 @@ jobs:
           (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/social-fetch-skill-${V}.zip" .)
           ls -lh "dist/social-fetch-skill-${V}.zip"
 
+      - name: Package ledger-only skill zip (darwin-arm64)
+        # The companion skill ships SKILL.md + just the
+        # social-ledger binary, for agents that want ledger
+        # access without loading the full social-fetch surface.
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.value }}"
+          STAGE=$(mktemp -d)
+          mkdir -p "$STAGE/scripts"
+          cp skills/social-ledger/SKILL.md "$STAGE/SKILL.md"
+          cp "dist/binaries/social-fetch-${V}-darwin-arm64/social-ledger" "$STAGE/scripts/social-ledger"
+          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/social-ledger-skill-${V}.zip" .)
+          ls -lh "dist/social-ledger-skill-${V}.zip"
+
       - name: Package Claude Code plugin zip
         run: make plugin-package
 
@@ -160,6 +174,8 @@ jobs:
           # intermediate dist/binaries/ tree so we ship archives,
           # not the staging dirs themselves.
           files: |
-            dist/social-fetch-*.mcpb
-            dist/social-fetch-*.zip
             dist/social-fetch-*.tar.gz
+            dist/social-fetch-skill-*.zip
+            dist/social-ledger-skill-*.zip
+            dist/social-skills-*.mcpb
+            dist/social-skills-*.zip
