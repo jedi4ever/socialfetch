@@ -17,7 +17,7 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
-        bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry
+        bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry brew-update
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -174,6 +174,17 @@ gh-sync-secrets-dry:  ## Preview which .env keys would be uploaded to GitHub Act
 
 gh-sync-secrets:  ## Push API keys from .env to GitHub Actions secrets (powers .github/workflows/live.yml)
 	@./scripts/gh-sync-secrets.sh
+
+# brew-update regenerates homebrew/socialfetch.rb from the just-published
+# GitHub release tarballs. Run after the release workflow finishes
+# uploading darwin-arm64 / darwin-amd64 / linux-amd64 archives. The
+# regenerated formula then needs to be copied into the
+# jedi4ever/homebrew-socialfetch tap repo as Formula/socialfetch.rb so
+# `brew install jedi4ever/socialfetch/socialfetch` picks up the new
+# version. Pass VERSION=x.y.z to override the local-binary version
+# (useful for backfilling older releases without rebuilding).
+brew-update: build  ## Regenerate homebrew/socialfetch.rb from latest GitHub release
+	@./scripts/brew-update.sh $(VERSION)
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch

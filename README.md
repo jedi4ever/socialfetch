@@ -149,12 +149,24 @@ API keys stay in your local `.env` — never sent over the wire.
 
 If you don't need any of the above and just want the binary:
 
+**Homebrew (macOS / Linux)** — easiest for most CLI users:
+
+```bash
+brew install jedi4ever/socialfetch/socialfetch
+```
+
+That auto-taps `jedi4ever/homebrew-socialfetch` and installs the
+prebuilt binary for your OS/arch. `brew upgrade socialfetch` picks
+up new releases.
+
+**Other options:**
+
 ```bash
 go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
 # or download a release tarball:
-#   socialfetch-0.9.0-darwin-arm64.tar.gz
-#   socialfetch-0.9.0-darwin-amd64.tar.gz
-#   socialfetch-0.9.0-linux-amd64.tar.gz
+#   socialfetch-0.9.1-darwin-arm64.tar.gz
+#   socialfetch-0.9.1-darwin-amd64.tar.gz
+#   socialfetch-0.9.1-linux-amd64.tar.gz
 ```
 
 Build from source:
