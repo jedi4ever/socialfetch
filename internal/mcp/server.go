@@ -25,13 +25,16 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -39,6 +42,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/render"
 	"github.com/jedi4ever/social-skills/internal/research"
 )
 
@@ -104,6 +108,9 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addLedgerStatsTool(s, cfg)
 	addLedgerRecordTool(s, cfg)
 	addLedgerForgetTool(s, cfg)
+	// File-output companion: lets MCP-only clients (Claude Desktop)
+	// page through the temp files that other tools produce.
+	addReadFileTool(s, cfg)
 }
 
 // openToolAudit opens the always-on global audit log scoped to an MCP
@@ -166,15 +173,17 @@ type fetchArgs struct {
 	IncludeComments   *bool  `json:"include_comments,omitempty"`
 	MaxComments       int    `json:"max_comments,omitempty"`
 	GenericExtraction bool   `json:"generic_extraction,omitempty"`
+	Inline            bool   `json:"inline,omitempty"`
 }
 
 func addFetchTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_fetch",
-		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a structured Item with title, author, content, comments, etc."),
+		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a small JSON envelope (url/title/author/source/kind/score/summary/comment_count + `content_file` path) with the rendered markdown body written to a temp file. Read the body with the agent's Read tool (Claude Code) or `social_fetch_read_file` (Claude Desktop). Set `inline: true` to get the full Item in the response instead — slower for large articles but useful when piping into another tool."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("The URL to fetch")),
 		mcp.WithBoolean("include_comments", mcp.Description("Include comment trees (default true; set false for faster/smaller fetch)")),
 		mcp.WithNumber("max_comments", mcp.Description("Cap total comments per item (0 = no cap)")),
 		mcp.WithBoolean("generic_extraction", mcp.Description("Force the catch-all article extractor even on hosts with a specific extractor (debug aid)")),
+		mcp.WithBoolean("inline", mcp.Description("Return the full Item structure inline instead of writing the body to a temp file. Default false. Use only when you need the structured Comments / Children tree without round-tripping through the file.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args fetchArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "fetch")
@@ -205,8 +214,136 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 		if item != nil {
 			ledger.Ingest(ctx, *item)
 		}
-		return jsonResult(item)
+		hint := thinContentHint(item)
+		if args.Inline {
+			// Old shape, preserved for callers that want the full
+			// Item (Comments tree, Children, Extra) without a
+			// second Read round-trip.
+			if hint != "" {
+				if item.Extra == nil {
+					item.Extra = map[string]any{}
+				}
+				item.Extra["hint"] = hint
+			}
+			return jsonResult(item)
+		}
+		return fetchEnvelope(item, hint, "fetch")
 	}))
+}
+
+// fetchEnvelope renders the Item to markdown, writes it to a temp file,
+// and returns a small JSON envelope with metadata + content_file. If
+// the temp write fails (out of disk, permissions), falls back to the
+// inline shape so the caller never loses content.
+func fetchEnvelope(item *core.Item, hint, tool string) (*mcp.CallToolResult, error) {
+	if item == nil {
+		return mcp.NewToolResultError("no item returned"), nil
+	}
+	var buf bytes.Buffer
+	if err := render.Item(&buf, item, render.FormatMarkdown); err != nil {
+		// Fallback — better to return the item inline than to error.
+		return jsonResult(item)
+	}
+	path, n, err := writeContentTemp(tool, "md", buf.String())
+	if err != nil {
+		return jsonResult(item)
+	}
+	env := map[string]any{
+		"source":        item.Source,
+		"kind":          item.Kind,
+		"url":           item.URL,
+		"title":         item.Title,
+		"author":        item.Author,
+		"summary":       item.Summary,
+		"score":         item.Score,
+		"tags":          item.Tags,
+		"published":     item.Published,
+		"fetched_at":    item.FetchedAt,
+		"content_file":  path,
+		"content_bytes": n,
+		"comment_count": countComments(item.Comments),
+		"media_count":   len(item.Media),
+		"child_count":   len(item.Children),
+		"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
+	}
+	if item.RequestURL != "" && item.RequestURL != item.URL {
+		env["request_url"] = item.RequestURL
+	}
+	if hint != "" {
+		env["hint"] = hint
+	}
+	return jsonResult(env)
+}
+
+// thinContentHint returns a non-empty nudge when the extracted body
+// looks like it might be an SPA shell or a nav-only page. Two
+// signals: total body bytes, and prose bytes after stripping markdown
+// link syntax + bare URLs. The second is what catches Stripe-style
+// extractions where the body is 5 KB of `[Twitter](…)[LinkedIn](…)`
+// nav with maybe 800 chars of actual prose buried in metadata blocks.
+//
+// Only fires for the generic article fetcher; platform-specific
+// fetchers (HN items, tweets, RSS entries) are legitimately small.
+//
+// The hint suggests the two known workarounds: switch the renderer to
+// Jina Reader for server-side rendering, or fetch via the local
+// browser bridge so a logged-in browser session does the work.
+func thinContentHint(item *core.Item) string {
+	if item == nil || item.Source != "article" || item.Title == "" {
+		return ""
+	}
+	body := strings.TrimSpace(item.Content)
+	if body == "" {
+		return ""
+	}
+	prose := countProse(body)
+	// Two ways the page is "thin enough to nudge":
+	//   - tiny absolute body (<1500 chars total → almost certainly
+	//     a fetch that hit a shell page)
+	//   - body looks substantial but is mostly links/nav (<1500
+	//     chars of prose after stripping markdown links + URLs)
+	if len(body) >= 1500 && prose >= 1500 {
+		return ""
+	}
+	return fmt.Sprintf("extracted body looks thin: %d total chars, %d after stripping markdown links / URLs. The page may be JavaScript-rendered (most of the body is nav and metadata, the actual article hydrates client-side). Two workarounds: (1) set HTML2MD_READER=jina on the social-fetch process to route through Jina Reader (server-side renders the JS, often returns 2-10× more prose); (2) fetch via the local browser bridge — call social_fetch_bridge_status to confirm the bridge is reachable + connected, then re-fetch the same URL (the bridge runs the page in your logged-in browser, which executes the JS).", len(body), prose)
+}
+
+// mdLinkRe + urlRe drive countProse — they strip markdown link syntax
+// and bare URLs from a body so what's left is roughly the prose. Used
+// only for the thin-content heuristic, not for any user-facing
+// rendering, so they're deliberately permissive (match-anything-greedy
+// is fine; over-stripping just lowers prose count, which is the
+// conservative direction for the hint).
+var mdLinkRe = regexp.MustCompile(`\[[^\]]*\]\([^)]*\)`)
+var urlRe = regexp.MustCompile(`https?://\S+`)
+
+// countProse strips markdown links + bare URLs + whitespace and
+// returns the number of remaining non-whitespace runes. Good enough
+// proxy for "how much actual prose is in here" without paying for a
+// real markdown parser. Nav-heavy extractions collapse to a few
+// hundred prose chars even when the raw body is several KB.
+func countProse(s string) int {
+	s = mdLinkRe.ReplaceAllString(s, "")
+	s = urlRe.ReplaceAllString(s, "")
+	n := 0
+	for _, r := range s {
+		if !unicode.IsSpace(r) {
+			n++
+		}
+	}
+	return n
+}
+
+// countComments walks the Comments tree to give the agent a single
+// number for "how much commentary is attached" without including the
+// full tree in the envelope.
+func countComments(cs []core.Comment) int {
+	n := 0
+	for _, c := range cs {
+		n++
+		n += countComments(c.Replies)
+	}
+	return n
 }
 
 // ---- search ----------------------------------------------------------
@@ -297,6 +434,7 @@ type askArgs struct {
 	Recency      string `json:"recency,omitempty"`
 	MaxTokens    int    `json:"max_tokens,omitempty"`
 	Instructions string `json:"instructions,omitempty"`
+	Inline       bool   `json:"inline,omitempty"`
 }
 
 func addAskTool(s *server.MCPServer, cfg Config) {
@@ -308,6 +446,7 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("recency", mcp.Description("Search horizon: day, week, month, year (provider-dependent)")),
 		mcp.WithNumber("max_tokens", mcp.Description("Cap response length")),
 		mcp.WithString("instructions", mcp.Description("System-prompt-style preamble (honored by perplexity, grok, openai, anthropic, google)")),
+		mcp.WithBoolean("inline", mcp.Description("Return the full Answer (text + sources) inline. Default false — answer text is written to a temp file, the response is a small envelope {provider, model, sources, content_file, content_bytes}. Saves MCP encoding cost when answers are long.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args askArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "ask")
@@ -335,7 +474,23 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		audit.Logf("ask returned answer (%d chars, %d sources) via %s", len(ans.Text), len(ans.Sources), ans.Provider)
-		return jsonResult(ans)
+		if args.Inline {
+			return jsonResult(ans)
+		}
+		path, n, err := writeContentTemp("ask", "md", ans.Text)
+		if err != nil {
+			return jsonResult(ans)
+		}
+		return jsonResult(map[string]any{
+			"question":      ans.Question,
+			"provider":      ans.Provider,
+			"model":         ans.Model,
+			"asked":         ans.Asked,
+			"sources":       ans.Sources,
+			"content_file":  path,
+			"content_bytes": n,
+			"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
+		})
 	}))
 }
 
@@ -448,6 +603,7 @@ type researchArgs struct {
 	MaxAngles    int    `json:"max_angles,omitempty"`
 	Jobs         int    `json:"jobs,omitempty"`
 	JSON         bool   `json:"json,omitempty"`
+	Inline       bool   `json:"inline,omitempty"`
 }
 
 func addResearchTool(s *server.MCPServer, cfg Config) {
@@ -458,6 +614,7 @@ func addResearchTool(s *server.MCPServer, cfg Config) {
 		mcp.WithNumber("max_angles", mcp.Description("Cap decomposition output (default 5, max 8)")),
 		mcp.WithNumber("jobs", mcp.Description("Parallel angle workers (default 4)")),
 		mcp.WithBoolean("json", mcp.Description("Return the structured Report as JSON instead of rendered markdown (default false)")),
+		mcp.WithBoolean("inline", mcp.Description("Return the rendered report inline in the tool result instead of writing it to a temp file. Default false — the response is a small envelope {question, orchestrator, angles, sources, content_file, content_bytes} and the body lives in `content_file`. Read with the agent's Read tool (Claude Code) or social_fetch_read_file (Claude Desktop).")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args researchArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "research")
@@ -497,12 +654,50 @@ func addResearchTool(s *server.MCPServer, cfg Config) {
 			len(rep.Answer), len(rep.Sources), len(rep.Angles))
 
 		if args.JSON {
-			return jsonResult(rep)
+			if args.Inline {
+				return jsonResult(rep)
+			}
+			body, err := json.MarshalIndent(rep, "", "  ")
+			if err != nil {
+				return jsonResult(rep)
+			}
+			path, n, err := writeContentTemp("research", "json", string(body))
+			if err != nil {
+				return jsonResult(rep)
+			}
+			return jsonResult(map[string]any{
+				"question":      rep.Question,
+				"orchestrator":  rep.Orchestrator,
+				"angles":        len(rep.Angles),
+				"sources":       rep.Sources,
+				"elapsed_ms":    rep.Finished.Sub(rep.Started).Milliseconds(),
+				"content_file":  path,
+				"content_bytes": n,
+				"content_kind":  "json",
+				"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
+			})
 		}
 		// Render the report as markdown so the caller's first read is
 		// the answer, not a JSON blob. Same shape the CLI emits.
 		md := renderReportMarkdown(rep)
-		return mcp.NewToolResultText(md), nil
+		if args.Inline {
+			return mcp.NewToolResultText(md), nil
+		}
+		path, n, err := writeContentTemp("research", "md", md)
+		if err != nil {
+			return mcp.NewToolResultText(md), nil
+		}
+		return jsonResult(map[string]any{
+			"question":      rep.Question,
+			"orchestrator":  rep.Orchestrator,
+			"angles":        len(rep.Angles),
+			"sources":       rep.Sources,
+			"elapsed_ms":    rep.Finished.Sub(rep.Started).Milliseconds(),
+			"content_file":  path,
+			"content_bytes": n,
+			"content_kind":  "markdown",
+			"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
+		})
 	}))
 }
 

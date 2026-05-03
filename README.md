@@ -330,10 +330,34 @@ social-fetch mcp --ngrok               # spawn ngrok automatically
 ```
 
 Exposes `social_fetch_fetch`, `_search`, `_ask`, `_timeline`,
-`_research`, `_list_providers`, `_bridge_status` as MCP tools. Set
-`MCP_AUTH_TOKEN` for HTTP mode (auto-generated when `--ngrok` is
-combined with no env var). HTTP-mode tee's tool calls + outbound
-platform HTTP traffic to stderr live.
+`_research`, `_list_providers`, `_bridge_status`, `_read_file` plus
+the seven `social_ledger_*` tools as MCP tools. Set `MCP_AUTH_TOKEN`
+for HTTP mode (auto-generated when `--ngrok` is combined with no env
+var). HTTP-mode tee's tool calls + outbound platform HTTP traffic to
+stderr live.
+
+**Output is file-based by default** for the big-payload tools
+(`_fetch`, `_ask`, `_research`, `_ledger_get`). The tool result is a
+small JSON envelope containing metadata + a `content_file` path
+pointing at a temp file with the rendered markdown body. Read the
+body with the agent's built-in Read tool (Claude Code), or with
+`social_fetch_read_file` (Claude Desktop / any MCP-only client). This
+keeps article bodies, research reports, and grounded answers off the
+JSON-RPC encode path — much faster than streaming 50 KB of escaped
+markdown through a tool result. Pass `inline: true` on the producing
+tool to get the body inline instead.
+
+The `_fetch` envelope adds a **`hint`** field when extraction looks
+suspiciously thin (small body from an `article`-source page —
+typically a JS-rendered SPA), nudging the agent to retry via the
+browser bridge or `HTML2MD_READER=jina`.
+
+The `_ledger_get` envelope adds a **`provenance`** field —
+`auto-fetched` when the entry came in via `social_fetch_*` (we
+extracted it ourselves), `agent-recorded` when stored via
+`social_ledger_record` (content came from Claude WebFetch / curl /
+hand-paste). Use it to weigh how much to trust a cached body before
+quoting from it.
 
 ### `bridge`
 

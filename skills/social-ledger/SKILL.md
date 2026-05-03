@@ -29,6 +29,31 @@ before?" or "what did we learn about X recently?" — query the
 ledger first. Only re-fetch on cache miss. The cache survives
 across conversations, computer restarts, and Claude versions.
 
+**Provenance — know how much to trust each entry.** The ledger
+records *who put each item in*. Two classes:
+
+- **auto-fetched** — entry was ingested by `social-fetch fetch /
+  search / ask / timeline / research`. We pulled the URL ourselves,
+  ran our own extractor, normalised the markdown. **High trust.**
+  The `source` column is one of the platform names: `hackernews`,
+  `reddit`, `github`, `x`, `twitter`, `linkedin`, `youtube`,
+  `bluesky`, `arxiv`, `medium`, `substack`, `rss`, `article`.
+
+- **agent-recorded** — entry was stored via `social-ledger record`,
+  meaning an agent fed in content it got from somewhere else
+  (Claude's WebFetch, the research tool, a `curl` one-off, hand
+  paste). **Trust depends on what was fed in.** The `source`
+  column is one of `webfetch`, `manual`, `research-tool`,
+  `citation`.
+
+Quoting from a `webfetch`-source entry is fine for "what does the
+page say at a glance"; for high-stakes citations, prefer
+`auto-fetched` entries or re-fetch the URL via `social-fetch fetch`
+to get a fresh copy through our extractor. The MCP `social_ledger_get`
+tool surfaces this as a `provenance` field on every retrieval; the
+CLI shows the `source` column on `list` / `search` / `get` so you
+can eyeball it.
+
 ## Subcommands
 
 ```

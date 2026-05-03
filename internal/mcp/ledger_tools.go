@@ -118,7 +118,7 @@ type ledgerSeenArgs struct {
 
 func addLedgerSeenTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_ledger_seen",
-		mcp.WithDescription("Check whether one or more URLs are already in the local ledger. Returns [{url, seen}, ...]. Use BEFORE fetching a URL to avoid re-fetching content the ledger already has cached."),
+		mcp.WithDescription("Check whether one or more URLs are already in the local ledger. Returns [{url, seen}, ...]. Use BEFORE fetching a URL to avoid re-fetching content the ledger already has cached. To learn whether a hit was auto-fetched by social_fetch_* (high trust — we extracted it ourselves) vs agent-recorded via social_ledger_record (trust depends on what was fed in), call social_ledger_get on the URL — it returns a `provenance` field."),
 		mcp.WithArray("urls", mcp.Required(), mcp.Description("List of URLs to check. Each is matched literally + with trivial normalisation (lowercase host, strip fragment, trim trailing slash) + against both `url` and `request_url` columns so redirect short-links find their canonical entry.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args ledgerSeenArgs) (*mcp.CallToolResult, error) {
@@ -146,13 +146,15 @@ func addLedgerSeenTool(s *server.MCPServer, cfg Config) {
 // ---- get -------------------------------------------------------------
 
 type ledgerGetArgs struct {
-	URL string `json:"url"`
+	URL    string `json:"url"`
+	Inline bool   `json:"inline,omitempty"`
 }
 
 func addLedgerGetTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_ledger_get",
-		mcp.WithDescription("Retrieve one stored item from the ledger by URL or canonical_id. Returns the full markdown body + frontmatter (source, url, author, score, tags, fetched_at). Use AFTER `social_ledger_seen` confirms a hit, or directly when you know the URL is cached."),
+		mcp.WithDescription("Retrieve one stored item from the ledger by URL or canonical_id. Default: writes the markdown body + frontmatter (source, url, author, score, tags, fetched_at) to a temp file and returns a small envelope with `content_file` + provenance fields. Read the body with the agent's Read tool (Claude Code) or social_fetch_read_file (Claude Desktop). Set `inline: true` to get the markdown directly. Use AFTER `social_ledger_seen` confirms a hit, or directly when you know the URL is cached.\n\nProvenance: the envelope's `provenance` field is `auto-fetched` when social_fetch_* ingested the content (we fetched + extracted it ourselves — high trust), or `agent-recorded` when an agent stored it via social_ledger_record (content came from Claude WebFetch / curl / hand-paste — trust depends on what the agent fed in)."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("URL or canonical_id of the stored item. Same fallback chain as the CLI: tries every (source::url) key, then last-ditch URL scan against both columns.")),
+		mcp.WithBoolean("inline", mcp.Description("Return the markdown body inline instead of writing to a temp file. Default false.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args ledgerGetArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "ledger_get")
@@ -164,8 +166,104 @@ func addLedgerGetTool(s *server.MCPServer, cfg Config) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return mcp.NewToolResultText(string(out)), nil
+		if args.Inline {
+			return mcp.NewToolResultText(string(out)), nil
+		}
+		body := string(out)
+		path, n, werr := writeContentTemp("ledger-get", "md", body)
+		if werr != nil {
+			return mcp.NewToolResultText(body), nil
+		}
+		// Parse the markdown frontmatter that `social-ledger get`
+		// emits (Source/URL/Author/etc. lines) so the envelope
+		// surfaces the headline metadata without forcing the agent
+		// to read the file. Cheap and best-effort — missing fields
+		// just stay absent.
+		meta := parseLedgerFrontmatter(body)
+		env := map[string]any{
+			"url":           args.URL,
+			"content_file":  path,
+			"content_bytes": n,
+			"provenance":    classifyProvenance(meta["source"]),
+			"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
+		}
+		for k, v := range meta {
+			if v != "" {
+				env[k] = v
+			}
+		}
+		return jsonResult(env)
 	}))
+}
+
+// parseLedgerFrontmatter extracts the **Key:** value pairs that
+// `social-ledger get` prints at the top of its markdown output. Stops
+// at the first blank line — the renderer always emits one between
+// frontmatter and body, so anything after that is content text we
+// shouldn't re-interpret as metadata even if it happens to start with
+// `**Source:`.
+//
+// Best effort — anything we can't parse stays empty rather than
+// producing errors, since the file path is the source of truth.
+func parseLedgerFrontmatter(md string) map[string]string {
+	out := map[string]string{}
+	seenFrontmatter := false
+	for _, ln := range strings.SplitN(md, "\n", 40) {
+		trimmed := strings.TrimSpace(ln)
+		if !strings.HasPrefix(trimmed, "**") {
+			if seenFrontmatter && trimmed == "" {
+				// Blank line after the metadata block — body
+				// follows. Bail before any body text starting
+				// with `**…**` gets misread as frontmatter.
+				break
+			}
+			continue
+		}
+		rest := strings.TrimPrefix(trimmed, "**")
+		colon := strings.Index(rest, ":**")
+		if colon < 0 {
+			continue
+		}
+		seenFrontmatter = true
+		key := strings.ToLower(strings.TrimSpace(rest[:colon]))
+		val := strings.TrimSpace(rest[colon+3:])
+		switch key {
+		case "source", "author", "url", "published", "score", "tags", "fetched":
+			out[key] = val
+		}
+	}
+	return out
+}
+
+// classifyProvenance maps the ledger entry's Source value to a
+// trust-class string the agent can read. The convention is:
+//
+//   - Platform sources (hackernews, reddit, github, x/twitter,
+//     linkedin, youtube, bluesky, arxiv, medium, substack, rss,
+//     article) — produced by social_fetch_* fetchers, so we know
+//     extraction came from our own code on the live URL.
+//
+//   - `webfetch`, `manual`, `research-tool`, `citation`, `bridge` —
+//     stored via `social_ledger_record` (agent-supplied content) or
+//     captured indirectly. Trust depends on what the agent fed in.
+//
+// Anything else is reported as "unknown" so the agent can default to
+// caution rather than silent assume-trust.
+func classifyProvenance(source string) string {
+	source = strings.TrimSpace(strings.ToLower(source))
+	if source == "" {
+		return "unknown"
+	}
+	switch source {
+	case "hackernews", "reddit", "github", "x", "twitter", "linkedin",
+		"youtube", "bluesky", "arxiv", "medium", "substack", "rss",
+		"article", "atom":
+		return "auto-fetched"
+	case "webfetch", "manual", "research-tool", "research", "citation":
+		return "agent-recorded"
+	default:
+		return "unknown"
+	}
 }
 
 // ---- list ------------------------------------------------------------
