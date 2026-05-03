@@ -4,7 +4,7 @@
   "display_name": "social-skills — for AI agents",
   "version": "0.10.5",
   "description": "Social-web skills for AI agents. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE), ask (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI), and a local SQLite-backed ledger of every fetched URL.",
-  "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status as tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship with whichever subset of API keys you've configured and the rest is silent.",
+  "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status / read_file plus seven social_ledger_* tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Big-payload tools (fetch / ask / research / ledger_get) write the rendered body to a temp file and return a small JSON envelope with metadata + a content_file path — keeps article bodies off the JSON-RPC encode path. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits.",
   "author": {
     "name": "Patrick Debois"
   },
@@ -57,15 +57,16 @@
     }
   },
   "tools": [
-    {"name": "social_fetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic)."},
+    {"name": "social_fetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic). Returns a small envelope + content_file (read with social_fetch_read_file). Adds a `hint` field when extraction looks thin (likely JS-rendered SPA)."},
     {"name": "social_fetch_search", "description": "Search the web or a specific platform. Supports -p auto fallback chains."},
-    {"name": "social_fetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI)."},
+    {"name": "social_fetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI). Answer body lives in content_file; sources stay inline."},
     {"name": "social_fetch_timeline", "description": "Recent activity for a user on X or LinkedIn."},
     {"name": "social_fetch_list_providers", "description": "Discover available providers at runtime."},
     {"name": "social_fetch_bridge_status", "description": "Probe the local browser bridge (LinkedIn / Medium / Substack)."},
-    {"name": "social_fetch_research", "description": "EXPERIMENTAL — multi-angle research workflow: decomposes a question, fans out parallel fetch/search/ask/timeline, synthesizes a markdown answer with citations."},
+    {"name": "social_fetch_research", "description": "EXPERIMENTAL — multi-angle research workflow: decomposes a question, fans out parallel fetch/search/ask/timeline, synthesizes a markdown answer with citations. Report body lives in content_file."},
+    {"name": "social_fetch_read_file", "description": "Read a content_file produced by an earlier social_fetch_* / social_ledger_* call. Chunked (default 64 KB) so large bodies can be paged. Locked to the system temp dir + social-fetch- prefix."},
     {"name": "social_ledger_seen", "description": "Check whether one or more URLs are already cached in the local ledger. Use BEFORE fetching to avoid re-fetching content already saved."},
-    {"name": "social_ledger_get", "description": "Retrieve one stored item from the ledger by URL — full markdown body + frontmatter."},
+    {"name": "social_ledger_get", "description": "Retrieve one stored item from the ledger by URL — markdown body + provenance ('auto-fetched' = high trust, social_fetch_* ingested it; 'agent-recorded' = trust depends on what the agent fed in)."},
     {"name": "social_ledger_list", "description": "List ledger items, newest first. Filter by source / recency window."},
     {"name": "social_ledger_search", "description": "FTS5 search the ledger (BM25-ranked) across title / summary / content / author / tags."},
     {"name": "social_ledger_stats", "description": "Counts, sizes, oldest/newest in the ledger."},
