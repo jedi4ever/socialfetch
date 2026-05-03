@@ -258,7 +258,8 @@ func addLedgerStatsTool(s *server.MCPServer, cfg Config) {
 type ledgerRecordArgs struct {
 	URL         string `json:"url"`
 	Title       string `json:"title"`
-	Content     string `json:"content"`
+	Content     string `json:"content,omitempty"`
+	ContentFile string `json:"content_file,omitempty"`
 	Source      string `json:"source,omitempty"`
 	Summary     string `json:"summary,omitempty"`
 	Author      string `json:"author,omitempty"`
@@ -267,10 +268,11 @@ type ledgerRecordArgs struct {
 
 func addLedgerRecordTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_ledger_record",
-		mcp.WithDescription("Store one URL+content pair in the ledger. Use AFTER fetching content via Claude's WebFetch tool (or any other non-social-fetch path) so the next conversation finds it cached. Refused when SOCIAL_LEDGER_READONLY=1 is set."),
+		mcp.WithDescription("Store one URL+content pair in the ledger. Use AFTER fetching content via Claude's WebFetch tool (or any other non-social-fetch path) so the next conversation finds it cached. PREFER content_file over content when the body is non-trivial: write the WebFetch markdown to a temp file with the Write tool first, then pass the path here. That avoids streaming large content through the MCP protocol's JSON-escaped string (which bloats memory + token budget on both sides). Refused when SOCIAL_LEDGER_READONLY=1 is set."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("Source URL of the recorded content.")),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Page title (required — empty titles produce useless ledger entries).")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Markdown body of the content (typically the output of Claude's WebFetch).")),
+		mcp.WithString("content_file", mcp.Description("PREFERRED for non-trivial bodies. Absolute path to a file on disk containing the markdown body. The agent should Write the WebFetch output to a temp file (e.g. /tmp/<slug>.md) and pass that path here. Mutually exclusive with `content` — if both set, content_file wins.")),
+		mcp.WithString("content", mcp.Description("Inline markdown body. Use only for SHORT content (<5KB). For larger bodies, prefer content_file.")),
 		mcp.WithString("source", mcp.Description("Source tag for filtering later (default `webfetch`). Use `research-tool`, `manual`, etc. for cleaner separation.")),
 		mcp.WithString("summary", mcp.Description("Short description / abstract.")),
 		mcp.WithString("author", mcp.Description("Author / organisation that produced the content.")),
@@ -288,6 +290,9 @@ func addLedgerRecordTool(s *server.MCPServer, cfg Config) {
 		if strings.TrimSpace(args.Title) == "" {
 			return mcp.NewToolResultError("title is required"), nil
 		}
+		if strings.TrimSpace(args.Content) == "" && strings.TrimSpace(args.ContentFile) == "" {
+			return mcp.NewToolResultError("either content_file (preferred) or content is required"), nil
+		}
 		argv := []string{"record"}
 		if args.Source != "" {
 			argv = append(argv, "--source", args.Source)
@@ -302,8 +307,16 @@ func addLedgerRecordTool(s *server.MCPServer, cfg Config) {
 		if args.CanonicalID != "" {
 			argv = append(argv, "--canonical-id", args.CanonicalID)
 		}
+		// content_file wins when both are set — let the agent
+		// optimise without us second-guessing.
+		stdin := ""
+		if args.ContentFile != "" {
+			argv = append(argv, "--content", args.ContentFile)
+		} else {
+			stdin = args.Content
+		}
 		argv = append(argv, args.URL)
-		out, err := runLedger(ctx, argv, args.Content, audit)
+		out, err := runLedger(ctx, argv, stdin, audit)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

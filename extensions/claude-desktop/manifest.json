@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "social-skills",
   "display_name": "social-skills — for AI agents",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Social-web skills for AI agents. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE), ask (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI), and a local SQLite-backed ledger of every fetched URL.",
   "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status as tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship with whichever subset of API keys you've configured and the rest is silent.",
   "author": {

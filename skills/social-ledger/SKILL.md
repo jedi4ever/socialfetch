@@ -98,7 +98,12 @@ some URL the agent fetches via WebFetch:
 
 1. `seen <url>` → if seen, skip 2-3, use `get <url>` for the body.
 2. WebFetch the URL → capture markdown.
-3. `record <url> --title "..." --source webfetch < markdown`.
+3. **Write the markdown to a temp file** (e.g. `/tmp/<slug>.md`)
+   using the Write tool. Then `record <url> --title "..." --source
+   webfetch --content /tmp/<slug>.md`. **Don't stream the markdown
+   through stdin or as a JSON string when it's longer than a
+   handful of lines** — file paths avoid bloating the agent's
+   token budget and the MCP escape-encoding overhead.
 4. Reason / summarize from the recorded content.
 
 The ledger's deduplication (key = `source::canonical_id`) means
@@ -121,18 +126,21 @@ scripts/social-ledger seen "https://vercel.com/blog/agent-skills"
 # unseen   https://vercel.com/blog/agent-skills
 ```
 
-Step 2 — call Claude's WebFetch tool. The agent's tool result
-arrives as markdown content; it captures it into a temp file (or
-straight to stdin in step 3).
+Step 2 — call Claude's WebFetch tool. The agent gets markdown
+content back. **Write it to a temp file with the Write tool**
+rather than holding the entire body in conversation memory:
 
 ```bash
 # (pseudocode for the agent's perspective)
-# WebFetch("https://vercel.com/blog/agent-skills")
-# →  markdown body returned, captured into $body
+# 1. WebFetch("https://vercel.com/blog/agent-skills")
+#    →  markdown body returned
+# 2. Write tool: /tmp/vercel-agent-skills.md ← markdown body
 ```
 
-Step 3 — record it. Pipe the WebFetch markdown into stdin, pass
-the URL + title + source as flags:
+Step 3 — record by file path (NOT by streaming the content
+through). The `--content FILE` flag reads the body from disk so
+the markdown never has to round-trip through the agent's prompt
+or the MCP JSON-escape:
 
 ```bash
 scripts/social-ledger record \
@@ -140,17 +148,22 @@ scripts/social-ledger record \
   --summary "How Vercel ships agent skills via npx skills add" \
   --source webfetch \
   --author "vercel-labs" \
-  "https://vercel.com/blog/agent-skills" <<'EOF'
-# Agent Skills on Vercel
-
-Vercel-labs ships agent skills as npm-installable packages.
-The `npx skills add` command pulls a SKILL.md plus optional
-binary into the user's local `~/.claude/skills/` tree.
-
-(...full WebFetch markdown body...)
-EOF
+  --content /tmp/vercel-agent-skills.md \
+  "https://vercel.com/blog/agent-skills"
 # stderr: recorded: https://vercel.com/blog/agent-skills (new)
 ```
+
+If the body is genuinely tiny (a one-line description, a tweet
+quote) and writing-then-reading is overkill, stdin still works:
+
+```bash
+echo "Short body inline." | scripts/social-ledger record \
+  --title "Quick Note" --source manual "https://example.com/x"
+```
+
+But for any real WebFetch output, prefer the file path —
+typical blog posts are 5-50 KB of markdown which is wasteful as
+a JSON-string argument or piped stdin.
 
 Step 4 — confirm + summarize. The ledger now has the entry; a
 second `seen` returns `seen`, and `get` dumps the markdown back
@@ -177,16 +190,20 @@ scripts/social-ledger search "vercel agent skills"
 #   How Vercel ships agent skills via npx skills add
 ```
 
-**One-liner template for the common case:**
+**One-liner template for the common case** (file-based, recommended):
 
 ```bash
+# 1. Write tool: /tmp/<slug>.md ← WebFetch markdown
+# 2. Record:
 scripts/social-ledger record \
-  --title "$TITLE" --source webfetch "$URL" < /tmp/webfetch-output.md
+  --title "$TITLE" --source webfetch \
+  --content /tmp/<slug>.md \
+  "$URL"
 ```
 
-Stdin is the body (markdown that came out of WebFetch); URL
-and title are positional/flag args. `--summary`, `--author`,
-`--canonical-id` are optional.
+The Write-then-record pattern keeps the markdown body off the
+agent's token budget AND off the MCP JSON-escape path. For
+multi-page articles this saves thousands of tokens vs. inlining.
 
 ## Listing + filtering
 
