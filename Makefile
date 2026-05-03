@@ -17,7 +17,8 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 
 .PHONY: all help build install test test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
-        bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry
+        bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
+        ledger-build ledger-test
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -174,6 +175,15 @@ gh-sync-secrets-dry:  ## Preview which .env keys would be uploaded to GitHub Act
 
 gh-sync-secrets:  ## Push API keys from .env to GitHub Actions secrets (powers .github/workflows/live.yml)
 	@./scripts/gh-sync-secrets.sh
+
+# socialfetch-ledger lives in ledger/ as its own Go module so it can
+# be lifted into a sibling repo (jedi4ever/socialfetch-ledger) with
+# a single mv. These targets just delegate to its Makefile.
+ledger-build:  ## Build the ledger binary at ledger/dist/socialfetch-ledger
+	@$(MAKE) -C ledger build
+
+ledger-test:  ## Run the ledger module's unit tests
+	@$(MAKE) -C ledger test
 
 install:  ## go install into $GOBIN
 	go install ./cmd/socialfetch

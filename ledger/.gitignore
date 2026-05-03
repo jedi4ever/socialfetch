@@ -1,0 +1,2 @@
+# Built binary lives here; rebuilt by `make build`. Keep out of git.
+/dist/
