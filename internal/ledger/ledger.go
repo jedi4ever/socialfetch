@@ -1,0 +1,156 @@
+// Package ledger is a thin client for socialfetch-ledger that lives
+// in the parent socialfetch binary. When SOCIALFETCH_LEDGER=1 is in
+// the environment, every successful fetch / timeline / research item
+// is auto-piped into `socialfetch-ledger ingest` as a subprocess so
+// agents don't have to wire up the pipeline themselves.
+//
+// Design notes:
+//
+//   - JSONL contract only — we never import the ledger's Go types.
+//     The ledger module stays separately liftable to its own repo
+//     (jedi4ever/socialfetch-ledger) without socialfetch following
+//     it. We marshal core.Item with encoding/json and let the
+//     ledger's permissive parser map the fields.
+//
+//   - Subprocess (not in-process) — costs a fork+exec per call
+//     (~5-20ms on a warm binary cache) but keeps the boundary clean
+//     and means an absent / broken ledger binary degrades gracefully
+//     to "exactly the behaviour you had before SOCIALFETCH_LEDGER=1".
+//
+//   - Best-effort — every failure path writes to the supplied audit
+//     logger and returns nil. The parent fetch never fails because
+//     the ledger is unhappy. If you want hard guarantees, pipe
+//     manually.
+//
+//   - Buffered when caller has multiple items (research's angle
+//     fan-out, multi-URL fetch). One subprocess, N JSONL lines on
+//     stdin. The ledger's `ingest` subcommand is built for this.
+package ledger
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/jedi4ever/socialfetch/internal/core"
+)
+
+// EnabledEnv is the master switch. Anything truthy ("1", "true",
+// "yes", case-insensitive) flips the auto-ingest on.
+const (
+	EnabledEnv = "SOCIALFETCH_LEDGER"
+	BinaryEnv  = "SOCIALFETCH_LEDGER_BIN"
+	DirEnv     = "SOCIALFETCH_LEDGER_DIR"
+)
+
+// Enabled reports whether SOCIALFETCH_LEDGER is set to a truthy
+// value. Cheap; safe to call before every fetch.
+func Enabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(EnabledEnv)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+// Ingest pipes the supplied items into `socialfetch-ledger ingest`
+// as a single JSONL stream. No-op + nil error when Enabled() is
+// false or when the ledger binary can't be located. Failures during
+// the actual ingest are logged via the audit logger pulled from ctx
+// and swallowed — see package doc for rationale.
+//
+// Pass items by value so the caller can keep using the same slice
+// after this returns. Empty / nil slice is a fast no-op.
+func Ingest(ctx context.Context, items ...core.Item) {
+	if !Enabled() || len(items) == 0 {
+		return
+	}
+	audit := core.AuditFromContext(ctx)
+
+	bin, err := binaryPath()
+	if err != nil {
+		if audit != nil {
+			audit.Logf("ledger: skipping (binary not found: %v)", err)
+		}
+		return
+	}
+
+	// Marshal every item up front — if marshal fails for one item
+	// we still want to ingest the rest. The ledger's ingest reads
+	// JSONL line-by-line, so we just skip bad lines on our side.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, it := range items {
+		if err := enc.Encode(it); err != nil {
+			if audit != nil {
+				audit.Logf("ledger: marshal failed for url=%s: %v", it.URL, err)
+			}
+		}
+	}
+	if buf.Len() == 0 {
+		return
+	}
+
+	args := []string{"ingest"}
+	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
+		args = append(args, "--store", dir)
+	}
+
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Stdin = &buf
+	// Capture stderr so a broken ledger surfaces in the audit log
+	// instead of leaking to the parent's stderr (which the agent
+	// or MCP transport may be reading as the JSON-RPC channel).
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.Stdout = io.Discard
+
+	if err := cmd.Run(); err != nil {
+		if audit != nil {
+			msg := strings.TrimSpace(stderr.String())
+			if msg == "" {
+				msg = err.Error()
+			}
+			audit.Logf("ledger: ingest failed (%d items): %s", len(items), msg)
+		}
+		return
+	}
+	if audit != nil {
+		audit.Logf("ledger: ingested %d item(s)", len(items))
+	}
+}
+
+// binaryPath returns the absolute path to socialfetch-ledger. Lookup
+// order:
+//
+//  1. $SOCIALFETCH_LEDGER_BIN — explicit override
+//  2. $PATH lookup via exec.LookPath
+//  3. ../ledger/bin/socialfetch-ledger relative to the parent
+//     binary's dir — handy during in-tree dev where you ran
+//     `make ledger-build` but didn't `go install` the result
+//
+// Errors with a message naming what was tried so the operator can
+// fix it without spelunking the source.
+func binaryPath() (string, error) {
+	if explicit := strings.TrimSpace(os.Getenv(BinaryEnv)); explicit != "" {
+		if _, err := os.Stat(explicit); err == nil {
+			return explicit, nil
+		}
+		return "", fmt.Errorf("%s=%q does not exist", BinaryEnv, explicit)
+	}
+	if p, err := exec.LookPath("socialfetch-ledger"); err == nil {
+		return p, nil
+	}
+	// Sibling-directory dev convenience.
+	self, err := os.Executable()
+	if err == nil {
+		guess := filepath.Join(filepath.Dir(self), "..", "ledger", "bin", "socialfetch-ledger")
+		if _, err := os.Stat(guess); err == nil {
+			return guess, nil
+		}
+	}
+	return "", fmt.Errorf("socialfetch-ledger not on $PATH (set %s or install via `make ledger-build && go install ./ledger/...`)", BinaryEnv)
+}

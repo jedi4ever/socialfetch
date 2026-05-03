@@ -38,6 +38,7 @@ import (
 
 	"github.com/jedi4ever/socialfetch/internal/bridge"
 	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/ledger"
 	"github.com/jedi4ever/socialfetch/internal/research"
 )
 
@@ -183,6 +184,13 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		audit.Logf("fetch ok via %s kind=%s title=%q", item.Source, item.Kind, item.Title)
+		// Auto-ingest into the ledger when SOCIALFETCH_LEDGER=1.
+		// Same hook as the CLI fetch path so MCP-driven fetches
+		// land in the ledger too without the agent doing
+		// anything special.
+		if item != nil {
+			ledger.Ingest(ctx, *item)
+		}
 		return jsonResult(item)
 	}))
 }
@@ -380,6 +388,16 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		audit.Logf("timeline returned %d items for %s/%s", len(item.Children), provider, user)
+		// Auto-ingest the timeline parent + children, matching
+		// the CLI timeline path. Each child is its own URL so
+		// the ledger indexes them as separate items.
+		if item != nil {
+			toIngest := []core.Item{*item}
+			for _, child := range item.Children {
+				toIngest = append(toIngest, child)
+			}
+			ledger.Ingest(ctx, toIngest...)
+		}
 		return jsonResult(item)
 	}))
 }

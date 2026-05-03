@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/ledger"
 	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
 	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
 	"github.com/jedi4ever/socialfetch/internal/render"
@@ -208,7 +209,22 @@ func runTimeline(args []string) error {
 		return err
 	}
 	defer closeOut()
-	return render.Item(out, item, format)
+	if err := render.Item(out, item, format); err != nil {
+		return err
+	}
+	// Auto-ingest the timeline parent + each child post into the
+	// ledger when SOCIALFETCH_LEDGER=1. Children are individually
+	// addressable items (each has its own URL), so the ledger
+	// indexes them as separate entries — matches how a per-URL
+	// fetch of one of those posts would land.
+	if item != nil {
+		toIngest := []core.Item{*item}
+		for _, child := range item.Children {
+			toIngest = append(toIngest, child)
+		}
+		ledger.Ingest(ctx, toIngest...)
+	}
+	return nil
 }
 
 func printTimelineHelp(w io.Writer) {

@@ -32,6 +32,7 @@ import (
 
 	"github.com/jedi4ever/socialfetch/internal/bridge"
 	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/socialfetch/internal/ledger"
 	"github.com/jedi4ever/socialfetch/internal/render"
 	"github.com/jedi4ever/socialfetch/internal/util/dotenv"
 
@@ -456,6 +457,7 @@ func fetchStreamOrdered(ctx context.Context, reg *core.Registry, urls []string, 
 	}
 
 	var firstErr error
+	var ingestQueue []core.Item
 	for i, u := range urls {
 		r := <-results[i]
 		if r.err != nil {
@@ -468,10 +470,19 @@ func fetchStreamOrdered(ctx context.Context, reg *core.Registry, urls []string, 
 		if err := render.Item(w, r.item, format); err != nil {
 			return err
 		}
+		if r.item != nil {
+			ingestQueue = append(ingestQueue, *r.item)
+		}
 		if format == render.FormatMarkdown && len(urls) > 1 && i < len(urls)-1 {
 			fmt.Fprint(w, "\n---\n\n")
 		}
 	}
+	// Auto-ledger: when SOCIALFETCH_LEDGER=1 is set, hand the
+	// successful items to socialfetch-ledger via subprocess so the
+	// agent doesn't have to wire up the JSONL pipe by hand. No-op
+	// + nil error when the env var isn't set or the binary is
+	// unavailable — see internal/ledger for the failure semantics.
+	ledger.Ingest(ctx, ingestQueue...)
 	return firstErr
 }
 
@@ -489,6 +500,7 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(urls))
 	sem := make(chan struct{}, jobs)
+	itemCh := make(chan core.Item, len(urls))
 
 	for _, u := range urls {
 		wg.Add(1)
@@ -513,11 +525,20 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 			if err := render.Item(f, item, format); err != nil {
 				errCh <- err
 			}
+			if item != nil {
+				itemCh <- *item
+			}
 			fmt.Fprintln(os.Stderr, "wrote", path)
 		}(u)
 	}
 	wg.Wait()
 	close(errCh)
+	close(itemCh)
+	var ingestQueue []core.Item
+	for it := range itemCh {
+		ingestQueue = append(ingestQueue, it)
+	}
+	ledger.Ingest(ctx, ingestQueue...)
 	var firstErr error
 	for e := range errCh {
 		fmt.Fprintln(os.Stderr, e)

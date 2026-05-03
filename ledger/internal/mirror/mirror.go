@@ -123,6 +123,28 @@ func viewByDate(it item.Item) string {
 	return filepath.Join("by-date", date, safeSegment(it.Source)+"-"+slug(it)+".md")
 }
 
+// viewByURL builds the by-url symlink path. Always suffixes a hash
+// of the full URL so distinct URLs that safeSegment-collapse to the
+// same readable stub don't collide on disk. Without the suffix:
+//
+//	https://x.com/foo/bar  → x.com-foo-bar.md
+//	https://x.com/foo!bar  → x.com-foo-bar.md   (! → -, COLLIDES)
+//	https://x.com/foo?q=1  → x.com-foo.md       (query stripped before normalize)
+//
+// With the 12-hex-char suffix (48 bits of entropy) collisions become
+// astronomically unlikely within a single user's ledger.
+//
+// Sharded by host so a flat `by-url/` doesn't grow past per-directory
+// file limits (ext4 ~10K, APFS soft-warns past ~100K). For mixed-
+// source ledgers — HN / Reddit / X / LinkedIn / articles — host
+// distribution is broad enough that no single bucket dominates.
+// `ls by-url/` lists hostnames, not opaque hex, so the tree stays
+// browseable.
+//
+// The single-source-skew failure mode (e.g. an X-archive build with
+// >100K items all under by-url/x.com/) is a known degradation path;
+// fix is to add a second hash-shard tier under the host when that
+// becomes a real problem.
 func viewByURL(it item.Item) string {
 	u, err := url.Parse(it.URL)
 	host := "unknown"
@@ -131,11 +153,11 @@ func viewByURL(it item.Item) string {
 		host = u.Host
 		path = u.Path
 	}
-	stub := safeSegment(host) + "-" + safeSegment(strings.Trim(path, "/"))
-	if stub == "" || stub == "-" {
-		stub = "url-" + shortHash(it.URL)
+	pathStub := safeSegment(strings.Trim(path, "/"))
+	if pathStub == "" {
+		pathStub = "root"
 	}
-	return filepath.Join("by-url", stub+".md")
+	return filepath.Join("by-url", safeSegment(host), pathStub+"-"+shortHash(it.URL)+".md")
 }
 
 // slug builds a short, filesystem-safe identifier for an Item.

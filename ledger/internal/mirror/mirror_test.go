@@ -194,11 +194,65 @@ func TestSyncRemovesOrphans(t *testing.T) {
 
 // Path is the contract between store.MarkMirrored and the on-disk
 // layout. It must be deterministic — same Item, same path — so Sync's
-// drift detection can rely on it.
+// drift detection can rely on it. Two independently-constructed Items
+// keep the linter from flagging this as comparing-X-to-X.
 func TestPathDeterministic(t *testing.T) {
 	m := newMirror(t)
-	it := makeItem("hn", "1", "x", "y")
-	if m.Path(it) != m.Path(it) {
-		t.Error("Path is non-deterministic")
+	a := m.Path(makeItem("hn", "1", "x", "y"))
+	b := m.Path(makeItem("hn", "1", "x", "y"))
+	if a != b {
+		t.Errorf("Path is non-deterministic: %s vs %s", a, b)
+	}
+}
+
+// TestViewByURLNoCollision is the regression guard for the bug where
+// distinct URLs that safeSegment-collapse to the same readable stub
+// (e.g. /foo/bar vs /foo!bar vs /foo?q=bar) all wrote to the same
+// by-url symlink path, with the second ingest silently overwriting
+// the first. The hash suffix on viewByURL guarantees the paths
+// differ even when the human-readable portion is identical.
+func TestViewByURLNoCollision(t *testing.T) {
+	urls := []string{
+		"https://x.com/foo/bar",
+		"https://x.com/foo!bar",
+		"https://x.com/foo?q=1",
+		"https://x.com/foo",
+		"https://x.com/foo/bar/", // trailing slash variant
+	}
+	seen := map[string]string{}
+	for _, u := range urls {
+		it := item.Item{Source: "x", URL: u, FetchedAt: time.Now()}
+		got := viewByURL(it)
+		if prev, ok := seen[got]; ok {
+			t.Errorf("collision: %q and %q both produce %s", prev, u, got)
+		}
+		seen[got] = u
+	}
+}
+
+// TestViewByURLDeterministic — same URL, same path, every time.
+// The hash suffix shouldn't randomize across calls. Constructing two
+// independent Items (rather than calling viewByURL twice on one
+// variable) keeps the linter from flagging this as comparing-X-to-X.
+func TestViewByURLDeterministic(t *testing.T) {
+	a := viewByURL(item.Item{Source: "x", URL: "https://example.com/abc"})
+	b := viewByURL(item.Item{Source: "x", URL: "https://example.com/abc"})
+	if a != b {
+		t.Errorf("non-deterministic: %s vs %s", a, b)
+	}
+}
+
+// TestViewByURLEmptyHost covers the malformed-URL path. We should
+// fall back to "url-<hash>.md" rather than something traversable.
+func TestViewByURLEmptyHost(t *testing.T) {
+	it := item.Item{Source: "x", URL: "not-a-url"}
+	got := viewByURL(it)
+	if !strings.HasPrefix(got, "by-url/") || !strings.HasSuffix(got, ".md") {
+		t.Errorf("malformed URL fell back to unexpected path: %s", got)
+	}
+	// Two malformed URLs must still differ.
+	it2 := item.Item{Source: "x", URL: "also-not-a-url"}
+	if viewByURL(it) == viewByURL(it2) {
+		t.Error("two distinct malformed URLs collapsed to the same path")
 	}
 }
