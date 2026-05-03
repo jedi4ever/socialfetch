@@ -13,7 +13,7 @@ name: release
 #       Claude Code plugin bundle (no binary; user provides PATH)
 #   - social-skills-chrome-extension-<version>.zip
 #       Chrome browser-bridge extension (independent version,
-#       read from chrome-extension/manifest.json at package time)
+#       read from extensions/chrome/manifest.json at package time)
 #
 # Windows is intentionally not in the matrix: the bridge daemon
 # code uses Unix-only syscalls (syscall.Kill, SysProcAttr.Setsid).

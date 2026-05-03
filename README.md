@@ -120,7 +120,7 @@ skills` only installs the markdown skill, not the binary.
 
 ```bash
 git clone https://github.com/jedi4ever/social-skills.git
-cd social-fetch
+cd social-skills
 make skill-install
 ```
 
@@ -166,18 +166,18 @@ API keys stay in your local `.env` — never sent over the wire.
 If you don't need any of the above and just want the binary:
 
 ```bash
-go install github.com/jedi4ever/social-skill./cmd/social-fetch@latest
+go install github.com/jedi4ever/social-skills/cmd/social-fetch@latest
 # or download a release tarball:
-#   social-fetch-0.9.0-darwin-arm64.tar.gz
-#   social-fetch-0.9.0-darwin-amd64.tar.gz
-#   social-fetch-0.9.0-linux-amd64.tar.gz
+#   social-skills-0.10.0-darwin-arm64.tar.gz
+#   social-skills-0.10.0-darwin-amd64.tar.gz
+#   social-skills-0.10.0-linux-amd64.tar.gz
 ```
 
 Build from source:
 
 ```bash
 git clone https://github.com/jedi4ever/social-skills.git
-cd social-fetch && make build       # → ./dist/social-fetch
+cd social-skills && make build       # → ./dist/social-fetch
 ```
 
 Requires Go 1.26+. Windows is not currently supported (the bridge
@@ -344,7 +344,7 @@ social-fetch bridge stop          # SIGTERM
 social-fetch bridge run           # foreground (no daemon)
 ```
 
-One-time setup: load `chrome-extension/` in `chrome://extensions/`
+One-time setup: load `extensions/chrome/` in `chrome://extensions/`
 (Developer mode → Load unpacked). Required for LinkedIn, Medium /
 Substack paywall fetches.
 
@@ -412,14 +412,14 @@ config required) — `HTML2MD_READER=jina` only forces Jina for
 
 LinkedIn (and the member-only paths of Medium / Substack) only
 return useful content to an authenticated session. social-fetch's
-answer is a small Chrome MV3 extension at `chrome-extension/` that
+answer is a small Chrome MV3 extension at `extensions/chrome/` that
 opens a WebSocket to a local daemon (`social-fetch bridge run`) and
 brokers requests through your real, logged-in browser tab. Public
 content keeps going direct over HTTP — the bridge is only used
 when a fetcher explicitly opts in.
 
 ```bash
-# one-time: load chrome-extension/ in chrome://extensions/
+# one-time: load extensions/chrome/ in chrome://extensions/
 #   (Developer mode → Load unpacked → pick the directory)
 social-fetch bridge start         # daemonize on :5555
 social-fetch bridge status        # 0 connected / 1 not connected / 2 not running
@@ -453,7 +453,7 @@ social-fetch bridge stop          # SIGTERM the daemon
 >   the network. Anything running locally that can reach that port
 >   can still drive the extension, so treat the bridge like any
 >   other localhost dev service.
-> - Source is in `chrome-extension/` (~10 small files); audit
+> - Source is in `extensions/chrome/` (~10 small files); audit
 >   `background.js` + `content.js` if you'd like to see the
 >   actual surface.
 > - Toggle the extension off in `chrome://extensions/` when you're

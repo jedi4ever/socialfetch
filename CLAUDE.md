@@ -116,7 +116,7 @@ Same rule for the in-binary help text in `cmd/social-fetch/main.go`
 (`printAskHelp`, `printSearchHelp`, etc.) — `social-fetch help` is the
 authoritative reference, so a feature with no help text is invisible.
 
-**Add `mcpb-extension/manifest.json` to that list whenever a new
+**Add `extensions/claude-desktop/manifest.json` to that list whenever a new
 provider/env-var lands.** The Claude Desktop Extension installer
 shows users every entry in `user_config` as a form field; if a new
 key (e.g. `NEW_API_KEY`) doesn't get an entry there, users won't
@@ -128,19 +128,19 @@ know to set it during install. Keep `user_config` parallel with
 content with `scripts/social-fetch` rewritten to bare `social-fetch`
 (plugin assumes PATH install). After editing the standalone SKILL.md,
 run `make plugin-build` and commit the regenerated
-`claude-code-plugin/skills/social-fetch/SKILL.md` so the marketplace
+`extensions/claude-code/skills/social-fetch/SKILL.md` so the marketplace
 install (`/plugin marketplace add jedi4ever/social-skills`) picks up
 the change. Bump the version in
-`claude-code-plugin/.claude-plugin/plugin.json` and
+`extensions/claude-code/.claude-plugin/plugin.json` and
 `.claude-plugin/marketplace.json` alongside
 `cmd/social-fetch/main.go`'s `Version` and
-`mcpb-extension/manifest.json` — all four version fields move
+`extensions/claude-desktop/manifest.json` — all four version fields move
 together on every user-visible release.
 
 **The Chrome browser-bridge extension has its own version** in
-`chrome-extension/manifest.json` — independent of `cmd/social-fetch/main.go`'s
+`extensions/chrome/manifest.json` — independent of `cmd/social-fetch/main.go`'s
 `Version`. Bump the Chrome extension's version whenever you change
-`chrome-extension/*.js` (content scripts, background.js, popup, etc.).
+`extensions/chrome/*.js` (content scripts, background.js, popup, etc.).
 `make bridge-package` reads that version field to name the dist
 zip; an unbumped version means two zips with the same name and
 older Chrome reloads of the same nominal version may not pick up

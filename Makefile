@@ -98,8 +98,8 @@ claude-extension-package: extension-validate  ## Package as Claude Desktop Exten
 	@mkdir -p $(EXTENSION_STAGE)/scripts
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-fetch ./cmd/social-fetch
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-ledger ./cmd/social-ledger
-	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
-	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' mcpb-extension/manifest.json); \
+	@cp extensions/claude-desktop/manifest.json $(EXTENSION_STAGE)/manifest.json
+	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' extensions/claude-desktop/manifest.json); \
 	OUT="$(CURDIR)/dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
 	rm -f "$$OUT"; \
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
@@ -107,7 +107,7 @@ claude-extension-package: extension-validate  ## Package as Claude Desktop Exten
 	echo "Packaged: dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"
 
 # extension-validate runs Anthropic's official @anthropic-ai/mcpb CLI
-# against mcpb-extension/manifest.json. Installed locally via npm
+# against extensions/claude-desktop/manifest.json. Installed locally via npm
 # (node_modules/.bin/mcpb) — no global install required, no shell PATH
 # pollution. `npm install` runs automatically the first time the
 # binary is missing.
@@ -116,12 +116,12 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 		echo "→ installing local @anthropic-ai/mcpb"; \
 		npm install --silent; \
 	fi
-	@$(MCPB_BIN) validate mcpb-extension/manifest.json
+	@$(MCPB_BIN) validate extensions/claude-desktop/manifest.json
 
 # bridge-package zips the Chrome browser-bridge extension as a
 # distributable. The Chrome extension is independent of the
 # social-fetch app version — it has its own version field in
-# chrome-extension/manifest.json which we read at package time.
+# extensions/chrome/manifest.json which we read at package time.
 #
 # Output: dist/social-skills-chrome-extension-<version>.zip. Drop the zip
 # into chrome://extensions/ → "Load unpacked" (after unzipping) for
@@ -132,10 +132,10 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 # bit-identical between developers' machines.
 bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social-skills-chrome-extension-<version>.zip
 	@mkdir -p $(CURDIR)/dist
-	@VERSION=$$(python3 -c "import json; print(json.load(open('chrome-extension/manifest.json'))['version'])"); \
+	@VERSION=$$(python3 -c "import json; print(json.load(open('extensions/chrome/manifest.json'))['version'])"); \
 	OUT="$(CURDIR)/dist/social-skills-chrome-extension-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
-	(cd chrome-extension && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
+	(cd extensions/chrome && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
 	echo "Packaged: dist/social-skills-chrome-extension-$$VERSION.zip"
 
 # skill-package builds a self-contained zip of the skill ready to
@@ -206,16 +206,16 @@ skill-package: skill-build  ## Package the skill as ./dist/social-skills-skill-<
 # plugin-build regenerates the plugin's SKILL.md from skill/social-fetch/SKILL.md
 # with `scripts/social-fetch` rewritten to bare `social-fetch`. The plugin
 # assumes the binary is already on PATH (Claude Code plugins don't
-# auto-install dependencies); see claude-code-plugin/README.md.
+# auto-install dependencies); see extensions/claude-code/README.md.
 #
 # We commit the generated SKILL.md so `/plugin marketplace add jedi4ever/social-skills`
 # works without a build step on the consumer side. Run this target whenever
 # skill/social-fetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
-PLUGIN_DIR    := claude-code-plugin
+PLUGIN_DIR    := extensions/claude-code
 PLUGIN_SKILL  := $(PLUGIN_DIR)/skills/social-fetch/SKILL.md
 SKILL_SOURCE  := skill/social-fetch/SKILL.md
 
-plugin-build:  ## Regenerate claude-code-plugin/skills/social-fetch/SKILL.md from skill/social-fetch/SKILL.md
+plugin-build:  ## Regenerate extensions/claude-code/skills/social-fetch/SKILL.md from skill/social-fetch/SKILL.md
 	@mkdir -p $(dir $(PLUGIN_SKILL))
 	sed -E 's|scripts/social-fetch|social-fetch|g; s|the `social-fetch` Go binary on PATH \(install separately — see the plugin README\)|the `social-fetch` Go binary on PATH (install separately — see the plugin README)|; s|Wraps the `social-fetch` Go binary at `social-fetch` \(relative to this skill\)\.|Wraps the `social-fetch` Go binary on the user'"'"'s PATH (install separately — see the plugin README).|' $(SKILL_SOURCE) > $(PLUGIN_SKILL)
 	@echo "Regenerated $(PLUGIN_SKILL)"

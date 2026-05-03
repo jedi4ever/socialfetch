@@ -201,7 +201,7 @@ Each fetched item carries `Extra.via = "bridge"` or `"http"` so you can tell whi
 
 ### LinkedIn requires the bridge
 
-**Setup once:** load `chrome-extension/` (at repo root) as an unpacked Chrome extension.
+**Setup once:** load `extensions/chrome/` (at repo root) as an unpacked Chrome extension.
 
 **Bridge lifecycle:**
 ```

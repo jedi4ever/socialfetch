@@ -28,7 +28,7 @@ stored in the macOS Keychain.
 
 ```bash
 git clone https://github.com/jedi4ever/social-skills.git
-cd social-fetch
+cd social-skills
 make claude-extension-package
 ```
 
@@ -93,7 +93,7 @@ validation, but you can run it standalone:
 make extension-validate
 ```
 
-Or directly: `./node_modules/.bin/mcpb validate mcpb-extension/manifest.json`.
+Or directly: `./node_modules/.bin/mcpb validate extensions/claude-desktop/manifest.json`.
 
 ---
 
@@ -256,7 +256,7 @@ read skills from the same location: `~/.claude/skills/<name>/`.
 
 ```bash
 git clone https://github.com/jedi4ever/social-skills.git
-cd social-fetch
+cd social-skills
 make skill-install                  # builds the binary and copies it +
                                     # SKILL.md to ~/.claude/skills/social-fetch/
 ```
@@ -373,7 +373,7 @@ reuse your **already-logged-in browser session**:
 ### One-time setup
 
 1. Open Chrome → `chrome://extensions/` → enable **Developer mode**.
-2. Click **Load unpacked** → select the `chrome-extension/` directory inside this
+2. Click **Load unpacked** → select the `extensions/chrome/` directory inside this
    repo.
 3. The social-fetch extension icon appears in the toolbar.
 
@@ -455,7 +455,7 @@ marketplace:
 /plugin install social-fetch
 ```
 
-The plugin lives at [`claude-code-plugin/`](claude-code-plugin/) in
+The plugin lives at [`extensions/claude-code/`](extensions/claude-code/) in
 this repo; the marketplace manifest is at
 [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 
@@ -465,7 +465,7 @@ the binary. Install once with `go install` or by downloading a
 release:
 
 ```bash
-go install github.com/jedi4ever/social-skill./cmd/social-fetch@latest
+go install github.com/jedi4ever/social-skills/cmd/social-fetch@latest
 # or download from https://github.com/jedi4ever/social-skills/releases
 social-fetch version    # confirm
 ```
@@ -474,7 +474,7 @@ For local development (testing changes before publishing), point
 Claude Code at a working copy directly:
 
 ```bash
-claude --plugin-dir ./claude-code-plugin
+claude --plugin-dir ./extensions/claude-code
 ```
 
 API keys come from your shell env or a nearby `.env` file — same as

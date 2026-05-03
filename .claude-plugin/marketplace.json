@@ -10,7 +10,7 @@
     {
       "name": "social-skills",
       "description": "Social-web skills for AI agents — fetch / search / ask / timeline / research across HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic articles. Requires the `social-fetch` and (optional) `social-ledger` binaries on PATH (see plugin README).",
-      "source": "./claude-code-plugin",
+      "source": "./extensions/claude-code",
       "category": "research"
     }
   ]
