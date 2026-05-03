@@ -39,15 +39,15 @@ func TestLiveMediumFetch(t *testing.T) {
 }
 
 // TestLiveMediumFetchMedia confirms body-image extraction populates
-// item.Media against a real Medium post. Most Medium articles ship
-// with at least the og:image hero plus 1-2 inline figures; the
-// assertion is `len(Media) > 0` rather than a fixed count since
-// editors can change image content post-publish without notice.
+// item.Media against a real Medium post (the Phoenix Principle
+// manifesto — image-rich, public, expected to stay up). Asserts
+// `len(Media) > 0` rather than a fixed count since editors can
+// change image content post-publish.
 func TestLiveMediumFetchMedia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	const postURL = "https://medium.com/@patrickdebois/the-three-pillars-of-the-context-engineering-lifecycle-cdlc-43f1c0066b4f"
+	const postURL = "https://medium.com/@bergel/the-phoenix-principle-a-manifesto-for-programmers-in-the-ai-age-ca63317c5ebc"
 	item, err := New().Fetch(ctx, postURL, core.DefaultOptions())
 	if err != nil {
 		t.Skipf("medium live fetch skipped: %v", err)

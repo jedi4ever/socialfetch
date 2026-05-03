@@ -40,14 +40,14 @@ func TestLiveSubstackFetch(t *testing.T) {
 }
 
 // TestLiveSubstackFetchMedia confirms body-image extraction populates
-// item.Media against a real Substack post. Lenny's Newsletter
-// historically ships an og:image cover; the assertion is
+// item.Media against a real Substack post (Dev Interrupted's
+// "Ralph Wiggum loop creator" — image-rich, public). Asserts
 // `len(Media) > 0` so this stays robust to editorial changes.
 func TestLiveSubstackFetchMedia(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	const postURL = "https://www.lennysnewsletter.com/"
+	const postURL = "https://devinterrupted.substack.com/p/inventing-the-ralph-wiggum-loop-creator"
 	item, err := New().Fetch(ctx, postURL, core.DefaultOptions())
 	if err != nil {
 		t.Skipf("substack live fetch skipped: %v", err)

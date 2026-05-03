@@ -86,8 +86,10 @@ func TestLiveLinkedInFetchMedia(t *testing.T) {
 			t.Errorf("media[%d] unexpected Type=%q", i, m.Type)
 		}
 	}
-	t.Logf("extracted %d media items (first: %s, type=%s)",
-		len(item.Media), item.Media[0].URL, item.Media[0].Type)
+	if len(item.Media) > 0 {
+		t.Logf("extracted %d media items (first: %s, type=%s)",
+			len(item.Media), item.Media[0].URL, item.Media[0].Type)
+	}
 }
 
 // isBridgeEnvErr reports whether err looks like a missing-bridge or

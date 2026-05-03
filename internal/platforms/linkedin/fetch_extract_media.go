@@ -104,6 +104,19 @@ func mediaFromImg(n *html.Node, ancestorClasses []string) (core.Media, bool) {
 		!strings.Contains(src, "/dms/image/") {
 		return core.Media{}, false
 	}
+	// URL-path filter: even on media.licdn.com, the `/profile-
+	// displayphoto-shrink_*/` path serves user avatars and the
+	// `/profile-framedphoto-shrink_*/` path serves "people you
+	// might know" thumbnails. The class-substring chrome filter
+	// catches most of these via ancestor class, but LinkedIn
+	// sometimes nests the avatar inside a generic update card
+	// where the class chain doesn't carry an obvious avatar
+	// signal. URL-path filtering is the reliable fallback.
+	for _, mark := range []string{"profile-displayphoto", "profile-framedphoto", "company-logo", "ghost-person"} {
+		if strings.Contains(src, mark) {
+			return core.Media{}, false
+		}
+	}
 	// Chrome filter — class-string substring match across the
 	// ancestor chain.
 	for _, c := range ancestorClasses {
@@ -145,22 +158,27 @@ func mediaFromImg(n *html.Node, ancestorClasses []string) (core.Media, bool) {
 // as UI chrome rather than post content. Tuned against the current
 // LinkedIn DOM — will need updating when LinkedIn rotates class
 // hashes (track via the unit tests in fetch_extract_media_test.go).
+//
+// Entries with trailing `-` or `_` enforce a word-boundary so we
+// don't false-positive on roots like LinkedIn's `<html
+// class="icons-loaded">` (which would otherwise be matched by a
+// bare `icon` substring and kill every image in the document).
 var mediaChromeDeny = []string{
 	"avatar",         // any avatar variant
 	"actor-image",    // post author thumbnail
 	"actor__avatar",  // post author thumbnail (variant)
-	"presence",       // online-status indicator overlay
-	"badge",          // reaction badge / verification badge
-	"reaction",       // like/celebrate/etc reaction icon
+	"presence-",      // online-status indicator overlay (strict prefix)
+	"badge-",         // reaction badge / verification badge (strict prefix)
+	"reaction-",      // like/celebrate/etc reaction icon (strict prefix)
 	"social-detail",  // reaction summary row
 	"comment-",       // images inside comments (separate from post)
 	"reply-",         // replies-thread images
 	"company-logo",   // shared-link source logo
 	"organization-",  // company branding
-	"icon",           // generic icon
 	"emoji",          // unicode-ish emoji image
 	"global-nav",     // top nav avatars / logos
 	"profile-photo",  // explicit profile photo class
+	"profile-displayphoto", // licdn-served profile picture path
 	"recommendation", // "people also viewed" thumbnails
 	"author-card",    // article-author headshot
 }
