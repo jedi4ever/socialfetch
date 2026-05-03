@@ -16,10 +16,10 @@ import (
 // so it doesn't co-exist with source files; falls back to /tmp if the
 // cache lookup fails.
 //
-// Override with SOCIALFETCH_AUDIT_PATH; opt out entirely with
-// SOCIALFETCH_AUDIT=0.
+// Override with SOCIAL_FETCH_AUDIT_PATH; opt out entirely with
+// SOCIAL_FETCH_AUDIT=0.
 func DefaultAuditPath() string {
-	if p := os.Getenv("SOCIALFETCH_AUDIT_PATH"); p != "" {
+	if p := os.Getenv("SOCIAL_FETCH_AUDIT_PATH"); p != "" {
 		return p
 	}
 	if d, err := os.UserCacheDir(); err == nil {
@@ -28,10 +28,10 @@ func DefaultAuditPath() string {
 	return filepath.Join(os.TempDir(), "social-fetch", "audit.jsonl")
 }
 
-// AuditEnabled returns false when SOCIALFETCH_AUDIT=0 is set; any
+// AuditEnabled returns false when SOCIAL_FETCH_AUDIT=0 is set; any
 // other value (or unset) enables the global audit log.
 func AuditEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOCIALFETCH_AUDIT"))) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOCIAL_FETCH_AUDIT"))) {
 	case "0", "false", "off", "no":
 		return false
 	}
@@ -57,7 +57,7 @@ const auditMaxBytes = 50 * 1024 * 1024
 // rotating at the same time may briefly write to the renamed file —
 // acceptable for an audit trail (no events lost, just split).
 //
-// When the global audit is disabled (SOCIALFETCH_AUDIT=0), returns a
+// When the global audit is disabled (SOCIAL_FETCH_AUDIT=0), returns a
 // discard writer and a no-op closer.
 func OpenGlobalAudit(cmd string) (io.Writer, func(), error) {
 	if !AuditEnabled() {

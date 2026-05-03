@@ -375,14 +375,14 @@ arrive. Use Ctrl-C to stop.
 
 Flags:
   --path PATH        override the audit file location
-                     (or set SOCIALFETCH_AUDIT_PATH)
+                     (or set SOCIAL_FETCH_AUDIT_PATH)
   --tail N           print the last N lines on start (default: 0)
   --since DURATION   replay events from the last DURATION (e.g. 5m, 1h)
   --filter STRING    only show lines whose message contains STRING
   --raw              emit raw JSONL (no colorization, no formatting)
   -h, --help         show this help
 
-Disable the global audit entirely by setting SOCIALFETCH_AUDIT=0 in
+Disable the global audit entirely by setting SOCIAL_FETCH_AUDIT=0 in
 the producing shell — monitor will then have nothing to follow.
 
 Examples:

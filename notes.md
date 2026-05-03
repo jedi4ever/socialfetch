@@ -51,7 +51,7 @@ first, layer the subcommand once we know the workflow holds up.
 
 ## `--prefer-ledger` cache-read path
 
-**Goal:** when SOCIALFETCH_PREFER_LEDGER=1 (or `--prefer-ledger`
+**Goal:** when SOCIAL_LEDGER_PREFER=1 (or `--prefer-ledger`
 flag), check the ledger before hitting the network and return the
 cached item if it's not too old. Saves quota on rate-limited APIs
 (X v2, Anthropic web_search) and speeds agent loops that revisit

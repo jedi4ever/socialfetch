@@ -18,5 +18,6 @@
   bare `social-fetch` on PATH), document binary-on-PATH prerequisite
 
 
-  - man packages ? linux distro pkgs ?
-  - curl installer ?
+- man packages ? linux distro pkgs ?
+- curl installer ?
+- passwrod browser connection/secret
