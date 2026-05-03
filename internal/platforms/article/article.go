@@ -126,8 +126,26 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	// Direct fetch first. We do the GET ourselves (rather than
 	// core.GetBytes) so we can inspect headers + status before
 	// committing to the response body — needed for CF detection.
-	body, finalURL, cfBlocked, err := directFetch(ctx, raw)
+	body, finalURL, cfBlocked, uaBlocked, err := directFetch(ctx, raw)
 	via := "http"
+	// Three "the server is rejecting our client" signals all flow to
+	// the same Jina-Reader fallback because Jina has browser-like
+	// infrastructure that handles each:
+	//
+	//   - redirect loops (server 302s to itself forever; milvus.io,
+	//     some nginx region-detection setups)
+	//   - UA-sniff 4xx (server returns 404 + SPA shell when our UA
+	//     isn't a real browser)
+	//   - Cloudflare challenges (handled below; falls through to
+	//     bridge first because logged-in browser sessions matter)
+	if err != nil && errors.Is(err, core.ErrRedirectLoop) {
+		opts.Audit.Logf("article: redirect loop detected, trying Jina Reader")
+		return jinaFallback(ctx, raw, "jina-redirect-loop-fallback")
+	}
+	if uaBlocked {
+		opts.Audit.Logf("article: UA-sniff block detected (4xx + SPA shell), trying Jina Reader")
+		return jinaFallback(ctx, raw, "jina-ua-block-fallback")
+	}
 	if err != nil && !cfBlocked {
 		return nil, fmt.Errorf("article: %w", err)
 	}
@@ -217,32 +235,60 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	return item, nil
 }
 
+// jinaFallback routes a URL through r.jina.ai and packages the
+// returned markdown as a core.Item. Centralized here because three
+// different upstream failure modes (redirect loops, UA-sniff blocks,
+// Cloudflare challenges with bridge unavailable) all flow to the
+// same recovery path. The `via` arg is stamped into Extra so audit
+// readers / agents can tell which failure triggered the fallback.
+func jinaFallback(ctx context.Context, raw, via string) (*core.Item, error) {
+	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	if err != nil {
+		return nil, fmt.Errorf("article: jina fallback failed (%s): %w", via, err)
+	}
+	return &core.Item{
+		Source:      "article",
+		Kind:        "article",
+		URL:         raw,
+		CanonicalID: raw,
+		Content:     strings.TrimSpace(md),
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"requested_url": raw,
+			"via":           via,
+		},
+	}, nil
+}
+
 // directFetch performs a plain HTTP GET and inspects the response for
-// Cloudflare challenges before returning. Three return cases:
+// Cloudflare challenges before returning. Four return cases:
 //
-//   - (body, false, nil)  — 2xx success, body is the page bytes
-//   - (nil,  true,  nil)  — CF challenge detected, caller should retry via bridge/Jina
-//   - (nil,  false, err)  — real network or HTTP-level error, no recovery
+//   - (body, false, false, nil) — 2xx success, body is the page bytes
+//   - (nil,  true,  false, nil) — CF challenge detected, retry via bridge/Jina
+//   - (nil,  false, true,  nil) — UA-sniff block (4xx with substantial HTML
+//     body, e.g. milvus.io which serves 404
+//     Next.js shells to non-browser UAs).
+//     Caller should retry via Jina.
+//   - (nil,  false, false, err) — real network or HTTP-level error, no recovery
 //
-// directFetch GETs raw and returns the body + the post-redirect URL
-// + a Cloudflare-blocked flag. The post-redirect URL comes from
-// resp.Request.URL, which net/http mutates as it follows the
-// redirect chain — by the time Do() returns, it points at the
-// final landing page. Equal to `raw` when there was no redirect.
+// directFetch GETs raw and returns the body + the post-redirect URL.
+// resp.Request.URL is what net/http mutates as it follows the redirect
+// chain, so by the time Do() returns it points at the final landing
+// page. Equal to `raw` when there was no redirect.
 //
 // We read the response body even on non-2xx so we can fingerprint
 // the challenge HTML — the headers alone aren't always enough.
-// Capped at 2 KiB for the snippet to bound memory; the full body
-// is returned only on 2xx.
-func directFetch(ctx context.Context, raw string) (body []byte, finalURL string, cfBlocked bool, err error) {
+// Capped at 4 KiB for the snippet to bound memory; the full body is
+// returned only on 2xx.
+func directFetch(ctx context.Context, raw string) (body []byte, finalURL string, cfBlocked, uaBlocked bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", false, false, err
 	}
 	req.Header.Set("User-Agent", core.UserAgent)
 	resp, err := core.HTTPClient.Do(req)
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", false, false, err
 	}
 	defer resp.Body.Close()
 	finalURL = raw
@@ -251,14 +297,53 @@ func directFetch(ctx context.Context, raw string) (body []byte, finalURL string,
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		b, rerr := io.ReadAll(resp.Body)
-		return b, finalURL, false, rerr
+		return b, finalURL, false, false, rerr
 	}
-	// Non-2xx: read a snippet for CF detection, decide, then surface.
-	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if core.IsCloudflareBlocked(resp, snippet) {
-		return nil, finalURL, true, nil
+		return nil, finalURL, true, false, nil
 	}
-	return nil, finalURL, false, fmt.Errorf("GET %s: HTTP %d: %s", raw, resp.StatusCode, core.HTTPErrorBody(resp))
+	// 4xx with a substantial HTML body that smells like an SPA shell
+	// (Next.js / React / Vue scaffolding) is almost always UA-
+	// sniffing — the server has the content but won't serve it to
+	// our client. milvus.io is the canonical example: returns 404 +
+	// a 2.5 KB Next.js shell when the cookie challenge fails. Real
+	// 404s are tiny ("Not Found" / a sentence) and don't carry
+	// `_next/`-style asset references. Trigger the UA-blocked path
+	// when both signals match.
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if resp.StatusCode >= 400 && resp.StatusCode < 500 &&
+		strings.Contains(ct, "text/html") && looksLikeSPAShell(snippet) {
+		return nil, finalURL, false, true, nil
+	}
+	return nil, finalURL, false, false, fmt.Errorf("GET %s: HTTP %d: %s", raw, resp.StatusCode, core.HTTPErrorBody(resp))
+}
+
+// looksLikeSPAShell fingerprints a response body that's clearly a
+// JavaScript-app scaffold rather than a real "page not found".
+// Conservative — we'd rather miss an edge case than misclassify a
+// legitimate 404 with stylesheet links. Triggers on Next.js / Nuxt /
+// Vite / Vercel-flavoured markers.
+func looksLikeSPAShell(b []byte) bool {
+	if len(b) < 1024 {
+		return false
+	}
+	s := strings.ToLower(string(b))
+	markers := []string{
+		"/_next/",          // Next.js
+		"_nuxt/",           // Nuxt
+		"data-n-g=",        // Next.js global asset link
+		"data-n-p=",        // Next.js page asset link
+		"window.__nuxt__",  // Nuxt hydration block
+		"id=\"__next\"",    // Next.js root div
+		"id=\"app\"></div", // generic SPA root
+	}
+	for _, m := range markers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func hostOf(raw string) string {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -24,6 +26,15 @@ const UserAgent = "Mozilla/5.0 (compatible; social-fetch/0.1; +https://github.co
 // idle pool so 32 concurrent HN comment fetches reuse the same TCP/TLS
 // session, HTTP/2 enabled. CheckRedirect captures the redirect chain so
 // callers can see when a URL has moved.
+//
+// Cookie jar is enabled so cookie-challenge sites (milvus.io's
+// `milvus_challenge`, some nginx region-detection setups, sites that
+// 302 → Set-Cookie → 200 on retry) work the same way they would in
+// Chrome. The default Go client without a jar would loop forever on
+// these because the redirect target keeps re-issuing the same
+// challenge cookie. Errors from cookiejar.New are impossible with
+// PublicSuffixList=nil — we panic in initJar to flag any future
+// breakage at startup rather than silently degrading.
 var HTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
 	Transport: &loggingRoundTripper{base: &http.Transport{
@@ -37,6 +48,26 @@ var HTTPClient = &http.Client{
 		ForceAttemptHTTP2:     true,
 	}},
 	CheckRedirect: trackRedirects,
+	Jar:           initJar(),
+}
+
+// initJar returns a fresh in-memory cookie jar. We don't supply a
+// PublicSuffixList — for our use case (single-process, short-lived
+// fetches) the default eTLD+1 grouping rules are fine; we don't
+// share cookies across superdomains intentionally and the public-
+// suffix list adds 100KB of binary size for marginal benefit.
+func initJar() http.CookieJar {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		// cookiejar.New(nil) doesn't actually return an error in any
+		// current Go version, but the API allows for one. If a future
+		// stdlib change starts returning a real error, surface it
+		// loudly at process start rather than silently running
+		// without a jar (which would re-introduce the redirect loop
+		// on cookie-challenge sites).
+		panic(fmt.Sprintf("cookiejar.New: %v", err))
+	}
+	return jar
 }
 
 // loggingRoundTripper wraps every HTTP call and emits one audit line
@@ -144,8 +175,30 @@ func (e *MovedError) Error() string {
 	return fmt.Sprintf("moved (%d): %s -> %s", e.Status, e.From, e.To)
 }
 
-// trackRedirects is set as http.Client.CheckRedirect. It records each hop
-// on the *Request (via context) and stops after 10 hops like the default.
+// ErrRedirectLoop is returned by trackRedirects when the server sends a
+// redirect that cycles back to a URL already in the via chain. Common
+// failure mode for sites that user-agent-sniff and serve a "redirect
+// to login" loop without ever terminating — milvus.io / nginx
+// configurations with broken country-code detection are typical
+// offenders. Distinct error type so callers can route to the bridge
+// or Jina Reader instead of bare-erroring like the original
+// "stopped after 10 redirects" did.
+var ErrRedirectLoop = errors.New("redirect loop")
+
+// trackRedirects is set as http.Client.CheckRedirect. It records each
+// hop on the *Request (via context), stops after 10 hops like the
+// default, and short-circuits unproductive redirect cycles.
+//
+// Cycle tolerance: cookie-challenge sites (milvus.io's
+// `milvus_challenge`, some nginx country-detection setups) legitimately
+// 302 to the same URL the first one or two times — the response
+// carries a Set-Cookie that the next attempt sends back, breaking the
+// loop. Allow up to maxSameURLHits same-URL hops before declaring it
+// a real loop. A site that hits the same URL three times in a row
+// without making progress isn't going to converge.
+//
+// Cycle detection compares normalized URLs (lowercase host, fragment
+// stripped) so case-only differences don't hide a real loop.
 func trackRedirects(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("stopped after 10 redirects")
@@ -154,7 +207,41 @@ func trackRedirects(req *http.Request, via []*http.Request) error {
 		from := via[len(via)-1].URL.String()
 		a.Logf("redirect %s -> %s", from, req.URL.String())
 	}
+	target := normalizeRedirectURL(req.URL.String())
+	hits := 0
+	for _, v := range via {
+		if normalizeRedirectURL(v.URL.String()) == target {
+			hits++
+		}
+	}
+	if hits >= maxSameURLHits {
+		return fmt.Errorf("%w: %s revisited %d times", ErrRedirectLoop, target, hits)
+	}
 	return nil
+}
+
+// maxSameURLHits caps how many times a redirect chain can revisit the
+// same URL before we bail. 2 lets a cookie-challenge round-trip
+// through (initial 302 sets cookie → retry hits same URL with cookie
+// → 200), 3 catches the genuine infinite loops where the cookie
+// never breaks the cycle. Bumped from the natural-feeling "1" after
+// real-world testing — milvus.io needs at least one same-URL hop
+// for the cookie to land.
+const maxSameURLHits = 3
+
+// normalizeRedirectURL produces a comparison key for cycle detection.
+// Lowercases the host (case-insensitive per RFC 3986) and strips the
+// fragment (servers don't echo it back, never relevant to a loop).
+// Query strings stay — `?step=1` -> `?step=2` is a legitimate
+// progression, not a loop.
+func normalizeRedirectURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Host = strings.ToLower(u.Host)
+	u.Fragment = ""
+	return u.String()
 }
 
 type ctxKey int
