@@ -40,7 +40,7 @@ Wraps the `social-fetch` Go binary on the user's PATH (install separately — se
 
 The `auto` provider chains (`-p auto`) already skip unconfigured providers, so they're safe — but when an explicit provider name is needed (e.g. the user asks "search Twitter"), check `list` first to confirm `[ok]` status before invoking. For the MCP shape see `social_fetch_list_providers` — same data, structured as `{name, status, missing}` per category.
 
-**For platform-specific quirks, run `social-fetch hints <platform>`** before a search/fetch you haven't done recently. Captures things like "X recent search caps at 7 days strictly", "LinkedIn temp-bans accounts that scrape too fast", "Reddit anonymous search has worse relevance than `tavily site:reddit.com`".
+**For platform-specific quirks, run `social-fetch hints`** (no argument — dumps every platform's hints in one shot) before a search/fetch you haven't done recently. Captures things like "X recent search caps at 7 days strictly", "LinkedIn temp-bans accounts that scrape too fast", "Reddit anonymous search has worse relevance than `tavily site:reddit.com`". Pass a specific platform name to scope the output (e.g. `hints x`).
 
 ## Subcommands
 

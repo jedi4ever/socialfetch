@@ -87,3 +87,29 @@ func MustGet(name string) (string, error) {
 	}
 	return md, nil
 }
+
+// All concatenates every registered platform's hints into a single
+// markdown document, with a separator between each platform so the
+// reader can scan top-down. Used by `social-fetch hints` (no
+// argument) and the MCP tool's empty-platform branch — the agent
+// gets the full reference in one tool call rather than a list of
+// names + a follow-up call per platform.
+func All() string {
+	var b strings.Builder
+	for i, name := range Catalog() {
+		md, ok := Get(name)
+		if !ok || strings.TrimSpace(md) == "" {
+			continue
+		}
+		if i > 0 {
+			b.WriteString("\n\n---\n\n")
+		}
+		b.WriteString(md)
+		// Markdown content rarely ends with a trailing newline; add
+		// one so the next platform's heading lands on its own line.
+		if !strings.HasSuffix(md, "\n") {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}

@@ -13,18 +13,14 @@ import (
 )
 
 // runHints implements `social-fetch hints [name]`. With no argument
-// it prints the registered platform names so an agent can see what
-// docs are available. With a name it prints that platform's
-// markdown verbatim so an agent's Read tool / the MCP envelope sees
-// the same text the maintainer wrote.
+// it dumps EVERY registered platform's hints concatenated — so the
+// agent gets the full reference in one shot without round-tripping
+// "list names → pick one → fetch that one". With a name it prints
+// just that platform's markdown verbatim, useful when the agent
+// wants narrowly-scoped output.
 func runHints(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("Platforms with hints:")
-		for _, n := range hints.Catalog() {
-			fmt.Println("  " + n)
-		}
-		fmt.Println()
-		fmt.Println("Run `social-fetch hints <name>` to read one.")
+		fmt.Println(hints.All())
 		return nil
 	}
 	name := strings.ToLower(strings.TrimSpace(args[0]))

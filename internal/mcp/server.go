@@ -125,19 +125,16 @@ type hintsArgs struct {
 
 func addHintsTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_hints",
-		mcp.WithDescription("Read platform-specific quirks / gotchas / rate-limit notes for a fetch / search / timeline source. Call this BEFORE running a search or fetch on a platform you haven't used recently — the hints capture non-obvious behaviour like 'X recent search caps at 7 days strictly', 'LinkedIn temp-bans accounts that scrape too fast', 'Reddit anonymous search has worse relevance than Tavily site:reddit.com'. With no `platform` argument, returns the list of platforms that have hints written; with one, returns that platform's markdown verbatim."),
-		mcp.WithString("platform", mcp.Description("Platform name (x / twitter / linkedin / reddit / ...). Empty/omitted lists all platforms with registered hints.")),
+		mcp.WithDescription("Read platform-specific quirks / gotchas / rate-limit notes for fetch / search / timeline sources. Captures non-obvious behaviour like 'X recent search caps at 7 days strictly', 'LinkedIn temp-bans accounts that scrape too fast', 'Reddit anonymous search has worse relevance than Tavily site:reddit.com'. Call this BEFORE running a search or fetch on a platform you haven't used recently. With no `platform` argument, returns ALL platforms' hints concatenated (one tool call gets the full reference); with one, returns just that platform's markdown."),
+		mcp.WithString("platform", mcp.Description("Optional platform name (x / twitter / linkedin / reddit / ...). When omitted, all platforms' hints are returned at once.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(_ context.Context, _ mcp.CallToolRequest, args hintsArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "hints")
 		defer closeAudit()
 		name := strings.TrimSpace(args.Platform)
 		if name == "" {
-			audit.Logf("hints: list catalog")
-			return jsonResult(map[string]any{
-				"platforms": hints.Catalog(),
-				"usage":     "Call again with `platform: <name>` to read the markdown.",
-			})
+			audit.Logf("hints: dump all")
+			return mcp.NewToolResultText(hints.All()), nil
 		}
 		audit.Logf("hints %s", name)
 		md, err := hints.MustGet(name)
