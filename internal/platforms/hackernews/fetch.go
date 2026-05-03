@@ -110,7 +110,12 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 
 	var comments []core.Comment
 	if opts.IncludeComments {
-		comments = f.fetchKids(ctx, story.Kids, 0)
+		// One bounded pool shared across the whole recursion. Acquired
+		// only around the HTTP call, so a parent waiting on its kids
+		// doesn't pin a slot — see commentWorkers' doc for why
+		// per-level pools deadlock-throttled deep threads.
+		pool := make(chan struct{}, commentWorkers)
+		comments = f.fetchKids(ctx, story.Kids, 0, pool)
 		if opts.MaxComments > 0 {
 			comments = capComments(comments, opts.MaxComments)
 		}
@@ -157,26 +162,36 @@ func (f *Fetcher) fetchItem(ctx context.Context, id string) (*hnItem, error) {
 // commentWorkers caps the number of comment fetches in flight at once.
 // Empirically 16 saturates the Firebase API without tripping rate limits;
 // going higher just queues TCP connections.
+//
+// Earlier versions allocated one semaphore per recursion level. That
+// looked like 16 wide at every depth but actually serialized fan-out:
+// a parent goroutine held its parent-level slot while waiting on all
+// its children, so one slow grandchild starved the parent's siblings.
+// On deep, lopsided HN threads (the common case for popular stories)
+// effective concurrency collapsed to 1 in the worst case. The fix is
+// a single pool shared across the whole tree, acquired only for the
+// HTTP round-trip — see fetchKids.
 const commentWorkers = 16
 
-// fetchKids walks the kid IDs in parallel up to MaxDepth, preserving order.
-// Concurrency is bounded by commentWorkers so a 1k-comment thread doesn't
-// spawn 1k goroutines all at once.
-func (f *Fetcher) fetchKids(ctx context.Context, ids []int, depth int) []core.Comment {
+// fetchKids walks the kid IDs in parallel up to MaxDepth, preserving
+// order. The pool channel is shared with every recursion level so the
+// HTTP-call concurrency cap is enforced globally; per-level pools
+// would let parents pin slots while waiting on their children. The
+// pool is acquired *inside* fetchComment around the actual fetchItem
+// call, not here, so a parent goroutine releases its slot before
+// recursing into kids.
+func (f *Fetcher) fetchKids(ctx context.Context, ids []int, depth int, pool chan struct{}) []core.Comment {
 	if depth >= f.MaxDepth || len(ids) == 0 {
 		return nil
 	}
 
 	results := make([]core.Comment, len(ids))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, commentWorkers)
 	for i, id := range ids {
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(i int, id int) {
 			defer wg.Done()
-			defer func() { <-sem }()
-			c, err := f.fetchComment(ctx, id, depth)
+			c, err := f.fetchComment(ctx, id, depth, pool)
 			if err == nil && c != nil {
 				results[i] = *c
 			}
@@ -194,8 +209,14 @@ func (f *Fetcher) fetchKids(ctx context.Context, ids []int, depth int) []core.Co
 	return out
 }
 
-func (f *Fetcher) fetchComment(ctx context.Context, id, depth int) (*core.Comment, error) {
+func (f *Fetcher) fetchComment(ctx context.Context, id, depth int, pool chan struct{}) (*core.Comment, error) {
+	// Acquire only around the HTTP call so this goroutine isn't
+	// holding a slot while its kids fetch. Releasing before recursing
+	// is what keeps the global concurrency cap honest without
+	// serializing the tree.
+	pool <- struct{}{}
 	item, err := f.fetchItem(ctx, strconv.Itoa(id))
+	<-pool
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +231,7 @@ func (f *Fetcher) fetchComment(ctx context.Context, id, depth int) (*core.Commen
 		Body:      htmlmd.Convert(item.Text),
 		Published: &t,
 		Depth:     depth,
-		Replies:   f.fetchKids(ctx, item.Kids, depth+1),
+		Replies:   f.fetchKids(ctx, item.Kids, depth+1, pool),
 	}
 	return c, nil
 }

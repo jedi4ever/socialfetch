@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jedi4ever/socialfetch/internal/core"
@@ -111,18 +112,39 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		return nil, fmt.Errorf("github: cannot extract owner/repo from %q", raw)
 	}
 
-	var info repoInfo
-	if err := f.api(ctx, fmt.Sprintf("/repos/%s/%s", owner, repo), &info); err != nil {
-		return nil, fmt.Errorf("github: repo: %w", err)
+	// The three GitHub endpoints are independent — repo info, README,
+	// and recent releases — so fetch them concurrently. GitHub's REST
+	// API rate-limits per hour (60 anon / 5000 authed), not per second,
+	// so 3 parallel requests cost the same budget as 3 sequential and
+	// cut latency to the slowest of the three. README + releases stay
+	// best-effort; only repo-info failure aborts. Three goroutines is
+	// well below the transport's per-host connection cap.
+	var (
+		info     repoInfo
+		readme   readmeInfo
+		releases []releaseInfo
+		repoErr  error
+		wg       sync.WaitGroup
+	)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		repoErr = f.api(ctx, fmt.Sprintf("/repos/%s/%s", owner, repo), &info)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = f.api(ctx, fmt.Sprintf("/repos/%s/%s/readme", owner, repo), &readme)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = f.api(ctx, fmt.Sprintf("/repos/%s/%s/releases?per_page=5", owner, repo), &releases)
+	}()
+	wg.Wait()
+
+	if repoErr != nil {
+		return nil, fmt.Errorf("github: repo: %w", repoErr)
 	}
-
-	// README and releases are best-effort; missing or 404 is fine.
-	var readme readmeInfo
-	_ = f.api(ctx, fmt.Sprintf("/repos/%s/%s/readme", owner, repo), &readme)
 	readmeText := decodeReadme(readme)
-
-	var releases []releaseInfo
-	_ = f.api(ctx, fmt.Sprintf("/repos/%s/%s/releases?per_page=5", owner, repo), &releases)
 
 	published := parseGHTime(info.CreatedAt)
 	tags := append([]string(nil), info.Topics...)
