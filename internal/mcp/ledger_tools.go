@@ -35,6 +35,7 @@ import (
 
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/ledger/provenance"
 )
 
 // runLedger is the shared subprocess invoker. Returns stdout on
@@ -118,7 +119,7 @@ type ledgerSeenArgs struct {
 
 func addLedgerSeenTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_ledger_seen",
-		mcp.WithDescription("Check whether one or more URLs are already in the local ledger. Returns [{url, seen}, ...]. Use BEFORE fetching a URL to avoid re-fetching content the ledger already has cached. To learn whether a hit was auto-fetched by social_fetch_* (high trust — we extracted it ourselves) vs agent-recorded via social_ledger_record (trust depends on what was fed in), call social_ledger_get on the URL — it returns a `provenance` field."),
+		mcp.WithDescription("Check whether one or more URLs are already in the local ledger. Returns [{url, seen, source, fetched_at, provenance, canonical_url}, ...] — only `url` + `seen` are always set; the rest are present only when seen=true. Use BEFORE fetching a URL to avoid re-fetching content the ledger already has cached. The enriched fields let the agent decide freshness + trust without a follow-up `get`: `fetched_at` (RFC3339) tells you how stale the cached copy is; `provenance` is `auto-fetched` (we ingested it via social_fetch_*, high trust) vs `agent-recorded` (stored via social_ledger_record from a WebFetch / curl / etc., trust depends on what was fed in) vs `unknown`; `canonical_url` is set when the cached entry is stored under a different URL than the one queried (e.g. a t.co shortener resolved to the real article URL)."),
 		mcp.WithArray("urls", mcp.Required(), mcp.Description("List of URLs to check. Each is matched literally + with trivial normalisation (lowercase host, strip fragment, trim trailing slash) + against both `url` and `request_url` columns so redirect short-links find their canonical entry.")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args ledgerSeenArgs) (*mcp.CallToolResult, error) {
@@ -235,35 +236,13 @@ func parseLedgerFrontmatter(md string) map[string]string {
 	return out
 }
 
-// classifyProvenance maps the ledger entry's Source value to a
-// trust-class string the agent can read. The convention is:
-//
-//   - Platform sources (hackernews, reddit, github, x/twitter,
-//     linkedin, youtube, bluesky, arxiv, medium, substack, rss,
-//     article) — produced by social_fetch_* fetchers, so we know
-//     extraction came from our own code on the live URL.
-//
-//   - `webfetch`, `manual`, `research-tool`, `citation`, `bridge` —
-//     stored via `social_ledger_record` (agent-supplied content) or
-//     captured indirectly. Trust depends on what the agent fed in.
-//
-// Anything else is reported as "unknown" so the agent can default to
-// caution rather than silent assume-trust.
+// classifyProvenance is now a thin shim over
+// internal/ledger/provenance — kept here so existing tests + call
+// sites still compile while the shared package becomes the source
+// of truth for both this MCP layer and cmd/social-ledger's seen
+// output. New code should call provenance.Classify directly.
 func classifyProvenance(source string) string {
-	source = strings.TrimSpace(strings.ToLower(source))
-	if source == "" {
-		return "unknown"
-	}
-	switch source {
-	case "hackernews", "reddit", "github", "x", "twitter", "linkedin",
-		"youtube", "bluesky", "arxiv", "medium", "substack", "rss",
-		"article", "atom":
-		return "auto-fetched"
-	case "webfetch", "manual", "research-tool", "research", "citation":
-		return "agent-recorded"
-	default:
-		return "unknown"
-	}
+	return provenance.Classify(source)
 }
 
 // ---- list ------------------------------------------------------------

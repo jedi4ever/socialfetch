@@ -265,6 +265,55 @@ func (s *Store) Has(key string) (bool, error) {
 	return true, nil
 }
 
+// MetaHit is the small slice of an item useful for "is this URL
+// cached, and if so when + by whom?" lookups. Skips title / body /
+// comments / tags so the seen path stays fast even when the
+// matched row has a large content blob.
+type MetaHit struct {
+	Source    string
+	URL       string
+	Key       string
+	FetchedAt time.Time
+}
+
+// LookupMetaByKey returns the source + url + fetched_at for the row
+// keyed by `key`, or (nil, nil) when no row matches. Used by the
+// seen subcommand to enrich its output with provenance + freshness
+// without a follow-up Get + full-row scan.
+func (s *Store) LookupMetaByKey(key string) (*MetaHit, error) {
+	row := s.db.QueryRow(
+		`SELECT source, url, key, fetched_at FROM items WHERE key = ? LIMIT 1`, key)
+	return scanMetaHit(row)
+}
+
+// LookupMetaByURL returns the metadata for the first row whose `url`
+// or `request_url` column matches the supplied string. Same dual-
+// column behaviour as HasURL — a shortener URL hits the canonical
+// post-redirect row.
+func (s *Store) LookupMetaByURL(url string) (*MetaHit, error) {
+	row := s.db.QueryRow(
+		`SELECT source, url, key, fetched_at FROM items
+		 WHERE url = ? OR request_url = ? LIMIT 1`, url, url)
+	return scanMetaHit(row)
+}
+
+// scanMetaHit is the shared row-scanner used by LookupMetaByKey /
+// LookupMetaByURL — returns nil for the not-found case so callers
+// can branch on the nil pointer rather than a sentinel error.
+func scanMetaHit(row *sql.Row) (*MetaHit, error) {
+	var m MetaHit
+	var fetched int64
+	err := row.Scan(&m.Source, &m.URL, &m.Key, &fetched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.FetchedAt = time.Unix(fetched, 0).UTC()
+	return &m, nil
+}
+
 // HasURL checks whether any row's `url` OR `request_url` column
 // matches the supplied string. Both columns participate so a
 // `seen` lookup against the user-typed shortener URL

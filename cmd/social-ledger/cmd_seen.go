@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/jedi4ever/social-skills/internal/ledger/provenance"
 	"github.com/jedi4ever/social-skills/internal/ledger/store"
 	"github.com/jedi4ever/social-skills/internal/ledger/urlutil"
 )
@@ -66,9 +68,18 @@ func cmdSeen(args []string) error {
 	}
 	defer s.Close()
 
+	// result carries everything the agent needs to decide "do I
+	// re-fetch?" without a follow-up `get` call. When Seen is true,
+	// Source / FetchedAt / Provenance / CanonicalURL are populated
+	// from the matched ledger row; otherwise they're empty so JSON
+	// consumers see a clean missed-case shape.
 	type result struct {
-		URL  string `json:"url"`
-		Seen bool   `json:"seen"`
+		URL          string `json:"url"`
+		Seen         bool   `json:"seen"`
+		Source       string `json:"source,omitempty"`
+		FetchedAt    string `json:"fetched_at,omitempty"`
+		Provenance   string `json:"provenance,omitempty"`
+		CanonicalURL string `json:"canonical_url,omitempty"`
 	}
 	results := make([]result, 0, len(urls))
 	for _, u := range urls {
@@ -76,7 +87,16 @@ func cmdSeen(args []string) error {
 		if err != nil {
 			return err
 		}
-		results = append(results, result{URL: u, Seen: hit})
+		r := result{URL: u, Seen: hit != nil}
+		if hit != nil {
+			r.Source = hit.Source
+			r.FetchedAt = hit.FetchedAt.Format(time.RFC3339)
+			r.Provenance = provenance.Classify(hit.Source)
+			if hit.URL != "" && hit.URL != u {
+				r.CanonicalURL = hit.URL
+			}
+		}
+		results = append(results, r)
 	}
 
 	switch strings.ToLower(*only) {
@@ -108,11 +128,24 @@ func cmdSeen(args []string) error {
 		return enc.Encode(results)
 	case "", "text":
 		for _, r := range results {
-			label := "unseen"
-			if r.Seen {
-				label = "seen"
+			if !r.Seen {
+				fmt.Printf("%-7s %s\n", "unseen", r.URL)
+				continue
 			}
-			fmt.Printf("%-7s %s\n", label, r.URL)
+			// "seen" line carries source + age inline so an
+			// operator scanning text output can spot stale or
+			// agent-recorded entries without a follow-up `get`.
+			suffix := " (" + r.Source
+			if r.Provenance != "" {
+				suffix += "/" + r.Provenance
+			}
+			if r.FetchedAt != "" {
+				if t, err := time.Parse(time.RFC3339, r.FetchedAt); err == nil {
+					suffix += ", " + humanAge(time.Since(t)) + " ago"
+				}
+			}
+			suffix += ")"
+			fmt.Printf("%-7s %s%s\n", "seen", r.URL, suffix)
 		}
 		return nil
 	default:
@@ -175,6 +208,31 @@ func readURLLines(r io.Reader) ([]string, error) {
 	return out, sc.Err()
 }
 
+// humanAge formats a duration into the smallest unit that produces
+// a number ≥1, so "5m" / "3h" / "2d" / "6w" / "8mo" / "2y" — used
+// in the seen text output's "(<source>, <age> ago)" suffix to give
+// the operator a quick freshness read without a full timestamp. We
+// roll our own rather than pull a date-formatting library because
+// the use case is small and English-only.
+func humanAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dw", int(d.Hours()/(24*7)))
+	case d < 365*24*time.Hour:
+		return fmt.Sprintf("%dmo", int(d.Hours()/(24*30)))
+	default:
+		return fmt.Sprintf("%dy", int(d.Hours()/(24*365)))
+	}
+}
+
 // isatty reports whether f looks interactive. We avoid a tty
 // dependency for a one-place check and rely on os.File.Stat —
 // piped stdin is a pipe (mode&ModeCharDevice == 0), interactive
@@ -187,8 +245,12 @@ func isatty(f *os.File) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// lookupURL answers "is this URL in the ledger" across every
-// possible storage shape:
+// lookupURL answers "is this URL in the ledger" + (when found)
+// returns the source / fetched_at / canonical url so the seen
+// output can carry freshness + provenance without forcing the
+// caller to call `get` next. Returns (nil, nil) for a miss.
+//
+// Search order matches the legacy bool-returning lookupURL:
 //
 //   - source-prefixed key forms ("hackernews::<url>", "github::<url>", …)
 //   - bare URL match against either `url` or `request_url`
@@ -197,31 +259,31 @@ func isatty(f *os.File) bool {
 // `seen` query for `https://Example.com/foo/#anchor` finds an
 // entry stored as `https://example.com/foo`. Redirect handling
 // (e.g. https://t.co/abc → post-redirect target) works because
-// HasURL queries both columns and the auto-ingest pipeline now
-// records both — see internal/core/fetcher.go's Registry.Fetch
-// and internal/ledger/store/store.go's HasURL.
-func lookupURL(s *store.Store, raw string) (bool, error) {
+// LookupMetaByURL queries both columns and the auto-ingest
+// pipeline records both — see internal/core/fetcher.go's
+// Registry.Fetch and internal/ledger/store/store.go's HasURL.
+func lookupURL(s *store.Store, raw string) (*store.MetaHit, error) {
 	candidates := []string{raw}
 	if norm := urlutil.Normalize(raw); norm != raw {
 		candidates = append(candidates, norm)
 	}
 	for _, c := range candidates {
 		for _, src := range knownSources() {
-			ok, err := s.Has(src + "::" + c)
+			hit, err := s.LookupMetaByKey(src + "::" + c)
 			if err != nil {
-				return false, err
+				return nil, err
 			}
-			if ok {
-				return true, nil
+			if hit != nil {
+				return hit, nil
 			}
 		}
-		ok, err := s.HasURL(c)
+		hit, err := s.LookupMetaByURL(c)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
-		if ok {
-			return true, nil
+		if hit != nil {
+			return hit, nil
 		}
 	}
-	return false, nil
+	return nil, nil
 }
