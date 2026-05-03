@@ -65,6 +65,20 @@ func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOpt
 		"q":     {query},
 		"count": {strconv.Itoa(maxN)},
 	}
+	// Brave exposes 0-indexed pagination via `offset=N` where N is
+	// a *page number*, not a result offset (range 0-9, capping at
+	// 10 pages × 20 results = 200 max per query). Translate
+	// opts.Start through count for clean alignment — agents
+	// passing Start=20 with maxN=20 hit page 1 (results 21-40).
+	// Off-multiple Start values land on the page containing that
+	// result; Brave doesn't expose a within-page skip.
+	if opts.Start > 0 {
+		page := opts.Start / maxN
+		if page > 9 {
+			page = 9 // Brave's hard cap; further offsets return empty
+		}
+		q.Set("offset", strconv.Itoa(page))
+	}
 	// Brave exposes recency via the `freshness` parameter (pd=day,
 	// pw=week, pm=month, py=year, or YYYY-MM-DDtoYYYY-MM-DD ranges).
 	// Map opts.After to the closest preset; for arbitrary windows we

@@ -61,7 +61,7 @@ import (
 
 // Version is the user-visible social-fetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.10.8"
+const Version = "0.10.9"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -259,6 +259,8 @@ func run(args []string) error {
 		return runMCP(rest)
 	case "list":
 		return runList()
+	case "hints":
+		return runHints(rest)
 	case "help", "-h", "--help":
 		return runHelp(rest)
 	case "version", "--version":

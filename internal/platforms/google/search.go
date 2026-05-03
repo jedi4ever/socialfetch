@@ -80,6 +80,16 @@ func (p *Provider) Search(ctx context.Context, query string, opts core.SearchOpt
 		"cx":  {cse},
 		"num": {strconv.Itoa(maxN)},
 	}
+	// Google CSE pagination uses `start=N` where N is a 1-indexed
+	// result number — start=1 is the first hit, start=11 is the
+	// second page. Translate opts.Start (which is 0-indexed
+	// everywhere else in this codebase) by adding 1 only when the
+	// caller actually asks for an offset, so default-zero queries
+	// keep emitting no `start` param and CSE picks its own
+	// default.
+	if opts.Start > 0 {
+		q.Set("start", strconv.Itoa(opts.Start+1))
+	}
 	// `dateRestrict` is the API's recency knob: d[N], w[N], m[N], y[N].
 	if opts.After != nil {
 		q.Set("dateRestrict", dateRestrictFor(*opts.After))

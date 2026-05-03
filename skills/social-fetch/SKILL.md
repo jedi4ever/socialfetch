@@ -39,6 +39,7 @@ scripts/social-fetch timeline <user-or-url>       [flags]   recent activity for 
 scripts/social-fetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / anthropic / gemini / tavily / serpapi)
 scripts/social-fetch research "<question>"        [flags]   EXPERIMENTAL — multi-angle research (decompose → parallel fan-out → synthesize)
 scripts/social-fetch bridge   {start|stop|status|run}
+scripts/social-fetch hints    [<platform>]                  per-platform quirks, rate limits, gotchas (x / linkedin / reddit / ...)
 ```
 
 Run `scripts/social-fetch --help` for the full reference. Output defaults to **markdown**; pass `-f json` or `-f jsonl` for structured input to other tools.

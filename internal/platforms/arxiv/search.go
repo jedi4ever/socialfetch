@@ -135,6 +135,12 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts core.Sea
 		"sortBy":       {sortBy},
 		"sortOrder":    {"descending"},
 	}
+	// arXiv exposes a 0-indexed `start=N` offset that pages cleanly
+	// across its result set — agent calls with --start 10 / 20 / etc.
+	// hit page 2 / 3 / ... without re-fetching page 1.
+	if opts.Start > 0 {
+		v.Set("start", strconv.Itoa(opts.Start))
+	}
 	base := p.BaseURL
 	if base == "" {
 		base = defaultBase

@@ -103,6 +103,17 @@ func (p *SearchProvider) Search(ctx context.Context, query string, opts core.Sea
 		"query":       {query},
 		"hitsPerPage": {fmt.Sprint(max)},
 	}
+	// Algolia exposes 0-indexed `page=N` pagination. Translate
+	// opts.Start by dividing through hitsPerPage — for clean
+	// alignment callers should pass Start as a multiple of max
+	// (e.g. max=10 + start=0/10/20/...). Off-multiple Start values
+	// land on the page that contains that offset; the in-page skip
+	// is intentionally NOT applied because Algolia doesn't expose
+	// a native offset and the hits-on-page alignment is a fast-
+	// path good enough for the typical agent paging loop.
+	if opts.Start > 0 {
+		q.Set("page", fmt.Sprint(opts.Start/max))
+	}
 	if p.Tags != "" {
 		q.Set("tags", p.Tags)
 	}
