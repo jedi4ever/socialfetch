@@ -37,6 +37,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jedi4ever/socialfetch/internal/core"
 )
@@ -95,8 +96,11 @@ func Ingest(ctx context.Context, items ...core.Item) {
 	}
 
 	args := []string{"ingest"}
+	// The ledger picks up SOCIALFETCH_LEDGER_DIR from its own env
+	// already, but be explicit with --data-dir so a misconfigured
+	// child env doesn't silently land items in the wrong store.
 	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
-		args = append(args, "--store", dir)
+		args = append(args, "--data-dir", dir)
 	}
 
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -121,6 +125,46 @@ func Ingest(ctx context.Context, items ...core.Item) {
 	if audit != nil {
 		audit.Logf("ledger: ingested %d item(s)", len(items))
 	}
+}
+
+// IngestSources writes URL+title stub items for citation-shaped data
+// (the [].core.Source ask/search return alongside the synthesized
+// answer). Each stub goes in under source="citation" with the
+// snippet as summary and no body content — agents browsing the
+// ledger see "we know this URL exists and what it's about", and
+// can later run `socialfetch fetch <url>` to upgrade it to a full
+// item under its real source key.
+//
+// Citation stubs and full fetched items can coexist in the ledger
+// for the same URL (different keys: "citation::<url>" vs
+// "<actual-source>::<url>"). That's intentional — a stub records
+// "we saw this referenced", a full item records "we fetched it".
+//
+// Skips silently when Enabled() is false. Sources with empty URLs
+// are dropped (some providers emit them for anchor-only refs).
+func IngestSources(ctx context.Context, sources ...core.Source) {
+	if !Enabled() || len(sources) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	stubs := make([]core.Item, 0, len(sources))
+	for _, s := range sources {
+		if strings.TrimSpace(s.URL) == "" {
+			continue
+		}
+		stubs = append(stubs, core.Item{
+			Source:    "citation",
+			URL:       s.URL,
+			Title:     s.Title,
+			Summary:   s.Snippet,
+			Published: s.Published,
+			FetchedAt: now,
+		})
+	}
+	if len(stubs) == 0 {
+		return
+	}
+	Ingest(ctx, stubs...)
 }
 
 // binaryPath returns the absolute path to socialfetch-ledger. Lookup
