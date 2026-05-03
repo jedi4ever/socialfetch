@@ -2,12 +2,12 @@
 
 This directory holds the `.mcpb` manifest and packaging for social-fetch's
 Claude Desktop Extension. The compiled `.mcpb` archive (built by
-`make claude-extension-package`) lands in `dist/social-skills-claude-extension-<version>-<os>-<arch>.mcpb`.
+`make claude-desktop-extension-package`) lands in `dist/social-skills-claude-desktop-extension-<version>-<os>-<arch>.mcpb`.
 
 ## Install
 
-1. Run `make claude-extension-package` from the repo root. Produces
-   `dist/social-skills-claude-extension-0.2.0-darwin-arm64.mcpb` (macOS Apple
+1. Run `make claude-desktop-extension-package` from the repo root. Produces
+   `dist/social-skills-claude-desktop-extension-0.2.0-darwin-arm64.mcpb` (macOS Apple
    Silicon only at the moment — see Cross-platform below).
 
 2. Drag the `.mcpb` file onto Claude Desktop's **Settings → Extensions**
@@ -73,5 +73,5 @@ manifest before publishing:
 
 ```
 npm install -g @anthropic-ai/mcpb
-mcpb validate dist/social-skills-claude-extension-*.mcpb
+mcpb validate dist/social-skills-claude-desktop-extension-*.mcpb
 ```

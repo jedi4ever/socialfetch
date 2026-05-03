@@ -5,7 +5,7 @@ name: release
 #
 #   - social-fetch-<version>-<os>-<arch>.tar.gz           bare binaries
 #       darwin/arm64, darwin/amd64, linux/amd64
-#   - social-skills-claude-extension-<version>-darwin-arm64.mcpb
+#   - social-skills-claude-desktop-extension-<version>-darwin-arm64.mcpb
 #       Claude Desktop Extension (drag into Settings → Extensions)
 #   - social-fetch-skill-<version>.zip
 #       Standalone skill bundle (~/.claude/skills/social-fetch/)
@@ -115,7 +115,7 @@ jobs:
           ls -lh ../*.tar.gz
 
       - name: Package Claude Desktop Extension (.mcpb)
-        run: make claude-extension-package
+        run: make claude-desktop-extension-package
 
       - name: Package skill zip (darwin-arm64)
         # `make skill-package` builds the host platform's binary,

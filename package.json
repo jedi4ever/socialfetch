@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local-only npm devDependencies for social-fetch — currently just the @anthropic-ai/mcpb CLI used to validate the Claude Desktop Extension manifest. Not a publishable package.",
   "scripts": {
-    "validate-extension": "mcpb validate dist/social-skills-claude-extension-*.mcpb"
+    "validate-extension": "mcpb validate dist/social-skills-claude-desktop-extension-*.mcpb"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^1.0.0"

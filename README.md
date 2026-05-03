@@ -80,7 +80,7 @@ One-click install with API-key prompts that go straight into the
 macOS Keychain. Best UX if you live in Claude Desktop.
 
 ```
-1. Download social-skills-claude-extension-<version>-darwin-arm64.mcpb
+1. Download social-skills-claude-desktop-extension-<version>-darwin-arm64.mcpb
    from https://github.com/jedi4ever/social-skills/releases/latest
 2. Double-click the .mcpb (or drag it onto Claude Desktop →
    Settings → Extensions).

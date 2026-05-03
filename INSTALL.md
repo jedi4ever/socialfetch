@@ -29,17 +29,17 @@ stored in the macOS Keychain.
 ```bash
 git clone https://github.com/jedi4ever/social-skills.git
 cd social-skills
-make claude-extension-package
+make claude-desktop-extension-package
 ```
 
-Produces `dist/social-skills-claude-extension-<version>-darwin-arm64.mcpb`
+Produces `dist/social-skills-claude-desktop-extension-<version>-darwin-arm64.mcpb`
 (macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
 / Windows builds).
 
 ### Install (fastest path)
 
 ```bash
-open dist/social-skills-claude-extension-0.2.0-darwin-arm64.mcpb
+open dist/social-skills-claude-desktop-extension-0.2.0-darwin-arm64.mcpb
 ```
 
 That hands the file off to Claude Desktop. Skip ahead to step 3 below.
@@ -70,7 +70,7 @@ Update Claude Desktop and try again.
 
 ### Update / uninstall
 
-- **Update (preserves API keys)**: `git pull && make claude-extension-package`,
+- **Update (preserves API keys)**: `git pull && make claude-desktop-extension-package`,
   then drag the new `.mcpb` straight onto Settings → Extensions —
   **without** uninstalling first. Claude Desktop matches by manifest
   `name` and updates in place, keeping every keychain entry. The
@@ -86,7 +86,7 @@ Update Claude Desktop and try again.
 ### Validate the manifest
 
 The `@anthropic-ai/mcpb` CLI is a local devDependency (see
-`package.json`). `make claude-extension-package` already chains through
+`package.json`). `make claude-desktop-extension-package` already chains through
 validation, but you can run it standalone:
 
 ```bash

@@ -21,7 +21,7 @@ GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-fetch
 
 .PHONY: all help build install test test-integration test-live test-cover vet fmt lint run demo clean cli-help \
-        skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
+        skill-build skill-install skill-clean skill-package claude-desktop-extension-package extension-validate \
         bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
         ledger-build ledger-test \
         ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package
@@ -81,7 +81,7 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 # extension-package builds a Claude Desktop Extension (.mcpb) for
 # darwin/arm64. The .mcpb format is just a zip with a manifest at root
 # + the binary at scripts/. Output:
-# dist/social-skills-claude-extension-<version>-darwin-arm64.mcpb.
+# dist/social-skills-claude-desktop-extension-<version>-darwin-arm64.mcpb.
 #
 # Phase 1 is darwin/arm64 only (the developer's platform). Phase 2
 # will fan this out to darwin-amd64 / linux-amd64 / windows-amd64 via
@@ -93,18 +93,18 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 EXTENSION_STAGE := $(CURDIR)/dist/.extension-stage
 MCPB_BIN        := ./node_modules/.bin/mcpb
 
-claude-extension-package: extension-validate  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
+claude-desktop-extension-package: extension-validate  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
 	@rm -rf $(EXTENSION_STAGE)
 	@mkdir -p $(EXTENSION_STAGE)/scripts
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-fetch ./cmd/social-fetch
 	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-ledger ./cmd/social-ledger
 	@cp extensions/claude-desktop/manifest.json $(EXTENSION_STAGE)/manifest.json
 	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' extensions/claude-desktop/manifest.json); \
-	OUT="$(CURDIR)/dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
+	OUT="$(CURDIR)/dist/social-skills-claude-desktop-extension-$$VERSION-darwin-arm64.mcpb"; \
 	rm -f "$$OUT"; \
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(EXTENSION_STAGE); \
-	echo "Packaged: dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"
+	echo "Packaged: dist/social-skills-claude-desktop-extension-$$VERSION-darwin-arm64.mcpb"
 
 # extension-validate runs Anthropic's official @anthropic-ai/mcpb CLI
 # against extensions/claude-desktop/manifest.json. Installed locally via npm
