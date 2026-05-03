@@ -43,7 +43,11 @@ socialfetch research "tessl harness engineering" -p anthropic
 - **Browser bridge** for authenticated paths — LinkedIn, Medium /
   Substack paywalls — via a small Chrome MV3 extension that brokers
   between the agent and your real, logged-in browser. Public content
-  still goes direct over HTTP.
+  still goes direct over HTTP. The bridge is intentionally
+  single-lane (one in-process mutex serializing all calls, plus
+  randomized human-paced pauses between scrolls) so it stays under
+  bot-detection thresholds — at the cost of not scaling for bulk
+  scraping.
 - **Citations first.** Every result carries `source`, `url`,
   `fetched_at`, `written_at`, scores, comment trees — so the agent
   can ground its answer in something the user can click back to.
