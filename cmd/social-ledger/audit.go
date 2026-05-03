@@ -74,8 +74,8 @@ func auditPath() string {
 type auditEntry struct {
 	TS         string `json:"ts"`
 	PID        int    `json:"pid"`
-	Cmd        string `json:"cmd"`             // subcommand name
-	Args       string `json:"args,omitempty"`  // joined positional args, truncated at 200 chars
+	Cmd        string `json:"cmd"`            // subcommand name
+	Args       string `json:"args,omitempty"` // joined positional args, truncated at 200 chars
 	ExitCode   int    `json:"exit_code"`
 	DurationMs int64  `json:"duration_ms"`
 	Error      string `json:"error,omitempty"` // first line of error.Error() if non-nil
