@@ -3,10 +3,10 @@
 
 BIN                     := ./dist/social-fetch
 LEDGER_CMD_BIN          := ./dist/social-ledger
-SKILL_BIN               := ./skill/social-fetch/scripts/social-fetch
-SKILL_LEDGER_BIN        := ./skill/social-fetch/scripts/social-ledger
-LEDGER_SKILL_DIR        := ./skill/social-ledger
-LEDGER_SKILL_BIN        := ./skill/social-ledger/scripts/social-ledger
+SKILL_BIN               := ./skills/social-fetch/scripts/social-fetch
+SKILL_LEDGER_BIN        := ./skills/social-fetch/scripts/social-ledger
+LEDGER_SKILL_DIR        := ./skills/social-ledger
+LEDGER_SKILL_BIN        := ./skills/social-ledger/scripts/social-ledger
 LEDGER_SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-ledger
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
@@ -60,11 +60,11 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
-skill-build: $(SKILL_BIN)  ## Build both binaries and copy into skill/social-fetch/scripts/
+skill-build: $(SKILL_BIN)  ## Build both binaries and copy into skills/social-fetch/scripts/
 
 skill-install: skill-build  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/social-fetch)
 	@mkdir -p $(SKILL_INSTALL_DIR)/scripts
-	cp skill/social-fetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
+	cp skills/social-fetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
 	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/social-fetch
 	cp $(SKILL_LEDGER_BIN) $(SKILL_INSTALL_DIR)/scripts/social-ledger
 	@echo "Installed skill to $(SKILL_INSTALL_DIR)"
@@ -148,7 +148,7 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 # filename always tracks the binary's reported version, not a stale
 # Makefile constant.
 # social-ledger ships as a separate skill at
-# skill/social-ledger/ — its own SKILL.md scoped to the
+# skills/social-ledger/ — its own SKILL.md scoped to the
 # ledger subcommands (seen, get, list, search, record, …) so an
 # agent that wants ledger access doesn't have to load the full
 # social-fetch fetch surface. Bundles the same binary as the
@@ -157,7 +157,7 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 # invoke).
 LEDGER_SKILL_PACKAGE_STAGE := $(CURDIR)/dist/.ledger-skill-stage
 
-ledger-skill-build: $(LEDGER_SKILL_BIN)  ## Build social-ledger and copy into skill/social-ledger/scripts/
+ledger-skill-build: $(LEDGER_SKILL_BIN)  ## Build social-ledger and copy into skills/social-ledger/scripts/
 $(LEDGER_SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p $(dir $(LEDGER_SKILL_BIN)) dist
 	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/social-ledger
@@ -190,32 +190,32 @@ ledger-skill-package: ledger-skill-build  ## Package the ledger skill as ./dist/
 	rm -rf $(LEDGER_SKILL_PACKAGE_STAGE); \
 	echo "Packaged: dist/social-ledger-skill-$$VERSION.zip"
 
-skill-package: skill-build  ## Package the skill as ./dist/social-skills-skill-<version>.zip
+skill-package: skill-build  ## Package the skill as ./dist/social-fetch-skill-<version>.zip
 	@rm -rf $(SKILL_PACKAGE_STAGE)
 	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts
-	@cp skill/social-fetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
+	@cp skills/social-fetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
 	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/social-fetch
 	@cp $(SKILL_LEDGER_BIN) $(SKILL_PACKAGE_STAGE)/scripts/social-ledger
 	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
-	OUT="$(CURDIR)/dist/social-skills-skill-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/social-fetch-skill-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd $(SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(SKILL_PACKAGE_STAGE); \
-	echo "Packaged: dist/social-skills-skill-$$VERSION.zip"
+	echo "Packaged: dist/social-fetch-skill-$$VERSION.zip"
 
-# plugin-build regenerates the plugin's SKILL.md from skill/social-fetch/SKILL.md
+# plugin-build regenerates the plugin's SKILL.md from skills/social-fetch/SKILL.md
 # with `scripts/social-fetch` rewritten to bare `social-fetch`. The plugin
 # assumes the binary is already on PATH (Claude Code plugins don't
 # auto-install dependencies); see extensions/claude-code/README.md.
 #
 # We commit the generated SKILL.md so `/plugin marketplace add jedi4ever/social-skills`
 # works without a build step on the consumer side. Run this target whenever
-# skill/social-fetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
+# skills/social-fetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
 PLUGIN_DIR    := extensions/claude-code
 PLUGIN_SKILL  := $(PLUGIN_DIR)/skills/social-fetch/SKILL.md
-SKILL_SOURCE  := skill/social-fetch/SKILL.md
+SKILL_SOURCE  := skills/social-fetch/SKILL.md
 
-plugin-build:  ## Regenerate extensions/claude-code/skills/social-fetch/SKILL.md from skill/social-fetch/SKILL.md
+plugin-build:  ## Regenerate extensions/claude-code/skills/social-fetch/SKILL.md from skills/social-fetch/SKILL.md
 	@mkdir -p $(dir $(PLUGIN_SKILL))
 	sed -E 's|scripts/social-fetch|social-fetch|g; s|the `social-fetch` Go binary on PATH \(install separately — see the plugin README\)|the `social-fetch` Go binary on PATH (install separately — see the plugin README)|; s|Wraps the `social-fetch` Go binary at `social-fetch` \(relative to this skill\)\.|Wraps the `social-fetch` Go binary on the user'"'"'s PATH (install separately — see the plugin README).|' $(SKILL_SOURCE) > $(PLUGIN_SKILL)
 	@echo "Regenerated $(PLUGIN_SKILL)"

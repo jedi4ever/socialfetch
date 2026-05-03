@@ -7,7 +7,7 @@ name: release
 #       darwin/arm64, darwin/amd64, linux/amd64
 #   - social-skills-claude-extension-<version>-darwin-arm64.mcpb
 #       Claude Desktop Extension (drag into Settings → Extensions)
-#   - social-skills-skill-<version>.zip
+#   - social-fetch-skill-<version>.zip
 #       Standalone skill bundle (~/.claude/skills/social-fetch/)
 #   - social-skills-claude-code-plugin-<version>.zip
 #       Claude Code plugin bundle (no binary; user provides PATH)
@@ -129,10 +129,10 @@ jobs:
           V="${{ steps.ver.outputs.value }}"
           STAGE=$(mktemp -d)
           mkdir -p "$STAGE/scripts"
-          cp skill/social-fetch/SKILL.md "$STAGE/SKILL.md"
+          cp skills/social-fetch/SKILL.md "$STAGE/SKILL.md"
           cp "dist/binaries/social-fetch-${V}-darwin-arm64/social-fetch" "$STAGE/scripts/social-fetch"
-          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/social-skills-skill-${V}.zip" .)
-          ls -lh "dist/social-skills-skill-${V}.zip"
+          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/social-fetch-skill-${V}.zip" .)
+          ls -lh "dist/social-fetch-skill-${V}.zip"
 
       - name: Package Claude Code plugin zip
         run: make plugin-package

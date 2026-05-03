@@ -16,3 +16,7 @@
 - npx skills add support — rename skill/ → skills/ (Vercel CLI convention),
   unify with extensions/claude-code/skills/social-fetch/ (single source of truth,
   bare `social-fetch` on PATH), document binary-on-PATH prerequisite
+
+
+  - man packages ? linux distro pkgs ?
+  - curl installer ?

@@ -248,7 +248,7 @@ search / ask / timeline-X / research) works unchanged.
 
 # Installing the `social-fetch` skill (Option C)
 
-This guide walks through installing the bundled skill (`skill/social-fetch/`)
+This guide walks through installing the bundled skill (`skills/social-fetch/`)
 so it's discoverable by **Claude Desktop** and **Claude Code**. Both apps
 read skills from the same location: `~/.claude/skills/<name>/`.
 
@@ -279,9 +279,9 @@ Inspect the target in `Makefile:50` if you're curious. In short:
 
 1. Builds `dist/social-fetch` from `cmd/social-fetch` with `-ldflags="-s -w"
    -trimpath` (smaller, reproducible binary).
-2. Copies the binary to `skill/social-fetch/scripts/social-fetch` (the bundled
+2. Copies the binary to `skills/social-fetch/scripts/social-fetch` (the bundled
    layout the skill expects).
-3. Copies both `skill/social-fetch/SKILL.md` and the binary to
+3. Copies both `skills/social-fetch/SKILL.md` and the binary to
    `~/.claude/skills/social-fetch/` — the standard Anthropic skills directory.
 
 Override the destination with `SKILL_INSTALL_DIR`:

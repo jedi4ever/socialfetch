@@ -2,7 +2,7 @@
 /dist/
 /bin/
 # The bundled skill binary is a build product; SKILL.md stays committed.
-skill/social-fetch/scripts/social-fetch
+skills/social-fetch/scripts/social-fetch
 
 # Local-only npm tooling (currently just @anthropic-ai/mcpb for
 # validating the Claude Desktop Extension manifest). package.json +
@@ -33,5 +33,5 @@ coverage.out
 
 # Bundled skill ledger binary — built fresh by `make skill-build`,
 # same gitignored treatment as scripts/social-fetch.
-skill/social-fetch/scripts/social-ledger
-skill/social-ledger/scripts/social-ledger
+skills/social-fetch/scripts/social-ledger
+skills/social-ledger/scripts/social-ledger

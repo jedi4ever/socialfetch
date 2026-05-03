@@ -103,7 +103,7 @@ Whenever you add or change user-visible functionality — new subcommand,
 new provider, new flag, new env var, removed flag — update the matching
 sections in:
 
-- **`skill/social-fetch/SKILL.md`** (provider lists, flag tables, examples,
+- **`skills/social-fetch/SKILL.md`** (provider lists, flag tables, examples,
   decision rules, the `allowed-tools` frontmatter when a new
   subcommand is added). Claude Desktop / Claude Code load this file
   verbatim — stale entries here mean the agent recommends commands the
@@ -124,7 +124,7 @@ know to set it during install. Keep `user_config` parallel with
 `API_KEYS.md` — both should list the same env vars.
 
 **The Claude Code plugin's SKILL.md is generated** from
-`skill/social-fetch/SKILL.md` via `make plugin-build` — it's the same
+`skills/social-fetch/SKILL.md` via `make plugin-build` — it's the same
 content with `scripts/social-fetch` rewritten to bare `social-fetch`
 (plugin assumes PATH install). After editing the standalone SKILL.md,
 run `make plugin-build` and commit the regenerated

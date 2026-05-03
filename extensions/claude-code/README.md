@@ -64,5 +64,5 @@ for what each provider unlocks.
 ## See also
 
 - [`mcpb-extension/`](https://github.com/jedi4ever/social-skills/tree/main/mcpb-extension) — Claude Desktop Extension (one-click install with API-key prompt UI)
-- [`skill/social-fetch/`](https://github.com/jedi4ever/social-skills/tree/main/skill/social-fetch) — Standalone skill (Claude Desktop, no plugin wrapper)
+- [`skills/social-fetch/`](https://github.com/jedi4ever/social-skills/tree/main/skills/social-fetch) — Standalone skill (Claude Desktop, no plugin wrapper)
 - [`social-fetch mcp --ngrok`](https://github.com/jedi4ever/social-skills/blob/main/INSTALL.md#option-b-remote-mcp-via-ngrok) — Remote MCP for claude.ai
