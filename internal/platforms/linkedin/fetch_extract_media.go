@@ -7,6 +7,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/platforms/article"
 )
 
 // SOCIAL_FETCH_MIN_IMAGE_SIZE controls the smallest image dimension
@@ -56,6 +57,11 @@ func extractMedia(doc *html.Node) []core.Media {
 		return nil
 	}
 	var out []core.Media
+	// Dedup by stable identity, not full URL — LinkedIn serves the
+	// same feedshare image at multiple resolutions inside a single
+	// post (responsive srcset variants). MediaDedupKey collapses
+	// `feedshare-shrink_800/.../1777408874005` vs
+	// `feedshare-shrink_2048/.../1777408874005` to the same entry.
 	seen := map[string]bool{}
 	var walk func(*html.Node, []string)
 	walk = func(n *html.Node, ancestorClasses []string) {
@@ -65,9 +71,12 @@ func extractMedia(doc *html.Node) []core.Media {
 				ancestorClasses = append(ancestorClasses, strings.ToLower(class))
 			}
 			if n.Data == "img" {
-				if m, ok := mediaFromImg(n, ancestorClasses); ok && !seen[m.URL] {
-					out = append(out, m)
-					seen[m.URL] = true
+				if m, ok := mediaFromImg(n, ancestorClasses); ok {
+					key := article.MediaDedupKey(m.URL)
+					if !seen[key] {
+						out = append(out, m)
+						seen[key] = true
+					}
 				}
 			}
 		}
@@ -164,23 +173,23 @@ func mediaFromImg(n *html.Node, ancestorClasses []string) (core.Media, bool) {
 // class="icons-loaded">` (which would otherwise be matched by a
 // bare `icon` substring and kill every image in the document).
 var mediaChromeDeny = []string{
-	"avatar",         // any avatar variant
-	"actor-image",    // post author thumbnail
-	"actor__avatar",  // post author thumbnail (variant)
-	"presence-",      // online-status indicator overlay (strict prefix)
-	"badge-",         // reaction badge / verification badge (strict prefix)
-	"reaction-",      // like/celebrate/etc reaction icon (strict prefix)
-	"social-detail",  // reaction summary row
-	"comment-",       // images inside comments (separate from post)
-	"reply-",         // replies-thread images
-	"company-logo",   // shared-link source logo
-	"organization-",  // company branding
-	"emoji",          // unicode-ish emoji image
-	"global-nav",     // top nav avatars / logos
-	"profile-photo",  // explicit profile photo class
+	"avatar",               // any avatar variant
+	"actor-image",          // post author thumbnail
+	"actor__avatar",        // post author thumbnail (variant)
+	"presence-",            // online-status indicator overlay (strict prefix)
+	"badge-",               // reaction badge / verification badge (strict prefix)
+	"reaction-",            // like/celebrate/etc reaction icon (strict prefix)
+	"social-detail",        // reaction summary row
+	"comment-",             // images inside comments (separate from post)
+	"reply-",               // replies-thread images
+	"company-logo",         // shared-link source logo
+	"organization-",        // company branding
+	"emoji",                // unicode-ish emoji image
+	"global-nav",           // top nav avatars / logos
+	"profile-photo",        // explicit profile photo class
 	"profile-displayphoto", // licdn-served profile picture path
-	"recommendation", // "people also viewed" thumbnails
-	"author-card",    // article-author headshot
+	"recommendation",       // "people also viewed" thumbnails
+	"author-card",          // article-author headshot
 }
 
 // isTinyImage returns true for images whose width / height attribute

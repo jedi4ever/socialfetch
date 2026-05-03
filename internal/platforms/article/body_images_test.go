@@ -160,6 +160,66 @@ func TestAppendBodyImages(t *testing.T) {
 	}
 }
 
+// TestMediaDedupKey covers the platform-specific URL shapes the
+// helper has to collapse to a single identity. Same image at
+// different resolutions / different transforms must produce the
+// same key.
+func TestMediaDedupKey(t *testing.T) {
+	cases := []struct {
+		name string
+		urls []string // URLs that must all produce the same key
+	}{
+		{
+			name: "Medium resize variants",
+			urls: []string{
+				"https://miro.medium.com/v2/resize:fit:1200/1*lvyzj9ugwf9g6WB5Y49Cxw.jpeg",
+				"https://miro.medium.com/v2/resize:fit:2000/1*lvyzj9ugwf9g6WB5Y49Cxw.jpeg",
+				"https://miro.medium.com/v2/resize:fit:800/1*lvyzj9ugwf9g6WB5Y49Cxw.jpeg",
+			},
+		},
+		{
+			name: "LinkedIn feedshare resolution variants",
+			urls: []string{
+				"https://media.licdn.com/dms/image/v2/D5622AQF6/feedshare-shrink_800/B56/0/1777408874005",
+				"https://media.licdn.com/dms/image/v2/D5622AQF6/feedshare-shrink_2048/B56/0/1777408874005",
+			},
+		},
+		{
+			name: "Substack fetch URL with embedded source — all resolutions of same source",
+			urls: []string{
+				"https://substackcdn.com/image/fetch/$s_!x50L!,w_1200,h_675,c_fill/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fabc-123.png",
+				"https://substackcdn.com/image/fetch/$s_!x50L!,w_400,h_225,c_fill/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fabc-123.png",
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if len(c.urls) < 2 {
+				t.Fatal("test needs >=2 URLs to verify dedup")
+			}
+			keys := make([]string, len(c.urls))
+			for i, u := range c.urls {
+				keys[i] = MediaDedupKey(u)
+			}
+			for i := 1; i < len(keys); i++ {
+				if keys[i] != keys[0] {
+					t.Errorf("URLs that should dedup produced different keys:\n  %s → %q\n  %s → %q",
+						c.urls[0], keys[0], c.urls[i], keys[i])
+				}
+			}
+		})
+	}
+
+	// Different images must NOT collide.
+	t.Run("different images stay different", func(t *testing.T) {
+		a := MediaDedupKey("https://miro.medium.com/v2/resize:fit:1200/1*aaa.jpeg")
+		b := MediaDedupKey("https://miro.medium.com/v2/resize:fit:1200/1*bbb.jpeg")
+		if a == b {
+			t.Errorf("distinct images collided: a=%q b=%q", a, b)
+		}
+	})
+}
+
 // TestBestImageSrc covers the lazy-loading priority: data-src wins
 // over data-original wins over data-lazy-src wins over srcset wins
 // over plain src.

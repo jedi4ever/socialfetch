@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "social-skills",
   "display_name": "social-skills — for AI agents",
-  "version": "0.10.15",
+  "version": "0.10.16",
   "description": "Social-web skills for AI agents. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE), ask (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI), and a local SQLite-backed ledger of every fetched URL.",
   "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status / read_file plus seven social_ledger_* tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Big-payload tools (fetch / ask / research / ledger_get) write the rendered body to a temp file and return a small JSON envelope with metadata + a content_file path — keeps article bodies off the JSON-RPC encode path. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits.",
   "author": {
@@ -58,7 +58,7 @@
     }
   },
   "tools": [
-    {"name": "social_fetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic). Returns a small envelope + content_file (read with social_fetch_read_file). Adds a `hint` field when extraction looks thin (likely JS-rendered SPA)."},
+    {"name": "social_fetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic). Returns a small envelope + content_file (read with social_fetch_read_file). Includes a `media[]` array of {url, type, alt} for any images / diagrams / video posters in the post — the agent's vision tool reads each media URL directly when the user asks about visual content. Adds a `hint` field when extraction looks thin (likely JS-rendered SPA)."},
     {"name": "social_fetch_search", "description": "Search the web or a specific platform. Supports -p auto fallback chains. PAGINATION: offset-paginated providers (serpapi, serpapi-news, hackernews, arxiv, brave, google) take `start: N`; cursor-paginated providers (reddit, x, youtube, bluesky) take `cursor: <token>` and the response includes `next_cursor` to pass back. The `serpapi-news` variant queries Google's News tab."},
     {"name": "social_fetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI). Answer body lives in content_file; sources stay inline."},
     {"name": "social_fetch_timeline", "description": "Recent activity for a user on X or LinkedIn."},

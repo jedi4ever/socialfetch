@@ -17,6 +17,7 @@ package article
 // affect every platform's body-image extraction.
 
 import (
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -26,6 +27,47 @@ import (
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
+
+// MediaDedupKey returns a stable identity for an image URL so that
+// resolution variants of the same underlying image collapse to one
+// entry in Item.Media. Exported because LinkedIn's per-platform
+// extractor (different package) reuses it for the same purpose.
+//
+// The strategy is "last path segment after URL-decoding any embedded
+// URLs" — works for the three patterns we hit in real life:
+//
+//   - Medium: .../v2/resize:fit:1200/1*xxx.jpeg → 1*xxx.jpeg
+//   - Medium: .../v2/resize:fit:2000/1*xxx.jpeg → 1*xxx.jpeg (dedups)
+//   - Substack: ...image/fetch/$s_!shiQ!,w_1200,h_675,.../https%3A%2F%2F...
+//     → unwrap embedded URL → final segment
+//   - LinkedIn: .../feedshare-shrink_800/B56.../0/1777408874005?...
+//     → 1777408874005 (same across resolution variants)
+//   - Anything else: full URL (no dedup, safe default)
+//
+// When two URLs produce the same key, the FIRST one seen wins —
+// callers can sort the input order to prefer higher resolutions.
+func MediaDedupKey(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	path := u.Path
+	// Substack-style fetch URLs embed the source URL inside the
+	// path (URL-encoded). Unwrap once so the dedup key is the
+	// underlying file rather than the wrapper transform.
+	if i := strings.Index(path, "https%3A"); i >= 0 {
+		if decoded, derr := url.PathUnescape(path[i:]); derr == nil && decoded != path[i:] {
+			return MediaDedupKey(decoded)
+		}
+	}
+	if i := strings.LastIndex(path, "/"); i >= 0 && i < len(path)-1 {
+		return path[i+1:]
+	}
+	if path != "" {
+		return path
+	}
+	return rawURL
+}
 
 const minImageSizeEnv = "SOCIAL_FETCH_MIN_IMAGE_SIZE"
 
@@ -66,9 +108,14 @@ func AppendBodyImages(item *core.Item, page *htmlmeta.Page, selectors []string, 
 	if root == nil {
 		return
 	}
+	// Dedup by stable identity (MediaDedupKey) rather than by full
+	// URL so resolution variants of the same image (Medium's
+	// resize:fit:1200 vs resize:fit:2000) collapse to a single
+	// entry. Pre-seed with whatever's already on item.Media so the
+	// hero from BaseFromPage doesn't get duplicated.
 	seen := map[string]bool{}
 	for _, m := range item.Media {
-		seen[m.URL] = true
+		seen[MediaDedupKey(m.URL)] = true
 	}
 	threshold := minImageSize()
 	walkImages(root, func(n *html.Node) {
@@ -76,7 +123,8 @@ func AppendBodyImages(item *core.Item, page *htmlmeta.Page, selectors []string, 
 		if src == "" || !host(src) {
 			return
 		}
-		if seen[src] {
+		key := MediaDedupKey(src)
+		if seen[key] {
 			return
 		}
 		if isChromeImage(n) {
@@ -90,7 +138,7 @@ func AppendBodyImages(item *core.Item, page *htmlmeta.Page, selectors []string, 
 			Type: "image",
 			Alt:  cleanAlt(getAttr(n, "alt")),
 		})
-		seen[src] = true
+		seen[key] = true
 	})
 }
 

@@ -210,7 +210,7 @@ type fetchArgs struct {
 
 func addFetchTool(s *server.MCPServer, cfg Config) {
 	tool := mcp.NewTool("social_fetch_fetch",
-		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a small JSON envelope (url/title/author/source/kind/score/summary/comment_count + `content_file` path) with the rendered markdown body written to a temp file. Read the body with the agent's Read tool (Claude Code) or `social_fetch_read_file` (Claude Desktop). Set `inline: true` to get the full Item in the response instead — slower for large articles but useful when piping into another tool."),
+		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a small JSON envelope (url/title/author/source/kind/score/summary/comment_count/content_file). Read the body with the agent's Read tool (Claude Code) or `social_fetch_read_file` (Claude Desktop). The envelope also carries a `media[]` array of {url, type, alt} for every image / diagram / video poster in the post — when the user asks about visual content (\"what's on the diagram?\", \"describe the screenshot\"), the agent's vision-capable Read tool reads each media URL directly with no extra MCP call. Set `inline: true` to get the full Item in the response instead — slower for large articles but useful when piping into another tool."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("The URL to fetch")),
 		mcp.WithBoolean("include_comments", mcp.Description("Include comment trees (default true; set false for faster/smaller fetch)")),
 		mcp.WithNumber("max_comments", mcp.Description("Cap total comments per item (0 = no cap)")),
@@ -294,12 +294,24 @@ func fetchEnvelope(item *core.Item, hint, tool string) (*mcp.CallToolResult, err
 		"content_file":  path,
 		"content_bytes": n,
 		"comment_count": countComments(item.Comments),
-		"media_count":   len(item.Media),
 		"child_count":   len(item.Children),
 		"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
 	}
 	if item.RequestURL != "" && item.RequestURL != item.URL {
 		env["request_url"] = item.RequestURL
+	}
+	// Surface the full Media slice (URLs + types + alt text) in the
+	// envelope when the post has any. The agent's vision tool reads
+	// images directly by URL — when the user asks "what's on the
+	// diagram?" or "describe the picture", the agent uses one of
+	// these URLs without re-fetching the post. media_hint tells the
+	// agent the URLs are here for that purpose.
+	if len(item.Media) > 0 {
+		env["media"] = item.Media
+		env["media_count"] = len(item.Media)
+		env["media_hint"] = "Each `media[].url` is directly readable by the agent's vision tool. If the user asks about images / diagrams / screenshots in this post, fetch the URL with the agent's image-capable Read tool (Claude Code / Claude Desktop) — no extra MCP call needed. `alt` is the author-supplied caption when present; empty alt usually means it's worth looking at the image."
+	} else {
+		env["media_count"] = 0
 	}
 	if hint != "" {
 		env["hint"] = hint

@@ -68,6 +68,7 @@ Already-exported shell vars always win over file entries.
 ## Decision rules
 
 - **One URL → fetch it.** `scripts/social-fetch fetch <url>` auto-detects the source from the host (HN, Reddit, GitHub, X, RSS, or generic article).
+- **Images / diagrams in the post →** every fetched item carries a `Media` list (LinkedIn post photos, X/Twitter media, Medium/Substack figures, YouTube thumbnails, generic article images). The MCP `social_fetch_fetch` envelope surfaces this as a `media[]` array of `{url, type, alt}` entries. When the user asks "what's on the picture / diagram / screenshot in this post", the agent's vision-capable Read tool (Claude Code / Claude Desktop) can read each `media[].url` directly — no extra fetch call. Empty `alt` usually means the image is worth looking at; populated `alt` is the author's caption. Same data is in the `## Media` section of the markdown content.
 - **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | scripts/social-fetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
 - **A user's recent posts → timeline.** `scripts/social-fetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
