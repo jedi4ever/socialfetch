@@ -78,6 +78,10 @@ func TestFetch(t *testing.T) {
 	defer srv.Close()
 	f := New()
 	f.BaseURL = srv.URL
+	// Disable body enrichment so the test stays hermetic — otherwise
+	// Fetch would probe real arxiv.org/html/ + r.jina.ai. The
+	// enrichment path has its own coverage in fetch_live_test.go.
+	f.EnrichBody = false
 
 	item, err := f.Fetch(context.Background(),
 		"https://arxiv.org/abs/2403.04132",

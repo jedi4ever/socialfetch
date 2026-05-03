@@ -63,6 +63,40 @@ func (Fetcher) Match(u *url.URL) bool {
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	ctx = core.WithAudit(ctx, opts.Audit)
 
+	// PDF early-exit. Local extractors don't read PDFs at all (they
+	// expect HTML), so anything that looks like a PDF gets routed
+	// through PDFReader (Jina by default, configurable via
+	// PDF_READER). We check the URL extension up front rather than
+	// HEAD-probing first — saves a network round trip on the common
+	// case (URL ends in .pdf) at the cost of one false negative class
+	// (PDFs served from extension-less URLs, which we'd discover
+	// through the failing HTML parse below; a future improvement is
+	// to retry via PDFReader on parse failure when the response's
+	// Content-Type is application/pdf).
+	if htmlmd.IsPDFURL(raw) {
+		reader := htmlmd.DefaultPDFReader()
+		if reader == nil {
+			return nil, fmt.Errorf("article: %s looks like a PDF but PDF_READER is disabled (set PDF_READER=jina or unset to enable the default Jina-based reader)", raw)
+		}
+		opts.Audit.Logf("article: PDF detected, routing via %T", reader)
+		md, err := reader.Read(ctx, raw)
+		if err != nil {
+			return nil, fmt.Errorf("article: PDF read: %w", err)
+		}
+		return &core.Item{
+			Source:      "article",
+			Kind:        "pdf",
+			URL:         raw,
+			CanonicalID: raw,
+			Content:     strings.TrimSpace(md),
+			FetchedAt:   time.Now().UTC(),
+			Extra: map[string]any{
+				"requested_url": raw,
+				"via":           "pdf-reader",
+			},
+		}, nil
+	}
+
 	// HTML2MD_READER=jina opts into a service-backed fetch path that
 	// runs the URL through r.jina.ai for cleaning. Useful when the
 	// site is behind Cloudflare or renders only via JS — Jina handles
