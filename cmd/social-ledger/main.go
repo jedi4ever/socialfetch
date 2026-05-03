@@ -75,6 +75,8 @@ func run(args []string) error {
 		return cmdSeen(args[1:])
 	case "record":
 		return cmdRecord(args[1:])
+	case "watch":
+		return cmdWatch(args[1:])
 	case "mirror":
 		return cmdMirror(args[1:])
 	case "version", "--version", "-v":
@@ -147,6 +149,9 @@ COMMANDS
   record <url>           store one URL+content pair in the ledger
                          (content on stdin or via --content FILE;
                          use after Claude WebFetch / external curl)
+  watch                  tail the ledger audit log and pretty-print
+                         events as they happen (--tail N, --since DUR,
+                         --raw, --filter)
   mirror sync            reconcile on-disk tree with the store
   mirror rebuild         nuke and recreate the tree from the store
   version                print version
