@@ -7,11 +7,12 @@
 // the YouTube Data API; just enable Generative Language API in your
 // Google Cloud project. Free tier covers casual use.
 //
-// Model: optional. We default to the auto-tracking
-// `gemini-flash-latest` alias — Google publishes that alongside
-// `gemini-pro-latest` and updates them when a new flagship ships,
-// so we don't have to chase version bumps. Pass `-m gemini-3-pro-preview`
-// (or any specific version) to override.
+// Model: optional. We default to `gemini-2.5-flash` — the
+// `gemini-flash-latest` and `gemini-pro-latest` aliases now resolve
+// to paid-tier models (return HTTP 429 on free-tier keys), so we
+// pin to a specific free-tier version. Bump this when Google
+// retires the model. Pass `-m <model>` to override (e.g.
+// `-m gemini-2.5-pro` for the larger model on a paid key).
 //
 // Refs:
 //
@@ -35,7 +36,7 @@ import (
 
 const (
 	defaultAskBase  = "https://generativelanguage.googleapis.com/v1beta"
-	defaultAskModel = "gemini-flash-latest" // auto-tracking alias; see file header
+	defaultAskModel = "gemini-2.5-flash" // free-tier eligible; see file header
 )
 
 // longAskClient handles Gemini grounding requests, which routinely

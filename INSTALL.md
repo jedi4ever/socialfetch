@@ -359,6 +359,24 @@ to obtain each one. Free tier coverage:
 | `tavily` | `TAVILY_API_KEY` | free: 1,000 searches/month |
 | `serpapi` | `SERPAPI_KEY` | free: 100 searches/month |
 
+### Search providers at a glance
+
+| provider | env var | pricing | notes |
+|---|---|---|---|
+| `duckduckgo` | — | free | no auth, anonymous |
+| `brave` | `BRAVE_API_KEY` | free: 2,000/month | native `--last 7d`; recommended general web search |
+| `tavily` | `TAVILY_API_KEY` | free: 1,000/month | AI-tuned readability + grounded snippets |
+| `serpapi` | `SERPAPI_KEY` | free: 100/month, then $50/mo for 5k | full Google SERP, pagination, news mode (`-p serpapi-news`) |
+| `perplexity` | `PERPLEXITY_API_KEY` | pay-per-search | raw Perplexity index without LLM synthesis |
+| `google` | `GOOGLE_API_KEY` + `GOOGLE_CSE_ID` | free: 100/day, then $5/1k | **NOTE: Google removed the "Search the entire web" toggle for new Custom Search Engines in 2024.** New CSEs are restricted to your listed sites only — useless as a general web-search alternative. Existing CSEs that had it toggled on may still work. For general web search, use `serpapi` / `brave` / `tavily` instead. |
+| `hackernews` | — | free | Algolia search |
+| `reddit` | — | free | rate-limited per IP |
+| `x` / `twitter` | `X_API_KEY` + `X_API_SECRET` | tier-dependent | recent 7 days only |
+| `youtube` | `YOUTUBE_API_KEY` | free: 10k units/day | native `--last 7d` |
+| `bluesky` | `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD` | free | needs app-password |
+| `arxiv` | — | free | papers; supports field prefixes |
+| `linkedin` | (bridge) | free | requires browser bridge + login; rate-limit-prone |
+
 See [API_KEYS.md](API_KEYS.md) for sign-up walkthroughs per provider.
 
 ## Bridge (LinkedIn, Medium, Substack paywalls, X bookmarks)

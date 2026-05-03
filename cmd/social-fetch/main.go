@@ -1252,7 +1252,7 @@ func searchAuthHint(name string) string {
 	case "perplexity":
 		return "(requires PERPLEXITY_API_KEY; raw search results, no LLM synthesis)"
 	case "google":
-		return "(requires GOOGLE_API_KEY + GOOGLE_CSE_ID; 100 q/day free)"
+		return "(requires GOOGLE_API_KEY + GOOGLE_CSE_ID; 100 q/day free. NOTE: Google removed 'Search the entire web' for new CSEs in 2024 — new keys are now restricted to your listed sites only. Use serpapi / brave / tavily for general web search.)"
 	case "brave":
 		return "(requires BRAVE_API_KEY; native --last 7d via freshness)"
 	case "serpapi":
