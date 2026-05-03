@@ -1,10 +1,13 @@
 # socialfetch — build and test targets.
 # Run 'make' with no arguments to see all available targets.
 
-BIN              := ./dist/socialfetch
-LEDGER_CMD_BIN   := ./dist/socialfetch-ledger
-SKILL_BIN        := ./skill/socialfetch/scripts/socialfetch
-SKILL_LEDGER_BIN := ./skill/socialfetch/scripts/socialfetch-ledger
+BIN                     := ./dist/socialfetch
+LEDGER_CMD_BIN          := ./dist/socialfetch-ledger
+SKILL_BIN               := ./skill/socialfetch/scripts/socialfetch
+SKILL_LEDGER_BIN        := ./skill/socialfetch/scripts/socialfetch-ledger
+LEDGER_SKILL_DIR        := ./skill/socialfetch-ledger
+LEDGER_SKILL_BIN        := ./skill/socialfetch-ledger/scripts/socialfetch-ledger
+LEDGER_SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch-ledger
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
 
@@ -20,7 +23,8 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
 .PHONY: all help build install test test-integration test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
         bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
-        ledger-build ledger-test
+        ledger-build ledger-test \
+        ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -143,6 +147,49 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 # The version string comes from `socialfetch version` so the zip
 # filename always tracks the binary's reported version, not a stale
 # Makefile constant.
+# socialfetch-ledger ships as a separate skill at
+# skill/socialfetch-ledger/ — its own SKILL.md scoped to the
+# ledger subcommands (seen, get, list, search, record, …) so an
+# agent that wants ledger access doesn't have to load the full
+# socialfetch fetch surface. Bundles the same binary as the
+# main skill (the binary is fungible — the skills differ only
+# in SKILL.md and which subcommands the agent is allowed to
+# invoke).
+LEDGER_SKILL_PACKAGE_STAGE := $(CURDIR)/dist/.ledger-skill-stage
+
+ledger-skill-build: $(LEDGER_SKILL_BIN)  ## Build socialfetch-ledger and copy into skill/socialfetch-ledger/scripts/
+$(LEDGER_SKILL_BIN): $(SKILL_DEPS)
+	@mkdir -p $(dir $(LEDGER_SKILL_BIN)) dist
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/socialfetch-ledger
+	cp $(LEDGER_CMD_BIN) $(LEDGER_SKILL_BIN)
+
+ledger-skill-install: ledger-skill-build  ## Install socialfetch-ledger skill into $(LEDGER_SKILL_INSTALL_DIR)
+	@mkdir -p $(LEDGER_SKILL_INSTALL_DIR)/scripts
+	cp $(LEDGER_SKILL_DIR)/SKILL.md $(LEDGER_SKILL_INSTALL_DIR)/SKILL.md
+	cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_INSTALL_DIR)/scripts/socialfetch-ledger
+	@echo "Installed ledger skill to $(LEDGER_SKILL_INSTALL_DIR)"
+
+ledger-skill-clean:  ## Uninstall the ledger skill
+	@if [ -d "$(LEDGER_SKILL_INSTALL_DIR)" ]; then \
+		rm -rf "$(LEDGER_SKILL_INSTALL_DIR)"; \
+		echo "Uninstalled ledger skill from $(LEDGER_SKILL_INSTALL_DIR)"; \
+	else \
+		echo "No ledger skill at $(LEDGER_SKILL_INSTALL_DIR) (already clean)"; \
+	fi
+	rm -f $(LEDGER_SKILL_BIN)
+
+ledger-skill-package: ledger-skill-build  ## Package the ledger skill as ./dist/socialfetch-ledger-skill-<version>.zip
+	@rm -rf $(LEDGER_SKILL_PACKAGE_STAGE)
+	@mkdir -p $(LEDGER_SKILL_PACKAGE_STAGE)/scripts
+	@cp $(LEDGER_SKILL_DIR)/SKILL.md $(LEDGER_SKILL_PACKAGE_STAGE)/SKILL.md
+	@cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_PACKAGE_STAGE)/scripts/socialfetch-ledger
+	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
+	OUT="$(CURDIR)/dist/socialfetch-ledger-skill-$$VERSION.zip"; \
+	rm -f "$$OUT"; \
+	(cd $(LEDGER_SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
+	rm -rf $(LEDGER_SKILL_PACKAGE_STAGE); \
+	echo "Packaged: dist/socialfetch-ledger-skill-$$VERSION.zip"
+
 skill-package: skill-build  ## Package the skill as ./dist/socialfetch-skill-<version>.zip
 	@rm -rf $(SKILL_PACKAGE_STAGE)
 	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts

@@ -62,6 +62,8 @@ func run(args []string) error {
 		return cmdForget(args[1:])
 	case "seen":
 		return cmdSeen(args[1:])
+	case "record":
+		return cmdRecord(args[1:])
 	case "mirror":
 		return cmdMirror(args[1:])
 	case "version", "--version", "-v":
@@ -131,6 +133,9 @@ COMMANDS
   forget <url>           drop one item from store + mirror
   seen [<url>...]        check whether URL(s) are in the ledger
                          (URLs from args, -i FILE, or stdin pipe)
+  record <url>           store one URL+content pair in the ledger
+                         (content on stdin or via --content FILE;
+                         use after Claude WebFetch / external curl)
   mirror sync            reconcile on-disk tree with the store
   mirror rebuild         nuke and recreate the tree from the store
   version                print version

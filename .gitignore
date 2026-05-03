@@ -34,3 +34,4 @@ coverage.out
 # Bundled skill ledger binary — built fresh by `make skill-build`,
 # same gitignored treatment as scripts/socialfetch.
 skill/socialfetch/scripts/socialfetch-ledger
+skill/socialfetch-ledger/scripts/socialfetch-ledger
