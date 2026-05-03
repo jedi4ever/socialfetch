@@ -1,18 +1,18 @@
-# socialfetch-ledger
+# social-ledger
 
-**Content + seen-ledger for `socialfetch` JSONL.** Stores everything
+**Content + seen-ledger for `social-fetch` JSONL.** Stores everything
 you've fetched in SQLite (with FTS5 full-text search), mirrors it to
 a markdown directory tree so agents can `grep`/`Read` against it, and
 filters JSONL streams to drop already-seen items.
 
 > Separate Go module so it can move to its own repo
-> (`jedi4ever/socialfetch-ledger`) without disturbing `socialfetch`'s
+> (`jedi4ever/social-skills-ledger`) without disturbing `social-fetch`'s
 > dep tree. The contract between the two binaries is **JSONL**, not
 > Go types.
 
 ## What problem it solves
 
-You're using `socialfetch` to research something — pulling HN
+You're using `social-fetch` to research something — pulling HN
 threads, articles, tweets, search results — across many sessions.
 Without a ledger:
 
@@ -23,14 +23,14 @@ Without a ledger:
 - **Token waste:** Perplexity rewrites the same summary because the
   agent has no memory.
 
-`socialfetch-ledger` is the persistent layer underneath. It's
-opt-in (you pipe to it) and stays out of `socialfetch`'s way.
+`social-ledger` is the persistent layer underneath. It's
+opt-in (you pipe to it) and stays out of `social-fetch`'s way.
 
 ## Install
 
 ```bash
-make build                  # → ./dist/socialfetch-ledger
-make install                # → $GOBIN/socialfetch-ledger
+make build                  # → ./dist/social-ledger
+make install                # → $GOBIN/social-ledger
 ```
 
 Pure-Go SQLite (`modernc.org/sqlite`), no CGO, single static binary.
@@ -39,35 +39,35 @@ Pure-Go SQLite (`modernc.org/sqlite`), no CGO, single static binary.
 
 ```bash
 # Pipe a fetch into the ledger
-socialfetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
-  | socialfetch-ledger ingest
+social-fetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
+  | social-ledger ingest
 
 # Search across what you've stored
-socialfetch-ledger search "tessl harness"
+social-ledger search "tessl harness"
 
 # Drop already-seen items from a search before sending to an agent
-socialfetch search "go 1.27" -f jsonl \
-  | socialfetch-ledger filter --skip-seen \
+social-fetch search "go 1.27" -f jsonl \
+  | social-ledger filter --skip-seen \
   | jq .
 
 # Browse recent items
-socialfetch-ledger list --source hackernews --since 7d
+social-ledger list --source hackernews --since 7d
 
 # Print one item by URL
-socialfetch-ledger get https://news.ycombinator.com/item?id=1
+social-ledger get https://news.ycombinator.com/item?id=1
 
 # How big is this getting?
-socialfetch-ledger stats
+social-ledger stats
 ```
 
 ## Storage layout
 
-Default location: `$XDG_DATA_HOME/socialfetch-ledger` or
-`~/.local/share/socialfetch-ledger`. Override with `--data-dir`
+Default location: `$XDG_DATA_HOME/social-ledger` or
+`~/.local/share/social-ledger`. Override with `--data-dir`
 on any subcommand or set `SOCIALFETCH_LEDGER_DIR`.
 
 ```
-~/.local/share/socialfetch-ledger/
+~/.local/share/social-ledger/
 ├── ledger.db                          # SQLite + FTS5, source of truth
 └── tree/                              # mirrored markdown, agent-friendly
     ├── by-source/
@@ -79,7 +79,7 @@ on any subcommand or set `SOCIALFETCH_LEDGER_DIR`.
 ```
 
 The DB is the source of truth; the tree is rebuildable from it
-(`socialfetch-ledger mirror rebuild`). Each `.md` file is YAML
+(`social-ledger mirror rebuild`). Each `.md` file is YAML
 frontmatter + the rendered Item content — agent-friendly for
 `grep --include='*.md'` workflows.
 
@@ -100,15 +100,15 @@ frontmatter + the rendered Item content — agent-friendly for
 
 All subcommands accept `--data-dir <path>`. **Flags must come before
 positional args** (Go's `flag` package stops at the first non-flag
-arg) — e.g. `socialfetch-ledger search --data-dir /tmp/x "tessl"`.
+arg) — e.g. `social-ledger search --data-dir /tmp/x "tessl"`.
 
 ## Schema-drift tolerance
 
-`socialfetch` may add fields to its `Item` shape over time. The ledger
+`social-fetch` may add fields to its `Item` shape over time. The ledger
 unmarshals into a permissive struct: the fields it indexes on are
 typed (`source`, `url`, `title`, `content`, `score`, `tags`,
 `fetched_at`); everything else round-trips through `Extra` as raw
-JSON. A new `socialfetch` field lands in the ledger without a code
+JSON. A new `social-fetch` field lands in the ledger without a code
 change and can be promoted to a typed column whenever the ledger
 catches up. Round-trip stability is locked in by `internal/item`'s
 test suite.
@@ -149,9 +149,9 @@ the parent repo's commit history. Short version:
 ## Versioning
 
 `Version` constant lives at the top of
-`cmd/socialfetch-ledger/main.go`. Bump on every user-visible change
+`cmd/social-ledger/main.go`. Bump on every user-visible change
 to subcommands, flags, schema, or mirror layout.
 
 ## License
 
-MIT — same as `socialfetch`.
+MIT — same as `social-fetch`.

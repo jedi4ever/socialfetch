@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
 )
 
 func newMirror(t *testing.T) *Mirror {

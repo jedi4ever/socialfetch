@@ -1,22 +1,22 @@
-# Installing socialfetch
+# Installing social-fetch
 
-socialfetch ships in four flavors, all wrapping the same Go binary —
+social-fetch ships in four flavors, all wrapping the same Go binary —
 pick whichever matches your install style:
 
 - **Option A — Claude Desktop Extension (.mcpb)**: drag-into-Settings
   installer with key prompts, secrets in OS keychain. Best UX for
   Claude Desktop users.
-- **Option B — Remote MCP server**: `socialfetch mcp --ngrok` runs
+- **Option B — Remote MCP server**: `social-fetch mcp --ngrok` runs
   the protocol over HTTPS so cloud-hosted clients (claude.ai,
   Perplexity, Claude Code's `mcp add http`) can connect to your
   local binary. Keys stay in your `.env` / shell.
 - **Option C — Skill**: file-based, drop SKILL.md + the binary into
-  `~/.claude/skills/socialfetch/`, manage `.env` yourself. Works in
+  `~/.claude/skills/social-fetch/`, manage `.env` yourself. Works in
   Claude Desktop and Claude Code; no plan-tier gating.
 - **Option D — Claude Code plugin (marketplace)**:
-  `/plugin marketplace add jedi4ever/socialfetch` then
-  `/plugin install socialfetch`. Same skill content, distributed via
-  Claude Code's plugin system. Requires the `socialfetch` binary on
+  `/plugin marketplace add jedi4ever/social-skills` then
+  `/plugin install social-fetch`. Same skill content, distributed via
+  Claude Code's plugin system. Requires the `social-fetch` binary on
   PATH separately.
 
 ## Option A — Claude Desktop Extension (.mcpb)
@@ -27,19 +27,19 @@ stored in the macOS Keychain.
 ### Build
 
 ```bash
-git clone https://github.com/jedi4ever/socialfetch.git
-cd socialfetch
+git clone https://github.com/jedi4ever/social-skills.git
+cd social-fetch
 make claude-extension-package
 ```
 
-Produces `dist/socialfetch-claude-extension-<version>-darwin-arm64.mcpb`
+Produces `dist/social-skills-claude-extension-<version>-darwin-arm64.mcpb`
 (macOS Apple Silicon only at the moment — Phase 2 adds amd64 / Linux
 / Windows builds).
 
 ### Install (fastest path)
 
 ```bash
-open dist/socialfetch-claude-extension-0.2.0-darwin-arm64.mcpb
+open dist/social-skills-claude-extension-0.2.0-darwin-arm64.mcpb
 ```
 
 That hands the file off to Claude Desktop. Skip ahead to step 3 below.
@@ -60,7 +60,7 @@ That hands the file off to Claude Desktop. Skip ahead to step 3 below.
 4. Click **Install**. Six MCP tools become available in any new
    conversation: `fetch`, `search`, `ask`, `timeline`,
    `list_providers`, `bridge_status`.
-5. **Verify** — in a new conversation ask: *"use socialfetch to
+5. **Verify** — in a new conversation ask: *"use social-fetch to
    fetch https://news.ycombinator.com/item?id=1"*. Claude should
    call the `fetch` tool and return the parsed thread.
 
@@ -75,7 +75,7 @@ Update Claude Desktop and try again.
   **without** uninstalling first. Claude Desktop matches by manifest
   `name` and updates in place, keeping every keychain entry. The
   install dialog still appears but fields are pre-populated.
-- **Uninstall**: Settings → Extensions → ⋯ menu next to socialfetch
+- **Uninstall**: Settings → Extensions → ⋯ menu next to social-fetch
   → **Remove**.
 
 > ⚠️ **Don't uninstall before installing a new version** — uninstall
@@ -99,9 +99,9 @@ Or directly: `./node_modules/.bin/mcpb validate mcpb-extension/manifest.json`.
 
 # Option B — Remote MCP server (claude.ai, Perplexity, Claude Code)
 
-Use this when you want socialfetch reachable from a **cloud-hosted
+Use this when you want social-fetch reachable from a **cloud-hosted
 chat client** that connects to a remote MCP server over HTTPS rather
-than launching a local binary. The same `socialfetch mcp` subcommand
+than launching a local binary. The same `social-fetch mcp` subcommand
 runs the protocol over HTTP/Streamable instead of stdio; pair it with
 ngrok during local development to get a public HTTPS URL without
 standing up cloud infra.
@@ -109,18 +109,18 @@ standing up cloud infra.
 ## Quickest path (ngrok)
 
 ```bash
-socialfetch mcp --ngrok                # defaults to :8080
-socialfetch mcp --ngrok --http :9090   # override the port
+social-fetch mcp --ngrok                # defaults to :8080
+social-fetch mcp --ngrok --http :9090   # override the port
 ```
 
 Output looks like:
 
 ```
-socialfetch mcp: bearer-token auth enabled (auto-generated (--ngrok))
-socialfetch mcp: listening on :8080 (Streamable HTTP)
+social-fetch mcp: bearer-token auth enabled (auto-generated (--ngrok))
+social-fetch mcp: listening on :8080 (Streamable HTTP)
 
 ──────────────────────────────────────────────────────────────
-  socialfetch MCP server is live via ngrok.
+  social-fetch MCP server is live via ngrok.
 
   URL:    https://abc-xyz.ngrok-free.dev/mcp
   Token:  bf8b008772dc29d78415cd5dc7e3693f5a191d6a831c2008ba909d39b0ebee2c
@@ -136,7 +136,7 @@ socialfetch mcp: listening on :8080 (Streamable HTTP)
 Three things to know:
 
 - **The URL changes between sessions on ngrok's free tier** (~8h max
-  per session). Re-run `socialfetch mcp --ngrok` to get a new one.
+  per session). Re-run `social-fetch mcp --ngrok` to get a new one.
 - **API keys come from `.env` / shell env on YOUR machine** — same
   resolver as the local skill. Cloud clients never see them.
 - **Bridge providers (LinkedIn / Medium / Substack) keep working**
@@ -153,7 +153,7 @@ curl https://abc-xyz.ngrok-free.dev/health   # same
 Tail incoming connections in another shell:
 
 ```bash
-socialfetch monitor
+social-fetch monitor
 # every probe lands as cmd=mcp:http with method+path+IP+status+duration
 ```
 
@@ -177,8 +177,8 @@ If you can see the panel:
    URL with the token embedded:
    `https://abc-xyz.ngrok-free.dev/mcp?token=<token>`. Same effect.
 
-Save → claude.ai will preflight the URL. The seven socialfetch tools
-(`socialfetch_fetch`, `_search`, `_ask`, `_timeline`, `_research`,
+Save → claude.ai will preflight the URL. The seven social-fetch tools
+(`social_fetch_fetch`, `_search`, `_ask`, `_timeline`, `_research`,
 `_list_providers`, `_bridge_status`) appear in any new conversation.
 
 ## Connect from Perplexity
@@ -200,7 +200,7 @@ is a spec, not an Anthropic format. Paste:
 2. **Authentication header**: `Authorization: Bearer <token>` (Perplexity's
    UI typically asks for the header name + value separately; some
    variants ask just for an API key and assume the Bearer prefix).
-3. **Description** (optional): "socialfetch — fetch / search / ask
+3. **Description** (optional): "social-fetch — fetch / search / ask
    / research / LinkedIn timelines via the local browser bridge."
 
 If Perplexity's UI rejects the URL with a generic "couldn't reach
@@ -209,7 +209,7 @@ your phone (different network) to rule out connectivity. If `/health`
 returns 200 from elsewhere on the internet, the issue is on
 Perplexity's connector setup side, not your tunnel.
 
-Tail `socialfetch monitor` while clicking "Save" in Perplexity's
+Tail `social-fetch monitor` while clicking "Save" in Perplexity's
 connector UI — every probe lands in the audit log, so you'll see
 exactly which method + path + auth header Perplexity sent (or
 whether anything reached you at all).
@@ -217,7 +217,7 @@ whether anything reached you at all).
 ## Connect from Claude Code (CLI)
 
 ```bash
-claude mcp add socialfetch https://abc-xyz.ngrok-free.dev/mcp \
+claude mcp add social-fetch https://abc-xyz.ngrok-free.dev/mcp \
   --transport http \
   --header "Authorization: Bearer <token>"
 ```
@@ -234,7 +234,7 @@ tunnel for a real host:
 |---|---|
 | **Fly.io** | `fly launch` from the repo, set secrets via `fly secrets set ANTHROPIC_API_KEY=...`, deploy. Same `--http :8080` binary, different supervisor. |
 | **Railway** | New project from GitHub repo, env vars in dashboard. |
-| **Your VPS** | systemd unit running `socialfetch mcp --http :8080`, nginx in front for TLS. |
+| **Your VPS** | systemd unit running `social-fetch mcp --http :8080`, nginx in front for TLS. |
 
 All three follow the same recipe: build a Linux binary
 (`GOOS=linux GOARCH=amd64 go build`), run with `MCP_AUTH_TOKEN=...`
@@ -246,19 +246,19 @@ search / ask / timeline-X / research) works unchanged.
 
 ---
 
-# Installing the `socialfetch` skill (Option C)
+# Installing the `social-fetch` skill (Option C)
 
-This guide walks through installing the bundled skill (`skill/socialfetch/`)
+This guide walks through installing the bundled skill (`skill/social-fetch/`)
 so it's discoverable by **Claude Desktop** and **Claude Code**. Both apps
 read skills from the same location: `~/.claude/skills/<name>/`.
 
 ## At a glance
 
 ```bash
-git clone https://github.com/jedi4ever/socialfetch.git
-cd socialfetch
+git clone https://github.com/jedi4ever/social-skills.git
+cd social-fetch
 make skill-install                  # builds the binary and copies it +
-                                    # SKILL.md to ~/.claude/skills/socialfetch/
+                                    # SKILL.md to ~/.claude/skills/social-fetch/
 ```
 
 That's it. Restart Claude Desktop and the skill appears in the available-skills
@@ -277,17 +277,17 @@ LinkedIn timeline, etc.).
 
 Inspect the target in `Makefile:50` if you're curious. In short:
 
-1. Builds `dist/socialfetch` from `cmd/socialfetch` with `-ldflags="-s -w"
+1. Builds `dist/social-fetch` from `cmd/social-fetch` with `-ldflags="-s -w"
    -trimpath` (smaller, reproducible binary).
-2. Copies the binary to `skill/socialfetch/scripts/socialfetch` (the bundled
+2. Copies the binary to `skill/social-fetch/scripts/social-fetch` (the bundled
    layout the skill expects).
-3. Copies both `skill/socialfetch/SKILL.md` and the binary to
-   `~/.claude/skills/socialfetch/` — the standard Anthropic skills directory.
+3. Copies both `skill/social-fetch/SKILL.md` and the binary to
+   `~/.claude/skills/social-fetch/` — the standard Anthropic skills directory.
 
 Override the destination with `SKILL_INSTALL_DIR`:
 
 ```bash
-make skill-install SKILL_INSTALL_DIR=/path/to/your/skills/socialfetch
+make skill-install SKILL_INSTALL_DIR=/path/to/your/skills/social-fetch
 ```
 
 ## Verifying
@@ -295,15 +295,15 @@ make skill-install SKILL_INSTALL_DIR=/path/to/your/skills/socialfetch
 After install, the directory should look like this:
 
 ```
-~/.claude/skills/socialfetch/
+~/.claude/skills/social-fetch/
 ├── SKILL.md             # frontmatter + usage docs Claude reads
 └── scripts/
-    └── socialfetch      # the Go binary
+    └── social-fetch      # the Go binary
 ```
 
 **In Claude Desktop:** start a new conversation and ask something like *"fetch
 https://news.ycombinator.com/item?id=1"*. Claude should pick up the skill,
-shell out to `scripts/socialfetch fetch <url>`, and return the rendered
+shell out to `scripts/social-fetch fetch <url>`, and return the rendered
 markdown. If it doesn't, check that Claude Desktop is reading from
 `~/.claude/skills/` (some early builds used a different path — see
 **Troubleshooting** below).
@@ -317,7 +317,7 @@ Drop a `.env` file alongside the binary or in your working directory:
 
 ```bash
 # Choose one location:
-echo 'TAVILY_API_KEY=...' >> ~/.claude/skills/socialfetch/.env
+echo 'TAVILY_API_KEY=...' >> ~/.claude/skills/social-fetch/.env
 # OR put it in any directory you launch Claude Desktop from.
 ```
 
@@ -329,9 +329,9 @@ walking up from two starting points (up to 4 levels, stopping at
    a project with a root `.env` finds it (e.g. cwd
    `~/dev/myapp/scripts/` walks up to `~/dev/myapp/.env`).
 2. **Binary location upward** — handles the skill install layout
-   `~/.claude/skills/socialfetch/scripts/socialfetch` finding
-   `~/.claude/skills/socialfetch/.env` one level up. The exact path
-   `~/.claude/skills/socialfetch/.env` is what the install
+   `~/.claude/skills/social-fetch/scripts/social-fetch` finding
+   `~/.claude/skills/social-fetch/.env` one level up. The exact path
+   `~/.claude/skills/social-fetch/.env` is what the install
    instructions below assume.
 
 See [API_KEYS.md](API_KEYS.md) for the full list of supported keys and where
@@ -375,14 +375,14 @@ reuse your **already-logged-in browser session**:
 1. Open Chrome → `chrome://extensions/` → enable **Developer mode**.
 2. Click **Load unpacked** → select the `chrome-extension/` directory inside this
    repo.
-3. The socialfetch extension icon appears in the toolbar.
+3. The social-fetch extension icon appears in the toolbar.
 
 ### Per-session
 
 ```bash
-socialfetch bridge start          # daemonize, write PID file
-socialfetch bridge status         # 'connected' / 'not connected' / 'not running'
-socialfetch bridge stop           # graceful SIGTERM
+social-fetch bridge start          # daemonize, write PID file
+social-fetch bridge status         # 'connected' / 'not connected' / 'not running'
+social-fetch bridge stop           # graceful SIGTERM
 ```
 
 The bridge runs at `http://127.0.0.1:5555` by default. Override with
@@ -404,30 +404,30 @@ re-running `skill-install` always installs the current tip.
 ## Uninstalling
 
 ```bash
-make skill-clean        # removes ~/.claude/skills/socialfetch and ./bin
+make skill-clean        # removes ~/.claude/skills/social-fetch and ./bin
 ```
 
 ## Troubleshooting
 
 **"Skill doesn't appear in Claude Desktop after install."**
 - Restart Claude Desktop fully (quit + relaunch, not just close window).
-- Confirm the install location: `ls -la ~/.claude/skills/socialfetch/`
-  should show `SKILL.md` and `scripts/socialfetch`.
+- Confirm the install location: `ls -la ~/.claude/skills/social-fetch/`
+  should show `SKILL.md` and `scripts/social-fetch`.
 - Some Claude Desktop builds expect a slightly different path. If
   `~/.claude/skills/` doesn't work, check **Settings → Skills** for the
   configured directory and override with `SKILL_INSTALL_DIR=...`.
 
 **"Skill is found but the binary fails to run."**
 - Make sure the binary is executable: `chmod +x
-  ~/.claude/skills/socialfetch/scripts/socialfetch`.
+  ~/.claude/skills/social-fetch/scripts/social-fetch`.
 - If you see a "no such file" error on macOS, you may need to clear the
   Gatekeeper quarantine: `xattr -d com.apple.quarantine
-  ~/.claude/skills/socialfetch/scripts/socialfetch`.
+  ~/.claude/skills/social-fetch/scripts/social-fetch`.
 
 **"Bridge not running" when fetching a LinkedIn URL.**
-- Run `socialfetch bridge status` to confirm.
-- Run `socialfetch bridge start` if it's not running.
-- Run `socialfetch bridge status` again — if it says *connected* you're
+- Run `social-fetch bridge status` to confirm.
+- Run `social-fetch bridge start` if it's not running.
+- Run `social-fetch bridge status` again — if it says *connected* you're
   set; if *not connected*, open Chrome with the extension loaded.
 
 **"X search returns 0 results within the last 7 days."**
@@ -439,35 +439,35 @@ make skill-clean        # removes ~/.claude/skills/socialfetch and ./bin
 
 - File-level conventions: see [CLAUDE.md](CLAUDE.md) at the repo root.
 - Feature requests / bugs: open an issue at
-  https://github.com/jedi4ever/socialfetch/issues.
+  https://github.com/jedi4ever/social-skills/issues.
 
 ---
 
 # Option D — Claude Code plugin (marketplace)
 
 For users who live in Claude Code (the CLI) rather than Claude Desktop,
-socialfetch ships as a Claude Code **plugin** that wraps the same skill
+social-fetch ships as a Claude Code **plugin** that wraps the same skill
 markdown without an MCP server. One-line install via the plugin
 marketplace:
 
 ```
-/plugin marketplace add jedi4ever/socialfetch
-/plugin install socialfetch
+/plugin marketplace add jedi4ever/social-skills
+/plugin install social-fetch
 ```
 
 The plugin lives at [`claude-code-plugin/`](claude-code-plugin/) in
 this repo; the marketplace manifest is at
 [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 
-**Prerequisite:** the `socialfetch` binary must be on your PATH. The
+**Prerequisite:** the `social-fetch` binary must be on your PATH. The
 plugin is purely the skill markdown + manifest — it does not bundle
 the binary. Install once with `go install` or by downloading a
 release:
 
 ```bash
-go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
-# or download from https://github.com/jedi4ever/socialfetch/releases
-socialfetch version    # confirm
+go install github.com/jedi4ever/social-skill./cmd/social-fetch@latest
+# or download from https://github.com/jedi4ever/social-skills/releases
+social-fetch version    # confirm
 ```
 
 For local development (testing changes before publishing), point

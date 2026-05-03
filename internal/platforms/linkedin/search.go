@@ -22,8 +22,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // SearchProvider implements core.SearchProvider for LinkedIn. Bridge

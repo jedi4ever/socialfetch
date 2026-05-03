@@ -1,6 +1,6 @@
 // Package research is the EXPERIMENTAL research orchestrator. It
 // decomposes a question into angles via an Asker (LLM call), fans
-// each angle out concurrently to the matching socialfetch primitive
+// each angle out concurrently to the matching social-fetch primitive
 // (fetch / search / ask / timeline), then synthesizes the findings
 // into a single markdown report — also via an Asker call.
 //
@@ -18,7 +18,7 @@ package research
 import (
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // Angle is one piece of the decomposed question, executable as a

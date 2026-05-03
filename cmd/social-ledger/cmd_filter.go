@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // cmdFilter is a Unix-style filter: read JSONL on stdin, emit JSONL
@@ -20,8 +20,8 @@ import (
 // This is the canonical way to wire ledger awareness into another
 // tool without that tool needing a SQLite client:
 //
-//	socialfetch search "X" -f jsonl \
-//	  | socialfetch-ledger filter --skip-seen \
+//	social-fetch search "X" -f jsonl \
+//	  | social-ledger filter --skip-seen \
 //	  | <consumer>
 //
 // Stats land on stderr ("of 47 items, 12 dropped as seen") so the

@@ -39,7 +39,7 @@ func DefaultOptions() Options {
 //
 // In addition to the user-facing destination (typically stderr or a file
 // passed via -l), the logger optionally tees to a global JSONL writer
-// shared across every socialfetch invocation — see audit_global.go and
+// shared across every social-fetch invocation — see audit_global.go and
 // the `monitor` subcommand. The two destinations are independent so
 // the user's chosen verbosity doesn't constrain the audit trail.
 type AuditLogger struct {

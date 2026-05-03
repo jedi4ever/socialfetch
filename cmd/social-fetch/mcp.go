@@ -30,11 +30,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/mcp"
-	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
-	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/mcp"
+	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
 )
 
 func runMCP(args []string) error {
@@ -128,7 +128,7 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 	}
 
 	// Open the global audit log once at startup so per-request lines
-	// show up under `socialfetch monitor` next to every other audit
+	// show up under `social-fetch monitor` next to every other audit
 	// event (CLI, MCP-stdio, etc.). Audit failures don't gate the
 	// HTTP server — operator can still tail server stderr.
 	audit := core.NewAuditLogger(nil)
@@ -170,10 +170,10 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 	mcpHandler := http.Handler(streamable)
 	if token != "" {
 		mcpHandler = bearerAuth(token, mcpHandler)
-		fmt.Fprintf(os.Stderr, "socialfetch mcp: bearer-token auth enabled (%s)\n", tokenSource)
+		fmt.Fprintf(os.Stderr, "social-fetch mcp: bearer-token auth enabled (%s)\n", tokenSource)
 	} else {
 		fmt.Fprintf(os.Stderr,
-			"socialfetch mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
+			"social-fetch mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
 				"  Set MCP_AUTH_TOKEN before exposing the listener via ngrok or any public URL.\n")
 	}
 	mux.Handle("/mcp", mcpHandler)
@@ -185,7 +185,7 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	fmt.Fprintf(os.Stderr, "socialfetch mcp: listening on %s (Streamable HTTP)\n", addr)
+	fmt.Fprintf(os.Stderr, "social-fetch mcp: listening on %s (Streamable HTTP)\n", addr)
 
 	if !useNgrok {
 		return httpSrv.ListenAndServe()
@@ -215,7 +215,7 @@ func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error 
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case <-sig:
-		fmt.Fprintln(os.Stderr, "\nsocialfetch mcp: shutting down")
+		fmt.Fprintln(os.Stderr, "\nsocial-fetch mcp: shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
@@ -291,7 +291,7 @@ func waitForNgrokTunnel(timeout time.Duration) (string, error) {
 func printNgrokInstructions(publicURL, token string) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "──────────────────────────────────────────────────────────────")
-	fmt.Fprintln(os.Stderr, "  socialfetch MCP server is live via ngrok.")
+	fmt.Fprintln(os.Stderr, "  social-fetch MCP server is live via ngrok.")
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  URL:    %s/mcp\n", publicURL)
 	if token != "" {
@@ -354,12 +354,12 @@ func randomHex(n int) string {
 func writeStatusJSON(w http.ResponseWriter, authRequired bool) {
 	w.Header().Set("Content-Type", "application/json")
 	body := map[string]any{
-		"name":          "socialfetch",
+		"name":          "social-fetch",
 		"version":       Version,
 		"mcp_endpoint":  "/mcp",
 		"transport":     "streamable-http",
 		"auth_required": authRequired,
-		"docs":          "https://github.com/jedi4ever/socialfetch",
+		"docs":          "https://github.com/jedi4ever/social-skills",
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -367,8 +367,8 @@ func writeStatusJSON(w http.ResponseWriter, authRequired bool) {
 }
 
 // requestLog writes one line per HTTP request to stderr (so the
-// operator running `socialfetch mcp --ngrok` can see traffic in
-// real time) and to the global audit log (so `socialfetch monitor`
+// operator running `social-fetch mcp --ngrok` can see traffic in
+// real time) and to the global audit log (so `social-fetch monitor`
 // in another shell sees it tagged `cmd=mcp:http`). Records:
 //
 //   - method, path
@@ -401,7 +401,7 @@ func requestLog(audit *core.AuditLogger, next http.Handler) http.Handler {
 		// in stderr or audit logs.
 		line := fmt.Sprintf("http %s %s from %s status=%d in %s",
 			r.Method, path, remote, rw.status, dur)
-		fmt.Fprintln(os.Stderr, "socialfetch mcp: "+line)
+		fmt.Fprintln(os.Stderr, "social-fetch mcp: "+line)
 		audit.Logf("%s", line)
 	})
 }
@@ -449,17 +449,17 @@ func bearerAuth(expected string, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		w.Header().Set("WWW-Authenticate", `Bearer realm="socialfetch-mcp"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="social-fetch-mcp"`)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	})
 }
 
 func printMCPHelp() {
-	fmt.Fprint(os.Stdout, `socialfetch mcp — run an MCP server (stdio or HTTP)
+	fmt.Fprint(os.Stdout, `social-fetch mcp — run an MCP server (stdio or HTTP)
 
 Usage:
-  socialfetch mcp                       # stdio (Claude Desktop Extension)
-  socialfetch mcp --http :8080          # Streamable HTTP (claude.ai, ngrok)
+  social-fetch mcp                       # stdio (Claude Desktop Extension)
+  social-fetch mcp --http :8080          # Streamable HTTP (claude.ai, ngrok)
 
 Stdio mode is what Claude Desktop launches when you install the
 .mcpb extension; the server speaks JSON-RPC on stdin/stdout. Don't
@@ -468,15 +468,15 @@ type into a stdio MCP server directly — it expects MCP framing.
 HTTP mode (--http :PORT) serves the same tools over Streamable HTTP
 for remote MCP clients like claude.ai's Custom Connectors.
 
-Quickest path for local development — let socialfetch spawn ngrok
+Quickest path for local development — let social-fetch spawn ngrok
 for you and print the connector URL + token:
 
-  $ socialfetch mcp --ngrok                    # defaults to :8080
-  $ socialfetch mcp --ngrok --http :9090       # override the port
+  $ social-fetch mcp --ngrok                    # defaults to :8080
+  $ social-fetch mcp --ngrok --http :9090       # override the port
 
 Or run them yourself:
 
-  $ MCP_AUTH_TOKEN=$(uuidgen) socialfetch mcp --http :8080
+  $ MCP_AUTH_TOKEN=$(uuidgen) social-fetch mcp --http :8080
   $ ngrok http 8080
 
 Then in claude.ai → Settings → Connectors → Add custom connector,

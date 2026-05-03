@@ -1,65 +1,65 @@
 ---
-name: socialfetch
+name: social-fetch
 description: Fetch content from social-media URLs (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic articles) and run web/social searches (DuckDuckGo, Brave, SerpAPI, Tavily, X, HN, YouTube, Bluesky, arXiv) — output as clean markdown or structured JSON. Use whenever the user asks to "pull", "fetch", "download", "summarise", or "search the web/Twitter/HN/YouTube/Bluesky/arxiv" for content at a URL or query.
 allowed-tools: |
-  Bash(socialfetch fetch *)
-  Bash(socialfetch search *)
-  Bash(socialfetch timeline *)
-  Bash(socialfetch ask *)
-  Bash(socialfetch research *)
-  Bash(socialfetch bridge start)
-  Bash(socialfetch bridge stop)
-  Bash(socialfetch bridge status)
-  Bash(socialfetch bridge status *)
-  Bash(socialfetch bridge run)
-  Bash(socialfetch monitor *)
-  Bash(socialfetch list)
-  Bash(socialfetch help *)
-  Bash(socialfetch version)
-  Bash(socialfetch-ledger list *)
-  Bash(socialfetch-ledger search *)
-  Bash(socialfetch-ledger get *)
-  Bash(socialfetch-ledger stats)
-  Bash(socialfetch-ledger forget *)
-  Bash(socialfetch-ledger filter *)
+  Bash(social-fetch fetch *)
+  Bash(social-fetch search *)
+  Bash(social-fetch timeline *)
+  Bash(social-fetch ask *)
+  Bash(social-fetch research *)
+  Bash(social-fetch bridge start)
+  Bash(social-fetch bridge stop)
+  Bash(social-fetch bridge status)
+  Bash(social-fetch bridge status *)
+  Bash(social-fetch bridge run)
+  Bash(social-fetch monitor *)
+  Bash(social-fetch list)
+  Bash(social-fetch help *)
+  Bash(social-fetch version)
+  Bash(scripts/social-ledger list *)
+  Bash(scripts/social-ledger search *)
+  Bash(scripts/social-ledger get *)
+  Bash(scripts/social-ledger stats)
+  Bash(scripts/social-ledger forget *)
+  Bash(scripts/social-ledger filter *)
 ---
 
-# socialfetch skill
+# social-fetch skill
 
-Wraps the `socialfetch` Go binary on the user's PATH (install separately — see the plugin README).
+Wraps the `social-fetch` Go binary on the user's PATH (install separately — see the plugin README).
 
-**Trust the CLI.** It is the authority for every fetch and search supported by this skill. Always shell out to `socialfetch` — never reimplement fetching with WebFetch, curl, custom parsers, or hand-rolled API calls, even if the binary returns empty results or an error you find surprising. If a fetch comes back empty, surface that to the user and (if appropriate) re-run with `--log -` to see audit lines, but do not try to "fix it" by going around the CLI.
+**Trust the CLI.** It is the authority for every fetch and search supported by this skill. Always shell out to `social-fetch` — never reimplement fetching with WebFetch, curl, custom parsers, or hand-rolled API calls, even if the binary returns empty results or an error you find surprising. If a fetch comes back empty, surface that to the user and (if appropriate) re-run with `--log -` to see audit lines, but do not try to "fix it" by going around the CLI.
 
 ## Subcommands
 
 ```
-socialfetch fetch    <url> [<url>...]    [flags]
-socialfetch search   "<query>"           [flags]
-socialfetch timeline <user-or-url>       [flags]   recent activity for a user (X / LinkedIn)
-socialfetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / anthropic / google / tavily / serpapi)
-socialfetch research "<question>"        [flags]   EXPERIMENTAL — multi-angle research (decompose → parallel fan-out → synthesize)
-socialfetch bridge   {start|stop|status|run}
+social-fetch fetch    <url> [<url>...]    [flags]
+social-fetch search   "<query>"           [flags]
+social-fetch timeline <user-or-url>       [flags]   recent activity for a user (X / LinkedIn)
+social-fetch ask      "<question>"        [flags]   grounded answer engine (perplexity / grok / openai / anthropic / google / tavily / serpapi)
+social-fetch research "<question>"        [flags]   EXPERIMENTAL — multi-angle research (decompose → parallel fan-out → synthesize)
+social-fetch bridge   {start|stop|status|run}
 ```
 
-Run `socialfetch --help` for the full reference. Output defaults to **markdown**; pass `-f json` or `-f jsonl` for structured input to other tools.
+Run `social-fetch --help` for the full reference. Output defaults to **markdown**; pass `-f json` or `-f jsonl` for structured input to other tools.
 
 ## Credentials (.env support)
 
 Provider keys (`X_API_KEY`, `X_API_SECRET`, `TAVILY_API_KEY`, `SERPAPI_KEY`, `BRAVE_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`/`GOOGLE_CSE_ID`, `YOUTUBE_API_KEY`, `BLUESKY_HANDLE`/`BLUESKY_APP_PASSWORD`, `GITHUB_TOKEN`) and routing hints (`HTML2MD_PROVIDER`, `HTML2MD_READER`, `YOUTUBE_TRANSCRIPT_PROVIDER`, `TAVILY_TOPIC`) can be set in the shell **or** placed in a `.env` file. At startup the binary loads, in order:
 
 1. `./.env` (current working directory)
-2. `<binary_dir>/.env` (sits next to the installed binary — typically `~/.claude/skills/socialfetch/.env`)
+2. `<binary_dir>/.env` (sits next to the installed binary — typically `~/.claude/skills/social-fetch/.env`)
 
 Already-exported shell vars always win over file entries.
 
 ## Decision rules
 
-- **One URL → fetch it.** `socialfetch fetch <url>` auto-detects the source from the host (HN, Reddit, GitHub, X, RSS, or generic article).
-- **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | socialfetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
+- **One URL → fetch it.** `social-fetch fetch <url>` auto-detects the source from the host (HN, Reddit, GitHub, X, RSS, or generic article).
+- **A list of URLs → batch.** Pipe via stdin (`cat urls.txt | social-fetch fetch`) or use `-i FILE`. Add `-j 8` for parallel fetches; output stays in input order.
 - **Save to disk →** `-o FILE` for one file, `-o DIR/` for one file per URL.
-- **A user's recent posts → timeline.** `socialfetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
-- **A grounded question → ask.** `socialfetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
-- **A multi-angle research question → research (EXPERIMENTAL).** `socialfetch research "<question>" --max-angles 5 --jobs 4`. Decomposes into 3-8 angles, fans out parallel queries, synthesizes a final answer with citations. Use when you'd otherwise issue 4-8 manual queries. Costs roughly 2 LLM calls + N tool calls per question; use `ask` for simple lookups instead.
+- **A user's recent posts → timeline.** `social-fetch timeline <user-or-url> [-p x|linkedin] [--kind ...] [-n N]`. Auto-detects the provider from URL; default for bare handles is X. See "Timeline subcommand" below.
+- **A grounded question → ask.** `social-fetch ask "<question>" -p perplexity|grok|openai|anthropic|google|tavily|serpapi`. Returns synthesized answer + sources. Use this only when the user explicitly wants a synthesized answer; for raw documents use `fetch` or `search`.
+- **A multi-angle research question → research (EXPERIMENTAL).** `social-fetch research "<question>" --max-angles 5 --jobs 4`. Decomposes into 3-8 angles, fans out parallel queries, synthesizes a final answer with citations. Use when you'd otherwise issue 4-8 manual queries. Costs roughly 2 LLM calls + N tool calls per question; use `ask` for simple lookups instead.
 - **A query → search.** Pick the provider that matches the user's intent. `-p auto` walks `perplexity → tavily → brave → serpapi → duckduckgo`; comma-lists like `-p tavily,duckduckgo` define a custom fallback order. Each falls through on missing key / error / 0 results.
   - "search the web" / unspecified → `duckduckgo` (no auth)
   - "search Brave" / privacy-focused web → `brave` (needs `BRAVE_API_KEY`; native `--last 7d` via freshness)
@@ -99,28 +99,28 @@ Search-only:
 
 ```bash
 # Pull a HN story with comments → markdown to stdout
-socialfetch fetch https://news.ycombinator.com/item?id=43000000
+social-fetch fetch https://news.ycombinator.com/item?id=43000000
 
 # Pull a Medium article → structured JSON
-socialfetch fetch https://medium.com/@alice/some-post -f json
+social-fetch fetch https://medium.com/@alice/some-post -f json
 
 # Batch from a file → one .md file per URL in ./out/
-socialfetch fetch -i bookmarks.txt -o out/ -j 8
+social-fetch fetch -i bookmarks.txt -o out/ -j 8
 
 # Pipe a list → JSONL stream
-cat urls.txt | socialfetch fetch -f jsonl > all.jsonl
+cat urls.txt | social-fetch fetch -f jsonl > all.jsonl
 
 # Search the web, last 7 days, restrict to two domains
-socialfetch search "vercel ai sdk" --last 7d --site vercel.com --site ai-sdk.dev
+social-fetch search "vercel ai sdk" --last 7d --site vercel.com --site ai-sdk.dev
 
 # HN search — top stories about a topic
-socialfetch search "rust async" -p hackernews -n 20
+social-fetch search "rust async" -p hackernews -n 20
 ```
 
 ## Timeline subcommand
 
 ```
-socialfetch timeline <user-or-url> [flags]
+social-fetch timeline <user-or-url> [flags]
   -p PROVIDER         x (default for bare handles) | linkedin
   --kind KIND         x:        all (default), tweets, replies, retweets
                       linkedin: all (default), posts, comments, reactions
@@ -143,19 +143,19 @@ LinkedIn timelines drive the bridge through scroll/get_html cycles. Returns ~5�
 
 ```bash
 # Last 7d on X
-socialfetch timeline swyx --last 7d
+social-fetch timeline swyx --last 7d
 
 # LinkedIn posts only (no reshares), markdown
-socialfetch timeline patrickdebois -p linkedin --kind posts --no-reshares
+social-fetch timeline patrickdebois -p linkedin --kind posts --no-reshares
 
 # LinkedIn full deep-fetch (each item gets its body + comments)
-socialfetch timeline matthewskelton -p linkedin --expand -n 10
+social-fetch timeline matthewskelton -p linkedin --expand -n 10
 ```
 
 ## Ask subcommand
 
 ```
-socialfetch ask "<question>" [flags]
+social-fetch ask "<question>" [flags]
   -p PROVIDER     perplexity (default), grok, openai, anthropic, google, tavily, serpapi
                   special values:
                     auto             try the built-in chain in order
@@ -175,16 +175,16 @@ Returns a synthesized answer plus a numbered Sources list. Auth needed per provi
 When `-p auto` or a comma-list is given, each provider in turn falls through on (a) missing API key, (b) upstream error, or (c) empty answer — the next provider gets a try, and the first non-empty response wins. The audit log records which provider answered.
 
 ```bash
-socialfetch ask "what changed in the openai-microsoft revenue share clause" -p grok
-socialfetch ask "best agent harness papers in the last month" -p perplexity --last month
-socialfetch ask "what's the weather in NYC" -p auto                             # try the default chain
-socialfetch ask "what's the weather in NYC" -p perplexity,anthropic,duckduckgo  # custom chain
+social-fetch ask "what changed in the openai-microsoft revenue share clause" -p grok
+social-fetch ask "best agent harness papers in the last month" -p perplexity --last month
+social-fetch ask "what's the weather in NYC" -p auto                             # try the default chain
+social-fetch ask "what's the weather in NYC" -p perplexity,anthropic,duckduckgo  # custom chain
 ```
 
 ## Listing supported sources/providers
 
 ```bash
-socialfetch list
+social-fetch list
 ```
 
 ## Browser bridge (LinkedIn / Medium / Substack)
@@ -205,15 +205,15 @@ Each fetched item carries `Extra.via = "bridge"` or `"http"` so you can tell whi
 
 **Bridge lifecycle:**
 ```
-socialfetch bridge start          # daemonize, write PID file
-socialfetch bridge status         # connected / not connected / not running
-socialfetch bridge stop           # graceful SIGTERM
-socialfetch bridge run            # foreground (good for `nohup` or terminals)
+social-fetch bridge start          # daemonize, write PID file
+social-fetch bridge status         # connected / not connected / not running
+social-fetch bridge stop           # graceful SIGTERM
+social-fetch bridge run            # foreground (good for `nohup` or terminals)
 ```
 
 **Always check status before fetching authenticated URLs:**
 ```
-$ socialfetch bridge status
+$ social-fetch bridge status
 connected           # → fetch will work
 not connected       # → bridge up but extension hasn't attached (open the browser)
 bridge not running on :5555   # → run `bridge start` first
@@ -222,7 +222,7 @@ Exit codes are `0` connected / `1` not connected / `2` bridge not running, so ag
 
 **Then fetch:**
 ```
-socialfetch fetch https://www.linkedin.com/posts/foo-activity-700…
+social-fetch fetch https://www.linkedin.com/posts/foo-activity-700…
 ```
 The bridge tells the extension to navigate the URL in your real browser, scrapes the rendered DOM, and returns clean markdown.
 
@@ -234,7 +234,7 @@ Errors you may see:
 
 ## YouTube
 
-`socialfetch fetch <youtube-url>` claims `youtube.com/watch?v=…`, `youtu.be/…`, `youtube.com/shorts/…`, `youtube.com/live/…`, `youtube.com/embed/…`, and `music.youtube.com/…`.
+`social-fetch fetch <youtube-url>` claims `youtube.com/watch?v=…`, `youtu.be/…`, `youtube.com/shorts/…`, `youtube.com/live/…`, `youtube.com/embed/…`, and `music.youtube.com/…`.
 
 - **Metadata**: pure scraping via `kkdai/youtube/v2` — no auth needed.
 - **Transcript**: configurable provider chain (see below). Appended to `Content` under a `## Transcript` heading; structured timed segments live in `Extra.transcript`.
@@ -267,8 +267,8 @@ When `X_API_KEY` + `X_API_SECRET` are set, fetching a tweet also pulls its repli
 
 ## Ledger (history of every fetch)
 
-A companion binary `socialfetch-ledger` ships alongside
-`socialfetch`. When both are present (always true for this
+A companion binary `scripts/social-ledger` ships alongside
+`social-fetch`. When both are present (always true for this
 skill), every successful `fetch` / `timeline` / `research` call is
 auto-recorded — content into a SQLite + FTS5 store, plus a
 markdown mirror tree on disk. No env-var setup needed; auto-detect
@@ -277,12 +277,12 @@ flips it on.
 Useful queries against the ledger from inside the skill:
 
 ```bash
-socialfetch-ledger list                         # newest first
-socialfetch-ledger list --source hackernews     # filter by source
-socialfetch-ledger search "harness engineering" # full-text search
-socialfetch-ledger get https://example.com/foo  # one item back
-socialfetch-ledger stats                        # counts + sizes
-socialfetch-ledger forget https://...           # drop one entry
+scripts/social-ledger list                         # newest first
+scripts/social-ledger list --source hackernews     # filter by source
+scripts/social-ledger search "harness engineering" # full-text search
+scripts/social-ledger get https://example.com/foo  # one item back
+scripts/social-ledger stats                        # counts + sizes
+scripts/social-ledger forget https://...           # drop one entry
 ```
 
 When the user asks a question that resembles "have we seen X
@@ -291,7 +291,7 @@ where to look first, before re-fetching.
 
 To explicitly disable: set `SOCIALFETCH_LEDGER=0` in the env. To
 override the storage location: `SOCIALFETCH_LEDGER_DIR=...`
-(default `~/.local/share/socialfetch-ledger`).
+(default `~/.local/share/social-ledger`).
 
 ## When NOT to use this skill
 

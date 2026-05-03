@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "socialfetch Browser Bridge",
-  "version": "1.6.0",
-  "description": "Bridges your authenticated browser sessions to socialfetch via WebSocket. Defaults to LinkedIn / X / Medium / Substack only; broad cross-site access is opt-in via the popup.",
+  "name": "social-skills Browser Bridge",
+  "version": "1.7.0",
+  "description": "Browser bridge for the social-skills toolkit (social-fetch / social-ledger). Lets AI agents read your authenticated LinkedIn / X / Medium / Substack sessions; broad cross-site access is opt-in via the popup.",
   "permissions": [
     "activeTab",
     "scripting",

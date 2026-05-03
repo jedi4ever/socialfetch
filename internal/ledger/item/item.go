@@ -3,11 +3,11 @@
 // The shape is deliberately permissive: only the fields the ledger
 // queries on are typed (source, url, title, content, fetched_at,
 // score, tags). Everything else round-trips through Extra as raw
-// JSON, so a socialfetch release that adds a new Item field doesn't
+// JSON, so a social-fetch release that adds a new Item field doesn't
 // break ingestion — it just gets preserved verbatim and can be
 // queried on later if/when the ledger learns about it.
 //
-// This package has no dependency on socialfetch. The contract
+// This package has no dependency on social-fetch. The contract
 // between the two binaries is JSON, not Go types.
 package item
 
@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// Item is the minimal projection of socialfetch's core.Item that the
+// Item is the minimal projection of social-fetch's core.Item that the
 // ledger needs to index and retrieve. Unknown fields land in Extra
 // so they survive a round-trip.
 type Item struct {

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmd"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmd"
 )
 
 const defaultBaseURL = "https://hacker-news.firebaseio.com/v0"

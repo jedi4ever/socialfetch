@@ -1,14 +1,14 @@
-// Package ledger is a thin client for socialfetch-ledger that lives
-// in the parent socialfetch binary. When SOCIALFETCH_LEDGER=1 is in
+// Package ledger is a thin client for social-ledger that lives
+// in the parent social-fetch binary. When SOCIALFETCH_LEDGER=1 is in
 // the environment, every successful fetch / timeline / research item
-// is auto-piped into `socialfetch-ledger ingest` as a subprocess so
+// is auto-piped into `social-ledger ingest` as a subprocess so
 // agents don't have to wire up the pipeline themselves.
 //
 // Design notes:
 //
 //   - JSONL contract only — we never import the ledger's Go types.
 //     The ledger module stays separately liftable to its own repo
-//     (jedi4ever/socialfetch-ledger) without socialfetch following
+//     (jedi4ever/social-skills-ledger) without social-fetch following
 //     it. We marshal core.Item with encoding/json and let the
 //     ledger's permissive parser map the fields.
 //
@@ -40,7 +40,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // EnabledEnv is the master switch. Anything truthy ("1", "true",
@@ -60,7 +60,7 @@ const (
 //	auto / "" / unset      → auto-detect: enable when binaryPath()
 //	                         resolves, otherwise no-op silently
 //
-// Default is auto so users who install socialfetch-ledger get the
+// Default is auto so users who install social-ledger get the
 // ingest "for free" — and users who haven't installed it never see
 // any failure noise. Cached via sync.Once so the auto-detection's
 // stat call doesn't repeat on every fetch in a long-running
@@ -99,7 +99,7 @@ func resetAutoDetectForTests() {
 	autoDetectResult = false
 }
 
-// Ingest pipes the supplied items into `socialfetch-ledger ingest`
+// Ingest pipes the supplied items into `social-ledger ingest`
 // as a single JSONL stream. No-op + nil error when Enabled() is
 // false or when the ledger binary can't be located. Failures during
 // the actual ingest are logged via the audit logger pulled from ctx
@@ -174,7 +174,7 @@ func Ingest(ctx context.Context, items ...core.Item) {
 // answer). Each stub goes in under source="citation" with the
 // snippet as summary and no body content — agents browsing the
 // ledger see "we know this URL exists and what it's about", and
-// can later run `socialfetch fetch <url>` to upgrade it to a full
+// can later run `social-fetch fetch <url>` to upgrade it to a full
 // item under its real source key.
 //
 // Citation stubs and full fetched items can coexist in the ledger
@@ -209,12 +209,12 @@ func IngestSources(ctx context.Context, sources ...core.Source) {
 	Ingest(ctx, stubs...)
 }
 
-// binaryPath returns the absolute path to socialfetch-ledger. Lookup
+// binaryPath returns the absolute path to social-ledger. Lookup
 // order:
 //
 //  1. $SOCIALFETCH_LEDGER_BIN — explicit override
 //  2. $PATH lookup via exec.LookPath
-//  3. socialfetch-ledger as a sibling of the running socialfetch
+//  3. social-ledger as a sibling of the running social-fetch
 //     binary — handy during in-tree dev where `make build` and
 //     `make ledger-build` both drop into ./dist/.
 //
@@ -227,17 +227,17 @@ func binaryPath() (string, error) {
 		}
 		return "", fmt.Errorf("%s=%q does not exist", BinaryEnv, explicit)
 	}
-	if p, err := exec.LookPath("socialfetch-ledger"); err == nil {
+	if p, err := exec.LookPath("social-ledger"); err == nil {
 		return p, nil
 	}
-	// Same-dir dev convenience: dist/socialfetch + dist/socialfetch-ledger
+	// Same-dir dev convenience: dist/social-fetch + dist/social-ledger
 	// after `make build && make ledger-build`.
 	self, err := os.Executable()
 	if err == nil {
-		guess := filepath.Join(filepath.Dir(self), "socialfetch-ledger")
+		guess := filepath.Join(filepath.Dir(self), "social-ledger")
 		if _, err := os.Stat(guess); err == nil {
 			return guess, nil
 		}
 	}
-	return "", fmt.Errorf("socialfetch-ledger not on $PATH (set %s or install via `go install ./cmd/socialfetch-ledger`)", BinaryEnv)
+	return "", fmt.Errorf("social-ledger not on $PATH (set %s or install via `go install ./cmd/social-ledger`)", BinaryEnv)
 }

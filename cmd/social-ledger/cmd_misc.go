@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
-	"github.com/jedi4ever/socialfetch/internal/ledger/mirror"
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/mirror"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // ----- get: print one stored item ---------------------------------
 
 // cmdGet prints one item by URL or canonical id. We try URL first
-// (the common case from `socialfetch fetch <url>` output), then
+// (the common case from `social-fetch fetch <url>` output), then
 // fall back to a (source, canonical_id) lookup.
 func cmdGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
@@ -80,7 +80,7 @@ func cmdGet(args []string) error {
 // knownSources is the small fixed list of sources we'll try when the
 // user gives a bare canonical_id without --source. Kept narrow on
 // purpose — adding every possible source would make accidental
-// collisions more likely. New socialfetch sources should be added
+// collisions more likely. New social-fetch sources should be added
 // here when ledger learns about them.
 func knownSources() []string {
 	return []string{"hackernews", "reddit", "github", "twitter", "linkedin",

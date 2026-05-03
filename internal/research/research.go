@@ -12,8 +12,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/ledger"
 )
 
 //go:embed prompts/decompose.md
@@ -231,12 +231,12 @@ func fanOut(parent context.Context, angles []Angle, opts Options, emit func(Even
 }
 
 // normalizeToolName accepts either the namespaced MCP tool name
-// (`socialfetch_fetch`, what the decomposer prompt recommends) or the
+// (`social_fetch_fetch`, what the decomposer prompt recommends) or the
 // bare category (`fetch`, what hand-written angle JSON tends to use).
 // Both resolve to the same dispatcher branch.
 func normalizeToolName(t string) string {
 	t = strings.ToLower(strings.TrimSpace(t))
-	return strings.TrimPrefix(t, "socialfetch_")
+	return strings.TrimPrefix(t, "social-fetch_")
 }
 
 // dispatch turns an Angle into one tool call against the existing

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // runMonitor tails the global audit JSONL file and pretty-prints events
@@ -20,13 +20,13 @@ import (
 //
 // Usage:
 //
-//	socialfetch monitor              tail the default audit file
-//	socialfetch monitor --tail 0     start at end-of-file (default)
-//	socialfetch monitor --tail 50    show the last 50 lines first
-//	socialfetch monitor --since 1h   replay events from the last hour
-//	socialfetch monitor --raw        emit raw JSONL (no colorization)
-//	socialfetch monitor --filter X   only show lines whose msg contains X
-//	socialfetch monitor --path PATH  override the audit file location
+//	social-fetch monitor              tail the default audit file
+//	social-fetch monitor --tail 0     start at end-of-file (default)
+//	social-fetch monitor --tail 50    show the last 50 lines first
+//	social-fetch monitor --since 1h   replay events from the last hour
+//	social-fetch monitor --raw        emit raw JSONL (no colorization)
+//	social-fetch monitor --filter X   only show lines whose msg contains X
+//	social-fetch monitor --path PATH  override the audit file location
 //
 // The implementation polls os.Stat for size changes; this avoids a
 // fsnotify dependency at the cost of ~250 ms latency on new events,
@@ -253,7 +253,7 @@ func replayHistory(f *os.File, tail int, since time.Duration, render func(string
 }
 
 // waitForFile polls until path appears, then opens it. Used when the
-// user starts monitor before any socialfetch invocation has run yet.
+// user starts monitor before any social-fetch invocation has run yet.
 func waitForFile(path string) (*os.File, error) {
 	for {
 		f, err := os.Open(path)
@@ -364,10 +364,10 @@ func stdoutIsTTY() bool {
 }
 
 func printMonitorHelp(w io.Writer) {
-	fmt.Fprintf(w, `socialfetch monitor — live tail of the global audit log
+	fmt.Fprintf(w, `social-fetch monitor — live tail of the global audit log
 
 Usage:
-  socialfetch monitor [flags]
+  social-fetch monitor [flags]
 
 The audit log lives at %s by default. Every fetch / search / timeline /
 ask invocation appends events to it; this command tails them as they
@@ -386,10 +386,10 @@ Disable the global audit entirely by setting SOCIALFETCH_AUDIT=0 in
 the producing shell — monitor will then have nothing to follow.
 
 Examples:
-  socialfetch monitor                 # live tail, color
-  socialfetch monitor --tail 50       # show recent then follow
-  socialfetch monitor --since 30m     # replay last 30 minutes
-  socialfetch monitor --filter linkedin
-  socialfetch monitor --raw | jq      # pipe to jq for scripting
+  social-fetch monitor                 # live tail, color
+  social-fetch monitor --tail 50       # show recent then follow
+  social-fetch monitor --since 30m     # replay last 30 minutes
+  social-fetch monitor --filter linkedin
+  social-fetch monitor --raw | jq      # pipe to jq for scripting
 `, core.DefaultAuditPath())
 }

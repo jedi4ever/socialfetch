@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // navigateMu serializes Navigate→GetTabHTML pairs across all bridge

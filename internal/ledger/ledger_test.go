@@ -8,16 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // fakeBinary writes a tiny shell script that records its stdin to
 // the supplied capture file and exits 0. Lets us test Ingest without
-// depending on an actual socialfetch-ledger build.
+// depending on an actual social-ledger build.
 func fakeBinary(t *testing.T, capturePath string) string {
 	t.Helper()
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "socialfetch-ledger")
+	bin := filepath.Join(dir, "social-ledger")
 	script := "#!/bin/sh\ncat > " + capturePath + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake binary: %v", err)
@@ -30,7 +30,7 @@ func fakeBinary(t *testing.T, capturePath string) string {
 func failingBinary(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "socialfetch-ledger")
+	bin := filepath.Join(dir, "social-ledger")
 	script := "#!/bin/sh\necho 'simulated ledger failure' >&2\nexit 1\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake failing binary: %v", err)
@@ -44,7 +44,7 @@ func TestEnabledExplicitForms(t *testing.T) {
 	// auto-detect fallback (if accidentally taken) would fail —
 	// a regression that broke the explicit semantics would show
 	// up as "1 → false" instead of silently defaulting.
-	t.Setenv(BinaryEnv, "/nonexistent/socialfetch-ledger")
+	t.Setenv(BinaryEnv, "/nonexistent/social-ledger")
 
 	cases := map[string]bool{
 		"1":     true,
@@ -83,7 +83,7 @@ func TestEnabledAutoDetect(t *testing.T) {
 
 	t.Run("binary missing → auto stays off", func(t *testing.T) {
 		resetAutoDetectForTests()
-		// Empty BIN, $PATH won't have socialfetch-ledger in a
+		// Empty BIN, $PATH won't have social-ledger in a
 		// fresh test process either (we're not running an
 		// integration build).
 		t.Setenv(BinaryEnv, "")

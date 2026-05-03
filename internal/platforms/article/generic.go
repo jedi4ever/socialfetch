@@ -1,8 +1,8 @@
 package article
 
 import (
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
 
 // genericArticleSelectors is the catch-all selector list — same set

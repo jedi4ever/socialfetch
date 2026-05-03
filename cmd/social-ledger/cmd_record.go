@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // cmdRecord is the agent-friendly entry point for "I fetched
-// content from somewhere outside socialfetch (Claude's WebFetch,
+// content from somewhere outside social-fetch (Claude's WebFetch,
 // a research tool, a one-off curl) — store it in the ledger
 // alongside the rest". Saves the agent from constructing JSONL
 // by hand and worrying about field shapes:
 //
-//	socialfetch-ledger record <url> --title "..." [--summary "..."] \
+//	social-ledger record <url> --title "..." [--summary "..."] \
 //	    [--source webfetch] [--author "..."] < /tmp/page.md
 //
 // Content comes from stdin as raw markdown / text. Title is
@@ -32,9 +32,9 @@ import (
 // to tag it differently (research, curl, manual, etc.).
 //
 // Designed so an agent can call it as one shell line after any
-// WebFetch invocation, e.g. inside the socialfetch-ledger skill:
+// WebFetch invocation, e.g. inside the social-ledger skill:
 //
-//	socialfetch-ledger record "$URL" --title "$TITLE" < "$CONTENT_FILE"
+//	social-ledger record "$URL" --title "$TITLE" < "$CONTENT_FILE"
 //
 // Failure modes:
 //   - missing URL or title → exit 2 (usage)

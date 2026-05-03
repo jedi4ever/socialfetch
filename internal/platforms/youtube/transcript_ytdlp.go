@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // ytDlpAvailable reports whether `yt-dlp` is on $PATH. We check before
@@ -37,7 +37,7 @@ func fetchTranscriptYtDlp(ctx context.Context, videoID, lang string, audit *core
 		lang = "en"
 	}
 
-	tmpDir, err := os.MkdirTemp("", "socialfetch-yt-")
+	tmpDir, err := os.MkdirTemp("", "social-fetch-yt-")
 	if err != nil {
 		return nil, err
 	}

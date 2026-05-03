@@ -1,4 +1,4 @@
-module github.com/jedi4ever/socialfetch
+module github.com/jedi4ever/social-skills
 
 go 1.26
 

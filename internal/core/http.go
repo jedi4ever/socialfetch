@@ -14,7 +14,7 @@ import (
 // UserAgent identifies this client to remote servers. A real-browser-ish
 // string keeps Reddit and others from serving a stub page, but we still
 // announce who we are after it.
-const UserAgent = "Mozilla/5.0 (compatible; socialfetch/0.1; +https://github.com/jedi4ever/socialfetch)"
+const UserAgent = "Mozilla/5.0 (compatible; social-fetch/0.1; +https://github.com/jedi4ever/social-skills)"
 
 // HTTPClient is the shared *http.Client every fetcher uses. Tests override
 // the BaseURL fields on individual fetchers to point at httptest servers

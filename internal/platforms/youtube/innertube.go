@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // InnerTube is YouTube's private internal API — the same one

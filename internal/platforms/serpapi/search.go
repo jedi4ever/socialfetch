@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 func applyDomainOpsSerp(query string, opts core.SearchOptions) string {

@@ -24,7 +24,7 @@ type Item struct {
 	// it, before any redirect or canonicalisation. Equals URL
 	// for fetchers that don't redirect (most API-backed ones)
 	// and differs when a t.co / bit.ly / 301 hop was followed.
-	// Carried through the JSONL contract to socialfetch-ledger
+	// Carried through the JSONL contract to social-ledger
 	// so a `seen` lookup against the user-typed shortener URL
 	// matches the stored canonical URL.
 	//

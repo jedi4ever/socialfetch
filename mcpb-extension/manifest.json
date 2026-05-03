@@ -1,27 +1,32 @@
 {
   "manifest_version": "0.3",
-  "name": "socialfetch",
-  "display_name": "socialfetch",
-  "version": "0.9.1",
-  "description": "Fetch social-media URLs and run grounded web searches via MCP. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE) and ask (Perplexity Sonar, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI AI Overview).",
-  "long_description": "socialfetch wraps content discovery and grounded answer engines as MCP tools. Use it to pull a HackerNews thread, search Bluesky for a topic, ask Perplexity a recency-filtered question, or scroll through a LinkedIn user's recent posts. Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship an extension with whichever subset of API keys you've configured and the rest is silent.",
+  "name": "social-skills",
+  "display_name": "social-skills — for AI agents",
+  "version": "0.10.0",
+  "description": "Social-web skills for AI agents. Bundles HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search (DuckDuckGo, Brave, SerpAPI, Tavily, Perplexity, X, HN, Reddit, YouTube, Bluesky, arXiv, Google CSE), ask (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI), and a local SQLite-backed ledger of every fetched URL.",
+  "long_description": "social-skills equips AI agents with structured access to the social web. Bundles two binaries: social-fetch (MCP server exposing fetch / search / ask / timeline / research / list_providers / bridge_status as tools) and social-ledger (auto-detected SQLite + FTS5 store that caches every fetch so 'have we seen this URL?' answers are instant without re-fetching). Provider chains (-p auto) gracefully fall through providers that lack keys or hit rate limits, so you can ship with whichever subset of API keys you've configured and the rest is silent.",
   "author": {
     "name": "Patrick Debois"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jedi4ever/socialfetch"
+    "url": "https://github.com/jedi4ever/social-skills"
   },
-  "homepage": "https://github.com/jedi4ever/socialfetch",
-  "documentation": "https://github.com/jedi4ever/socialfetch/blob/main/INSTALL.md",
-  "support": "https://github.com/jedi4ever/socialfetch/issues",
-  "keywords": ["search", "fetch", "social-media", "grounded-answers", "perplexity", "claude", "anthropic"],
+  "homepage": "https://github.com/jedi4ever/social-skills",
+  "documentation": "https://github.com/jedi4ever/social-skills/blob/main/INSTALL.md",
+  "support": "https://github.com/jedi4ever/social-skills/issues",
+  "keywords": [
+    "agent-skills", "ai-agents", "mcp", "claude", "anthropic",
+    "social-media", "search", "fetch", "ledger", "research", "grounded-answers",
+    "hackernews", "reddit", "github", "twitter", "x", "linkedin",
+    "youtube", "bluesky", "arxiv", "medium", "substack", "rss"
+  ],
   "license": "MIT",
   "server": {
     "type": "binary",
-    "entry_point": "scripts/socialfetch",
+    "entry_point": "scripts/social-fetch",
     "mcp_config": {
-      "command": "${__dirname}/scripts/socialfetch",
+      "command": "${__dirname}/scripts/social-fetch",
       "args": ["mcp"],
       "env": {
         "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
@@ -47,13 +52,13 @@
     }
   },
   "tools": [
-    {"name": "socialfetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic)."},
-    {"name": "socialfetch_search", "description": "Search the web or a specific platform. Supports -p auto fallback chains."},
-    {"name": "socialfetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI)."},
-    {"name": "socialfetch_timeline", "description": "Recent activity for a user on X or LinkedIn."},
-    {"name": "socialfetch_list_providers", "description": "Discover available providers at runtime."},
-    {"name": "socialfetch_bridge_status", "description": "Probe the local browser bridge (LinkedIn / Medium / Substack)."},
-    {"name": "socialfetch_research", "description": "EXPERIMENTAL — multi-angle research workflow: decomposes a question, fans out parallel fetch/search/ask/timeline, synthesizes a markdown answer with citations."}
+    {"name": "social_fetch_fetch", "description": "Fetch content at a URL (HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic)."},
+    {"name": "social_fetch_search", "description": "Search the web or a specific platform. Supports -p auto fallback chains."},
+    {"name": "social_fetch_ask", "description": "Ask a grounded answer engine (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI)."},
+    {"name": "social_fetch_timeline", "description": "Recent activity for a user on X or LinkedIn."},
+    {"name": "social_fetch_list_providers", "description": "Discover available providers at runtime."},
+    {"name": "social_fetch_bridge_status", "description": "Probe the local browser bridge (LinkedIn / Medium / Substack)."},
+    {"name": "social_fetch_research", "description": "EXPERIMENTAL — multi-angle research workflow: decomposes a question, fans out parallel fetch/search/ask/timeline, synthesizes a markdown answer with citations."}
   ],
   "compatibility": {
     "platforms": ["darwin"]

@@ -6,7 +6,7 @@ can pick it up without context-loading the original conversation.
 
 ---
 
-## `socialfetch ledger` subcommand + user-level config
+## `social-fetch ledger` subcommand + user-level config
 
 **Goal:** make the `SOCIALFETCH_LEDGER*` env vars persistent across
 processes without forcing the user to remember an export line each
@@ -16,28 +16,28 @@ auto-ingest path only fires when env vars are set per-invocation.
 **Surface:**
 
 ```
-socialfetch ledger              # status: enabled? where? which binary?
-socialfetch ledger on           # set SOCIALFETCH_LEDGER=1
-socialfetch ledger off          # SOCIALFETCH_LEDGER=0 (or remove key)
-socialfetch ledger binary <p>   # set SOCIALFETCH_LEDGER_BIN
-socialfetch ledger directory <p>  # set SOCIALFETCH_LEDGER_DIR
-socialfetch ledger reset        # remove every SOCIALFETCH_LEDGER* key
+social-fetch ledger              # status: enabled? where? which binary?
+social-fetch ledger on           # set SOCIALFETCH_LEDGER=1
+social-fetch ledger off          # SOCIALFETCH_LEDGER=0 (or remove key)
+social-fetch ledger binary <p>   # set SOCIALFETCH_LEDGER_BIN
+social-fetch ledger directory <p>  # set SOCIALFETCH_LEDGER_DIR
+social-fetch ledger reset        # remove every SOCIALFETCH_LEDGER* key
 ```
 
-**Storage:** `$XDG_CONFIG_HOME/socialfetch/.env` (default
-`~/.config/socialfetch/.env`). Same `KEY=VALUE` shape the existing
+**Storage:** `$XDG_CONFIG_HOME/social-fetch/.env` (default
+`~/.config/social-fetch/.env`). Same `KEY=VALUE` shape the existing
 dotenv loader already parses — no new format, parser, or serializer
 to maintain.
 
 **Precedence (most-specific wins):**
 1. Shell env (per-invocation override)
 2. Project `./.env` (and parent-dir walk — current behaviour)
-3. User config `~/.config/socialfetch/.env` (new, lowest priority)
+3. User config `~/.config/social-fetch/.env` (new, lowest priority)
 
 **Implementation sketch:**
 - `internal/ledger/config.go` — atomic read/write of the user
   config (write to `.env.tmp`, fsync, rename). ~40 lines.
-- `cmd/socialfetch/ledger.go` — dispatcher for the new subcommand.
+- `cmd/social-fetch/ledger.go` — dispatcher for the new subcommand.
   ~80 lines including help text.
 - `internal/util/dotenv` — extend `LoadAuto` to also load the
   user config path before parent-dir walk so it's overridable.
@@ -64,10 +64,10 @@ broken" before "oh right, the cache". Explicit flag = explicit
 behaviour.
 
 **Mechanism:**
-- Parent calls `socialfetch-ledger get <url> --format json` (the
+- Parent calls `social-ledger get <url> --format json` (the
   ledger's existing `get` subcommand needs a JSON output mode added
   — currently emits human-readable text, see
-  `ledger/cmd/socialfetch-ledger/cmd_misc.go:90`).
+  `ledge./cmd/social-ledger/cmd_misc.go:90`).
 - Unmarshal as `core.Item`, check `fetched_at` against `--max-age`
   (default 24h or per-source TTL — see below).
 - Hit: return the item with `Extra.from = "ledger"` and
@@ -89,8 +89,8 @@ Override via `SOCIALFETCH_LEDGER_MAX_AGE=1h` (global) or per-fetch
 **Wiring:** same shape as the auto-ingest hook — wrap
 `reg.Fetch(ctx, url, opts)` in a helper that does the lookup first
 when `ledger.PreferLedger()` is true. Hook in:
-- `cmd/socialfetch fetch` (both stream + dir paths)
-- `internal/mcp socialfetch_fetch` tool
+- `cmd/social-fetch fetch` (both stream + dir paths)
+- `internal/mcp social_fetch_fetch` tool
 - `internal/research` angle workers (biggest win — research loops
   hit the same upstream URLs across angles)
 

@@ -14,5 +14,5 @@
 - images ? media ?
 
 - npx skills add support — rename skill/ → skills/ (Vercel CLI convention),
-  unify with claude-code-plugin/skills/socialfetch/ (single source of truth,
-  bare `socialfetch` on PATH), document binary-on-PATH prerequisite
+  unify with claude-code-plugin/skills/social-fetch/ (single source of truth,
+  bare `social-fetch` on PATH), document binary-on-PATH prerequisite

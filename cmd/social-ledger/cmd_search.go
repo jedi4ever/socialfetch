@@ -7,16 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // cmdSearch runs FTS5 over title/summary/content/author/tags and
 // prints matches in BM25-rank order. Format is intentionally short
 // (one line per hit + a snippet) so the output composes well with
-// `socialfetch fetch` — the typical flow is "find candidate URLs in
+// `social-fetch fetch` — the typical flow is "find candidate URLs in
 // the ledger, then fetch the full thing for citation".
 //
-// Use `socialfetch-ledger get <url>` to dump one hit in full.
+// Use `social-ledger get <url>` to dump one hit in full.
 func cmdSearch(args []string) error {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
 	var dataDirFlag string

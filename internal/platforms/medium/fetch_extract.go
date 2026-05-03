@@ -3,9 +3,9 @@ package medium
 import (
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/platforms/article"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/platforms/article"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
 
 // articleSelectors lists the containers Medium articles use, in

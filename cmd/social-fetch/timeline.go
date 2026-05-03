@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/ledger"
-	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
-	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
-	"github.com/jedi4ever/socialfetch/internal/render"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
+	"github.com/jedi4ever/social-skills/internal/render"
 )
 
-// timelineFlags is parsed from `socialfetch timeline` args.
+// timelineFlags is parsed from `social-fetch timeline` args.
 type timelineFlags struct {
 	provider      string // explicit -p; auto-detected from URL when empty
 	kind          string // all | posts | comments | reactions | tweets | replies | retweets
@@ -228,10 +228,10 @@ func runTimeline(args []string) error {
 }
 
 func printTimelineHelp(w io.Writer) {
-	fmt.Fprint(w, `socialfetch timeline — fetch a user's recent activity
+	fmt.Fprint(w, `social-fetch timeline — fetch a user's recent activity
 
 Usage:
-  socialfetch timeline <user-or-url> [flags]
+  social-fetch timeline <user-or-url> [flags]
 
 User identifier accepts:
   swyx                                    bare handle (provider defaults to x)
@@ -260,13 +260,13 @@ Flags:
 
 Auth:
   x          requires X_API_KEY + X_API_SECRET
-  linkedin   requires the bridge — run 'socialfetch bridge start' first
+  linkedin   requires the bridge — run 'social-fetch bridge start' first
 
 Examples:
-  socialfetch timeline swyx --last 7d
-  socialfetch timeline @swyx --kind tweets -n 50
-  socialfetch timeline patrickdebois -p linkedin --kind posts
-  socialfetch timeline https://www.linkedin.com/in/swyx-io/ --kind reactions
+  social-fetch timeline swyx --last 7d
+  social-fetch timeline @swyx --kind tweets -n 50
+  social-fetch timeline patrickdebois -p linkedin --kind posts
+  social-fetch timeline https://www.linkedin.com/in/swyx-io/ --kind reactions
 
 Notes:
   - LinkedIn timelines are first-page only (typically 5-20 items).

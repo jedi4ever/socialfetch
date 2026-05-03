@@ -39,7 +39,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const defaultAskBase = "https://serpapi.com/search.json"

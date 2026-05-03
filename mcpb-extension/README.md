@@ -1,13 +1,13 @@
-# socialfetch — Claude Desktop Extension
+# social-fetch — Claude Desktop Extension
 
-This directory holds the `.mcpb` manifest and packaging for socialfetch's
+This directory holds the `.mcpb` manifest and packaging for social-fetch's
 Claude Desktop Extension. The compiled `.mcpb` archive (built by
-`make claude-extension-package`) lands in `dist/socialfetch-claude-extension-<version>-<os>-<arch>.mcpb`.
+`make claude-extension-package`) lands in `dist/social-skills-claude-extension-<version>-<os>-<arch>.mcpb`.
 
 ## Install
 
 1. Run `make claude-extension-package` from the repo root. Produces
-   `dist/socialfetch-claude-extension-0.2.0-darwin-arm64.mcpb` (macOS Apple
+   `dist/social-skills-claude-extension-0.2.0-darwin-arm64.mcpb` (macOS Apple
    Silicon only at the moment — see Cross-platform below).
 
 2. Drag the `.mcpb` file onto Claude Desktop's **Settings → Extensions**
@@ -23,7 +23,7 @@ Claude Desktop Extension. The compiled `.mcpb` archive (built by
    server and surface six tools to chat: `fetch`, `search`, `ask`,
    `timeline`, `list_providers`, `bridge_status`.
 
-5. Verify by asking Claude Desktop something like *"use socialfetch
+5. Verify by asking Claude Desktop something like *"use social-fetch
    to fetch https://news.ycombinator.com/item?id=1"*. Claude should
    call the `fetch` tool and return the parsed thread.
 
@@ -47,7 +47,7 @@ local browser bridge. The extension does NOT manage the bridge for
 you — start it from a shell:
 
 ```
-~/.claude/extensions/socialfetch/scripts/socialfetch bridge start
+~/.claude/extensions/social-fetch/scripts/social-fetch bridge start
 ```
 
 Use the `bridge_status` MCP tool to confirm Claude Desktop can talk
@@ -63,8 +63,8 @@ trivial; the current scope just kept the iteration tight.
 ## Audit log
 
 The extension's MCP server writes to the same global audit log as
-the CLI: `~/Library/Caches/socialfetch/audit.jsonl`. Tail it with
-`socialfetch monitor` to watch tool invocations live.
+the CLI: `~/Library/Caches/social-fetch/audit.jsonl`. Tail it with
+`social-fetch monitor` to watch tool invocations live.
 
 ## Validate before shipping
 
@@ -73,5 +73,5 @@ manifest before publishing:
 
 ```
 npm install -g @anthropic-ai/mcpb
-mcpb validate dist/socialfetch-claude-extension-*.mcpb
+mcpb validate dist/social-skills-claude-extension-*.mcpb
 ```

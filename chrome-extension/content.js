@@ -1,5 +1,5 @@
 /**
- * Base content script — injected into all pages managed by socialfetch.
+ * Base content script — injected into all pages managed by social-fetch.
  * Handles generic actions that work on any site.
  *
  * All page-content extraction happens server-side in the Go binary

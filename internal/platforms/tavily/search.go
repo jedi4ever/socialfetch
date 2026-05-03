@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // Provider configures the Tavily client. Most callers only need to set

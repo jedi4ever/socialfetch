@@ -1,5 +1,5 @@
 // Package urlutil collects the URL-normalization helpers shared by
-// socialfetch and socialfetch-ledger. Single source of truth so the
+// social-fetch and social-ledger. Single source of truth so the
 // ingest path and the lookup path agree on what counts as "the
 // same URL", and so a future change (e.g. dropping utm_* tracker
 // params) lands in one file.

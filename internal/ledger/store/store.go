@@ -21,8 +21,8 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go driver — no CGO, keeps static-binary story.
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
-	"github.com/jedi4ever/socialfetch/internal/ledger/urlutil"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/urlutil"
 )
 
 // Store is the SQLite-backed ledger.
@@ -31,7 +31,7 @@ type Store struct {
 }
 
 // Open returns a Store backed by path, creating the schema if needed.
-// path is typically ~/.local/share/socialfetch-ledger/ledger.db; in
+// path is typically ~/.local/share/social-ledger/ledger.db; in
 // tests, pass ":memory:" for an ephemeral DB.
 func Open(path string) (*Store, error) {
 	// _journal=WAL: multi-reader / single-writer concurrency.
@@ -393,7 +393,7 @@ func (s *Store) Forget(key string) (bool, error) {
 	return n > 0, nil
 }
 
-// Stats summarizes ledger contents — surfaced by `socialfetch-ledger
+// Stats summarizes ledger contents — surfaced by `social-ledger
 // stats` so users can spot runaway growth before it eats the disk.
 type Stats struct {
 	Total       int

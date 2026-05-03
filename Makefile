@@ -1,13 +1,13 @@
-# socialfetch — build and test targets.
+# social-fetch — build and test targets.
 # Run 'make' with no arguments to see all available targets.
 
-BIN                     := ./dist/socialfetch
-LEDGER_CMD_BIN          := ./dist/socialfetch-ledger
-SKILL_BIN               := ./skill/socialfetch/scripts/socialfetch
-SKILL_LEDGER_BIN        := ./skill/socialfetch/scripts/socialfetch-ledger
-LEDGER_SKILL_DIR        := ./skill/socialfetch-ledger
-LEDGER_SKILL_BIN        := ./skill/socialfetch-ledger/scripts/socialfetch-ledger
-LEDGER_SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch-ledger
+BIN                     := ./dist/social-fetch
+LEDGER_CMD_BIN          := ./dist/social-ledger
+SKILL_BIN               := ./skill/social-fetch/scripts/social-fetch
+SKILL_LEDGER_BIN        := ./skill/social-fetch/scripts/social-ledger
+LEDGER_SKILL_DIR        := ./skill/social-ledger
+LEDGER_SKILL_BIN        := ./skill/social-ledger/scripts/social-ledger
+LEDGER_SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-ledger
 PKG          := ./...
 URL          ?= https://news.ycombinator.com/news
 
@@ -17,8 +17,8 @@ URL          ?= https://news.ycombinator.com/news
 # builds are reproducible and don't leak the developer's home directory.
 GO_BUILD_FLAGS := -ldflags="-s -w" -trimpath
 # Override SKILL_INSTALL_DIR to copy the skill to a different location:
-#   make skill-install SKILL_INSTALL_DIR=~/.claude/skills/socialfetch
-SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/socialfetch
+#   make skill-install SKILL_INSTALL_DIR=~/.claude/skills/social-fetch
+SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-fetch
 
 .PHONY: all help build install test test-integration test-live test-cover vet fmt lint run demo clean cli-help \
         skill-build skill-install skill-clean skill-package claude-extension-package extension-validate \
@@ -34,39 +34,39 @@ SKILL_PACKAGE_STAGE := $(CURDIR)/dist/.skill-stage
 all: help  ## Default target: print this help
 
 help:  ## Show all targets and their purpose
-	@printf "socialfetch Makefile\n"
+	@printf "social-fetch Makefile\n"
 	@printf "\nTargets:\n"
 	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\nVariables (override on the command line):\n"
 	@printf "  URL=<url>       passed to 'make run' (default: %s)\n" "$(URL)"
 	@printf "\nQuick start:\n"
-	@printf "  make build && ./dist/socialfetch --help\n"
+	@printf "  make build && ./dist/social-fetch --help\n"
 	@printf "  make run URL=https://news.ycombinator.com/item?id=1\n"
 
-build: skill-build  ## Build ./dist/socialfetch and refresh the bundled skill binary
+build: skill-build  ## Build ./dist/social-fetch and refresh the bundled skill binary
 
 # The skill target depends on every Go source file so the bundled binary
 # is rebuilt whenever the implementation changes — guarantees the skill
 # can never go stale relative to the working tree. Both the parent
-# socialfetch binary and socialfetch-ledger ride along; the auto-detect
+# social-fetch binary and social-ledger ride along; the auto-detect
 # in `internal/ledger.binaryPath()` finds the ledger as a sibling of
-# socialfetch in scripts/, so the skill gets ledger functionality
+# social-fetch in scripts/, so the skill gets ledger functionality
 # without any env-var setup on the user's side.
 SKILL_DEPS := $(shell find cmd internal -type f -name '*.go' 2>/dev/null) go.mod go.sum
 $(SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p dist $(dir $(SKILL_BIN))
-	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/socialfetch
-	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/socialfetch-ledger
+	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/social-fetch
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/social-ledger
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
-skill-build: $(SKILL_BIN)  ## Build both binaries and copy into skill/socialfetch/scripts/
+skill-build: $(SKILL_BIN)  ## Build both binaries and copy into skill/social-fetch/scripts/
 
-skill-install: skill-build  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/socialfetch)
+skill-install: skill-build  ## Install the skill into $(SKILL_INSTALL_DIR) (defaults to ~/.claude/skills/social-fetch)
 	@mkdir -p $(SKILL_INSTALL_DIR)/scripts
-	cp skill/socialfetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
-	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch
-	cp $(SKILL_LEDGER_BIN) $(SKILL_INSTALL_DIR)/scripts/socialfetch-ledger
+	cp skill/social-fetch/SKILL.md $(SKILL_INSTALL_DIR)/SKILL.md
+	cp $(SKILL_BIN) $(SKILL_INSTALL_DIR)/scripts/social-fetch
+	cp $(SKILL_LEDGER_BIN) $(SKILL_INSTALL_DIR)/scripts/social-ledger
 	@echo "Installed skill to $(SKILL_INSTALL_DIR)"
 
 skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bundled binaries
@@ -81,7 +81,7 @@ skill-clean:  ## Uninstall the skill from $(SKILL_INSTALL_DIR) and remove the bu
 # extension-package builds a Claude Desktop Extension (.mcpb) for
 # darwin/arm64. The .mcpb format is just a zip with a manifest at root
 # + the binary at scripts/. Output:
-# dist/socialfetch-claude-extension-<version>-darwin-arm64.mcpb.
+# dist/social-skills-claude-extension-<version>-darwin-arm64.mcpb.
 #
 # Phase 1 is darwin/arm64 only (the developer's platform). Phase 2
 # will fan this out to darwin-amd64 / linux-amd64 / windows-amd64 via
@@ -96,15 +96,15 @@ MCPB_BIN        := ./node_modules/.bin/mcpb
 claude-extension-package: extension-validate  ## Package as Claude Desktop Extension (.mcpb) for darwin/arm64
 	@rm -rf $(EXTENSION_STAGE)
 	@mkdir -p $(EXTENSION_STAGE)/scripts
-	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch ./cmd/socialfetch
-	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/socialfetch-ledger ./cmd/socialfetch-ledger
+	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-fetch ./cmd/social-fetch
+	GOOS=darwin GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $(EXTENSION_STAGE)/scripts/social-ledger ./cmd/social-ledger
 	@cp mcpb-extension/manifest.json $(EXTENSION_STAGE)/manifest.json
 	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' mcpb-extension/manifest.json); \
-	OUT="$(CURDIR)/dist/socialfetch-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
+	OUT="$(CURDIR)/dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"; \
 	rm -f "$$OUT"; \
 	(cd $(EXTENSION_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(EXTENSION_STAGE); \
-	echo "Packaged: dist/socialfetch-claude-extension-$$VERSION-darwin-arm64.mcpb"
+	echo "Packaged: dist/social-skills-claude-extension-$$VERSION-darwin-arm64.mcpb"
 
 # extension-validate runs Anthropic's official @anthropic-ai/mcpb CLI
 # against mcpb-extension/manifest.json. Installed locally via npm
@@ -120,53 +120,53 @@ extension-validate:  ## Validate the .mcpb manifest with the official mcpb CLI
 
 # bridge-package zips the Chrome browser-bridge extension as a
 # distributable. The Chrome extension is independent of the
-# socialfetch app version — it has its own version field in
+# social-fetch app version — it has its own version field in
 # chrome-extension/manifest.json which we read at package time.
 #
-# Output: dist/socialfetch-chrome-extension-<version>.zip. Drop the zip
+# Output: dist/social-skills-chrome-extension-<version>.zip. Drop the zip
 # into chrome://extensions/ → "Load unpacked" (after unzipping) for
 # end users, or distribute via Chrome Web Store after they've set
 # up a developer account.
 #
 # .DS_Store and other macOS junk are filtered out so the zip is
 # bit-identical between developers' machines.
-bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/socialfetch-chrome-extension-<version>.zip
+bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social-skills-chrome-extension-<version>.zip
 	@mkdir -p $(CURDIR)/dist
 	@VERSION=$$(python3 -c "import json; print(json.load(open('chrome-extension/manifest.json'))['version'])"); \
-	OUT="$(CURDIR)/dist/socialfetch-chrome-extension-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/social-skills-chrome-extension-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd chrome-extension && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
-	echo "Packaged: dist/socialfetch-chrome-extension-$$VERSION.zip"
+	echo "Packaged: dist/social-skills-chrome-extension-$$VERSION.zip"
 
 # skill-package builds a self-contained zip of the skill ready to
 # upload (skills marketplace, file share, attached to a release). The
-# archive contains SKILL.md and scripts/socialfetch at the top level
+# archive contains SKILL.md and scripts/social-fetch at the top level
 # — same layout `skill-install` expects on disk — so consumers can
-# unzip directly into ~/.claude/skills/socialfetch/.
+# unzip directly into ~/.claude/skills/social-fetch/.
 #
-# The version string comes from `socialfetch version` so the zip
+# The version string comes from `social-fetch version` so the zip
 # filename always tracks the binary's reported version, not a stale
 # Makefile constant.
-# socialfetch-ledger ships as a separate skill at
-# skill/socialfetch-ledger/ — its own SKILL.md scoped to the
+# social-ledger ships as a separate skill at
+# skill/social-ledger/ — its own SKILL.md scoped to the
 # ledger subcommands (seen, get, list, search, record, …) so an
 # agent that wants ledger access doesn't have to load the full
-# socialfetch fetch surface. Bundles the same binary as the
+# social-fetch fetch surface. Bundles the same binary as the
 # main skill (the binary is fungible — the skills differ only
 # in SKILL.md and which subcommands the agent is allowed to
 # invoke).
 LEDGER_SKILL_PACKAGE_STAGE := $(CURDIR)/dist/.ledger-skill-stage
 
-ledger-skill-build: $(LEDGER_SKILL_BIN)  ## Build socialfetch-ledger and copy into skill/socialfetch-ledger/scripts/
+ledger-skill-build: $(LEDGER_SKILL_BIN)  ## Build social-ledger and copy into skill/social-ledger/scripts/
 $(LEDGER_SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p $(dir $(LEDGER_SKILL_BIN)) dist
-	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/socialfetch-ledger
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/social-ledger
 	cp $(LEDGER_CMD_BIN) $(LEDGER_SKILL_BIN)
 
-ledger-skill-install: ledger-skill-build  ## Install socialfetch-ledger skill into $(LEDGER_SKILL_INSTALL_DIR)
+ledger-skill-install: ledger-skill-build  ## Install social-ledger skill into $(LEDGER_SKILL_INSTALL_DIR)
 	@mkdir -p $(LEDGER_SKILL_INSTALL_DIR)/scripts
 	cp $(LEDGER_SKILL_DIR)/SKILL.md $(LEDGER_SKILL_INSTALL_DIR)/SKILL.md
-	cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_INSTALL_DIR)/scripts/socialfetch-ledger
+	cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_INSTALL_DIR)/scripts/social-ledger
 	@echo "Installed ledger skill to $(LEDGER_SKILL_INSTALL_DIR)"
 
 ledger-skill-clean:  ## Uninstall the ledger skill
@@ -178,55 +178,55 @@ ledger-skill-clean:  ## Uninstall the ledger skill
 	fi
 	rm -f $(LEDGER_SKILL_BIN)
 
-ledger-skill-package: ledger-skill-build  ## Package the ledger skill as ./dist/socialfetch-ledger-skill-<version>.zip
+ledger-skill-package: ledger-skill-build  ## Package the ledger skill as ./dist/social-ledger-skill-<version>.zip
 	@rm -rf $(LEDGER_SKILL_PACKAGE_STAGE)
 	@mkdir -p $(LEDGER_SKILL_PACKAGE_STAGE)/scripts
 	@cp $(LEDGER_SKILL_DIR)/SKILL.md $(LEDGER_SKILL_PACKAGE_STAGE)/SKILL.md
-	@cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_PACKAGE_STAGE)/scripts/socialfetch-ledger
+	@cp $(LEDGER_SKILL_BIN) $(LEDGER_SKILL_PACKAGE_STAGE)/scripts/social-ledger
 	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
-	OUT="$(CURDIR)/dist/socialfetch-ledger-skill-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/social-ledger-skill-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd $(LEDGER_SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(LEDGER_SKILL_PACKAGE_STAGE); \
-	echo "Packaged: dist/socialfetch-ledger-skill-$$VERSION.zip"
+	echo "Packaged: dist/social-ledger-skill-$$VERSION.zip"
 
-skill-package: skill-build  ## Package the skill as ./dist/socialfetch-skill-<version>.zip
+skill-package: skill-build  ## Package the skill as ./dist/social-skills-skill-<version>.zip
 	@rm -rf $(SKILL_PACKAGE_STAGE)
 	@mkdir -p $(SKILL_PACKAGE_STAGE)/scripts
-	@cp skill/socialfetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
-	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch
-	@cp $(SKILL_LEDGER_BIN) $(SKILL_PACKAGE_STAGE)/scripts/socialfetch-ledger
+	@cp skill/social-fetch/SKILL.md $(SKILL_PACKAGE_STAGE)/SKILL.md
+	@cp $(SKILL_BIN) $(SKILL_PACKAGE_STAGE)/scripts/social-fetch
+	@cp $(SKILL_LEDGER_BIN) $(SKILL_PACKAGE_STAGE)/scripts/social-ledger
 	@VERSION=$$($(BIN) version | awk '{print $$2}'); \
-	OUT="$(CURDIR)/dist/socialfetch-skill-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/social-skills-skill-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd $(SKILL_PACKAGE_STAGE) && zip -qr "$$OUT" .); \
 	rm -rf $(SKILL_PACKAGE_STAGE); \
-	echo "Packaged: dist/socialfetch-skill-$$VERSION.zip"
+	echo "Packaged: dist/social-skills-skill-$$VERSION.zip"
 
-# plugin-build regenerates the plugin's SKILL.md from skill/socialfetch/SKILL.md
-# with `scripts/socialfetch` rewritten to bare `socialfetch`. The plugin
+# plugin-build regenerates the plugin's SKILL.md from skill/social-fetch/SKILL.md
+# with `scripts/social-fetch` rewritten to bare `social-fetch`. The plugin
 # assumes the binary is already on PATH (Claude Code plugins don't
 # auto-install dependencies); see claude-code-plugin/README.md.
 #
-# We commit the generated SKILL.md so `/plugin marketplace add jedi4ever/socialfetch`
+# We commit the generated SKILL.md so `/plugin marketplace add jedi4ever/social-skills`
 # works without a build step on the consumer side. Run this target whenever
-# skill/socialfetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
+# skill/social-fetch/SKILL.md changes — CLAUDE.md "lockstep" rule.
 PLUGIN_DIR    := claude-code-plugin
-PLUGIN_SKILL  := $(PLUGIN_DIR)/skills/socialfetch/SKILL.md
-SKILL_SOURCE  := skill/socialfetch/SKILL.md
+PLUGIN_SKILL  := $(PLUGIN_DIR)/skills/social-fetch/SKILL.md
+SKILL_SOURCE  := skill/social-fetch/SKILL.md
 
-plugin-build:  ## Regenerate claude-code-plugin/skills/socialfetch/SKILL.md from skill/socialfetch/SKILL.md
+plugin-build:  ## Regenerate claude-code-plugin/skills/social-fetch/SKILL.md from skill/social-fetch/SKILL.md
 	@mkdir -p $(dir $(PLUGIN_SKILL))
-	sed -E 's|scripts/socialfetch|socialfetch|g; s|the `socialfetch` Go binary on PATH \(install separately — see the plugin README\)|the `socialfetch` Go binary on PATH (install separately — see the plugin README)|; s|Wraps the `socialfetch` Go binary at `socialfetch` \(relative to this skill\)\.|Wraps the `socialfetch` Go binary on the user'"'"'s PATH (install separately — see the plugin README).|' $(SKILL_SOURCE) > $(PLUGIN_SKILL)
+	sed -E 's|scripts/social-fetch|social-fetch|g; s|the `social-fetch` Go binary on PATH \(install separately — see the plugin README\)|the `social-fetch` Go binary on PATH (install separately — see the plugin README)|; s|Wraps the `social-fetch` Go binary at `social-fetch` \(relative to this skill\)\.|Wraps the `social-fetch` Go binary on the user'"'"'s PATH (install separately — see the plugin README).|' $(SKILL_SOURCE) > $(PLUGIN_SKILL)
 	@echo "Regenerated $(PLUGIN_SKILL)"
 
-plugin-package: plugin-build  ## Package the Claude Code plugin as ./dist/socialfetch-claude-code-plugin-<version>.zip
+plugin-package: plugin-build  ## Package the Claude Code plugin as ./dist/social-skills-claude-code-plugin-<version>.zip
 	@mkdir -p $(CURDIR)/dist
 	@VERSION=$$(awk -F'"' '/"version":/ {print $$4; exit}' $(PLUGIN_DIR)/.claude-plugin/plugin.json); \
-	OUT="$(CURDIR)/dist/socialfetch-claude-code-plugin-$$VERSION.zip"; \
+	OUT="$(CURDIR)/dist/social-skills-claude-code-plugin-$$VERSION.zip"; \
 	rm -f "$$OUT"; \
 	(cd $(PLUGIN_DIR) && zip -qr "$$OUT" . -x "*.DS_Store" "bin/*" "node_modules/*"); \
-	echo "Packaged: dist/socialfetch-claude-code-plugin-$$VERSION.zip"
+	echo "Packaged: dist/social-skills-claude-code-plugin-$$VERSION.zip"
 
 gh-sync-secrets-dry:  ## Preview which .env keys would be uploaded to GitHub Actions secrets
 	@DRY_RUN=1 ./scripts/gh-sync-secrets.sh
@@ -234,27 +234,27 @@ gh-sync-secrets-dry:  ## Preview which .env keys would be uploaded to GitHub Act
 gh-sync-secrets:  ## Push API keys from .env to GitHub Actions secrets (powers .github/workflows/live.yml)
 	@./scripts/gh-sync-secrets.sh
 
-# socialfetch-ledger is the second binary in this module — same
+# social-ledger is the second binary in this module — same
 # `go.mod`, separate `cmd/` entry point. Imports the SQLite-backed
 # packages under internal/ledger/{store,mirror,item}; the parent
-# socialfetch binary doesn't link those, so its size / dep tree
+# social-fetch binary doesn't link those, so its size / dep tree
 # stays unaffected.
-LEDGER_BIN := ./dist/socialfetch-ledger
-ledger-build:  ## Build dist/socialfetch-ledger
+LEDGER_BIN := ./dist/social-ledger
+ledger-build:  ## Build dist/social-ledger
 	@mkdir -p dist
-	go build $(GO_BUILD_FLAGS) -o $(LEDGER_BIN) ./cmd/socialfetch-ledger
+	go build $(GO_BUILD_FLAGS) -o $(LEDGER_BIN) ./cmd/social-ledger
 
 ledger-test:  ## Run the ledger sub-package tests only
-	go test ./internal/ledger/... ./cmd/socialfetch-ledger/... -count=1
+	go test ./internal/ledger/... ./cmd/social-ledger/... -count=1
 
 install:  ## go install into $GOBIN (both binaries)
-	go install ./cmd/socialfetch ./cmd/socialfetch-ledger
+	go install ./cmd/social-fetch ./cmd/social-ledger
 
 test:  ## Run fast (offline) unit tests
 	go test $(PKG)
 
 test-integration:  ## Run integration tests (build tag `integration`)
-	go test -tags=integration ./cmd/socialfetch/ -count=1
+	go test -tags=integration ./cmd/social-fetch/ -count=1
 
 test-live:  ## Run live tests that hit real network endpoints
 	go test -tags=live $(PKG) -count=1

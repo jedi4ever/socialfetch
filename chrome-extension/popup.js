@@ -93,7 +93,7 @@ async function refreshBroadPermissionsUI() {
     const granted = await chrome.permissions.contains({ origins: BROAD_ORIGINS });
     broadPermsCheckbox.checked = granted;
   } catch (err) {
-    console.warn("[socialfetch] permissions.contains failed:", err);
+    console.warn("[social-fetch] permissions.contains failed:", err);
   }
 }
 
@@ -115,7 +115,7 @@ broadPermsCheckbox.addEventListener("change", async () => {
       await chrome.permissions.remove({ origins: BROAD_ORIGINS });
     }
   } catch (err) {
-    console.warn("[socialfetch] permissions.request/remove failed:", err);
+    console.warn("[social-fetch] permissions.request/remove failed:", err);
     await refreshBroadPermissionsUI();
   }
 });

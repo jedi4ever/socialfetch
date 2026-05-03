@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const defaultBase = "https://export.arxiv.org/api/query"

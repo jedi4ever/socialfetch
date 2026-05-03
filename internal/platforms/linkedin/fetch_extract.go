@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )

@@ -30,13 +30,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
 )
 
 // Mirror writes Items into a directory under Root.
 type Mirror struct {
 	// Root is the absolute path to the mirror tree (e.g.
-	// ~/.local/share/socialfetch-ledger/tree). Created on first
+	// ~/.local/share/social-ledger/tree). Created on first
 	// write if missing.
 	Root string
 }
@@ -200,7 +200,7 @@ func shortHash(s string) string {
 // inside Extra and are pretty-printed when present.
 //
 // Kept deliberately simple: the canonical content already comes from
-// socialfetch as markdown. We only frame it.
+// social-fetch as markdown. We only frame it.
 func render(it item.Item) string {
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -250,9 +250,9 @@ func writeFM(b *strings.Builder, k, v string) {
 // SyncReport summarizes what `mirror sync` did. Returned to callers
 // so the CLI can print a concise human summary.
 type SyncReport struct {
-	Wrote    int      // canonical files (re)written
-	Removed  int      // orphan files unlinked
-	Errors   []string // partial failures (path + reason)
+	Wrote   int      // canonical files (re)written
+	Removed int      // orphan files unlinked
+	Errors  []string // partial failures (path + reason)
 }
 
 // Sync reconciles the on-disk tree against `wantPaths` (the set of

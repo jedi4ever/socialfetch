@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/render"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/render"
 )
 
 // CLI flag parsing is the part most likely to drift; the live network

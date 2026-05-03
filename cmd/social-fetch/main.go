@@ -1,16 +1,16 @@
-// Command socialfetch is a CLI for fetching social-media URLs (HackerNews,
+// Command social-fetch is a CLI for fetching social-media URLs (HackerNews,
 // Reddit, GitHub, Twitter, Medium/Substack/articles, RSS) and search
 // queries (DuckDuckGo, SerpAPI), and rendering the result as JSON, JSONL,
 // or markdown.
 //
 // Subcommands:
 //
-//	socialfetch fetch <url> [<url>...]      fetch one or more URLs
-//	socialfetch search "<query>"            run a search query
-//	socialfetch list                        list fetchers and search providers
-//	socialfetch help [sub]                  show help
+//	social-fetch fetch <url> [<url>...]      fetch one or more URLs
+//	social-fetch search "<query>"            run a search query
+//	social-fetch list                        list fetchers and search providers
+//	social-fetch help [sub]                  show help
 //
-// Run `socialfetch help` for the full reference.
+// Run `social-fetch help` for the full reference.
 package main
 
 import (
@@ -30,38 +30,38 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/ledger"
-	"github.com/jedi4ever/socialfetch/internal/render"
-	"github.com/jedi4ever/socialfetch/internal/util/dotenv"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/render"
+	"github.com/jedi4ever/social-skills/internal/util/dotenv"
 
-	"github.com/jedi4ever/socialfetch/internal/platforms/anthropic"
-	"github.com/jedi4ever/socialfetch/internal/platforms/article"
-	"github.com/jedi4ever/socialfetch/internal/platforms/arxiv"
-	"github.com/jedi4ever/socialfetch/internal/platforms/bluesky"
-	"github.com/jedi4ever/socialfetch/internal/platforms/brave"
-	"github.com/jedi4ever/socialfetch/internal/platforms/duckduckgo"
-	"github.com/jedi4ever/socialfetch/internal/platforms/github"
-	"github.com/jedi4ever/socialfetch/internal/platforms/google"
-	"github.com/jedi4ever/socialfetch/internal/platforms/grok"
-	"github.com/jedi4ever/socialfetch/internal/platforms/hackernews"
-	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
-	"github.com/jedi4ever/socialfetch/internal/platforms/medium"
-	"github.com/jedi4ever/socialfetch/internal/platforms/openai"
-	"github.com/jedi4ever/socialfetch/internal/platforms/perplexity"
-	"github.com/jedi4ever/socialfetch/internal/platforms/reddit"
-	"github.com/jedi4ever/socialfetch/internal/platforms/rss"
-	"github.com/jedi4ever/socialfetch/internal/platforms/serpapi"
-	"github.com/jedi4ever/socialfetch/internal/platforms/substack"
-	"github.com/jedi4ever/socialfetch/internal/platforms/tavily"
-	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
-	"github.com/jedi4ever/socialfetch/internal/platforms/youtube"
+	"github.com/jedi4ever/social-skills/internal/platforms/anthropic"
+	"github.com/jedi4ever/social-skills/internal/platforms/article"
+	"github.com/jedi4ever/social-skills/internal/platforms/arxiv"
+	"github.com/jedi4ever/social-skills/internal/platforms/bluesky"
+	"github.com/jedi4ever/social-skills/internal/platforms/brave"
+	"github.com/jedi4ever/social-skills/internal/platforms/duckduckgo"
+	"github.com/jedi4ever/social-skills/internal/platforms/github"
+	"github.com/jedi4ever/social-skills/internal/platforms/google"
+	"github.com/jedi4ever/social-skills/internal/platforms/grok"
+	"github.com/jedi4ever/social-skills/internal/platforms/hackernews"
+	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/medium"
+	"github.com/jedi4ever/social-skills/internal/platforms/openai"
+	"github.com/jedi4ever/social-skills/internal/platforms/perplexity"
+	"github.com/jedi4ever/social-skills/internal/platforms/reddit"
+	"github.com/jedi4ever/social-skills/internal/platforms/rss"
+	"github.com/jedi4ever/social-skills/internal/platforms/serpapi"
+	"github.com/jedi4ever/social-skills/internal/platforms/substack"
+	"github.com/jedi4ever/social-skills/internal/platforms/tavily"
+	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
+	"github.com/jedi4ever/social-skills/internal/platforms/youtube"
 )
 
-// Version is the user-visible socialfetch version. Bump this on every
+// Version is the user-visible social-fetch version. Bump this on every
 // user-visible release. See CLAUDE.md "Versioning" for the rule.
-const Version = "0.9.1"
+const Version = "0.10.0"
 
 // defaultAskChain is the fallback order used by `-p auto`. Cheap +
 // reliable first (perplexity has the highest hit rate on grounded
@@ -261,7 +261,7 @@ func run(args []string) error {
 	case "help", "-h", "--help":
 		return runHelp(rest)
 	case "version", "--version":
-		fmt.Println("socialfetch " + Version)
+		fmt.Println("social-fetch " + Version)
 		return nil
 	default:
 		printUsage(os.Stderr)
@@ -269,7 +269,7 @@ func run(args []string) error {
 	}
 }
 
-// fetchFlags is parsed from the args after `socialfetch fetch`.
+// fetchFlags is parsed from the args after `social-fetch fetch`.
 type fetchFlags struct {
 	format         string
 	output         string // "" = stdout, file, or dir/
@@ -478,7 +478,7 @@ func fetchStreamOrdered(ctx context.Context, reg *core.Registry, urls []string, 
 		}
 	}
 	// Auto-ledger: when SOCIALFETCH_LEDGER=1 is set, hand the
-	// successful items to socialfetch-ledger via subprocess so the
+	// successful items to social-ledger via subprocess so the
 	// agent doesn't have to wire up the JSONL pipe by hand. No-op
 	// + nil error when the env var isn't set or the binary is
 	// unavailable — see internal/ledger for the failure semantics.
@@ -549,7 +549,7 @@ func fetchToDir(ctx context.Context, reg *core.Registry, urls []string, opts cor
 	return firstErr
 }
 
-// searchFlags is parsed from `socialfetch search` args.
+// searchFlags is parsed from `social-fetch search` args.
 type searchFlags struct {
 	provider       string
 	max            int
@@ -762,7 +762,7 @@ func runSearch(args []string) error {
 //
 // Usage:
 //
-//	socialfetch ask "<question>" [-p perplexity|grok] [-m MODEL] [--last week|day|month|year]
+//	social-fetch ask "<question>" [-p perplexity|grok] [-m MODEL] [--last week|day|month|year]
 func runAsk(args []string) error {
 	var (
 		question     string
@@ -951,10 +951,10 @@ func renderAnswer(w io.Writer, a *core.Answer, format render.Format) error {
 }
 
 func printAskHelp(w io.Writer) {
-	fmt.Fprint(w, `socialfetch ask — pose a question to a grounded answer engine
+	fmt.Fprint(w, `social-fetch ask — pose a question to a grounded answer engine
 
 Usage:
-  socialfetch ask "<question>" [flags]
+  social-fetch ask "<question>" [flags]
 
 Flags:
   -p, --provider     NAME    perplexity (default), grok, openai, anthropic, google, tavily, serpapi
@@ -1076,7 +1076,7 @@ func runHelp(args []string) error {
 	case "monitor":
 		printMonitorHelp(os.Stdout)
 	case "list":
-		fmt.Fprintln(os.Stdout, "socialfetch list — print available fetch and search providers")
+		fmt.Fprintln(os.Stdout, "social-fetch list — print available fetch and search providers")
 	default:
 		printUsage(os.Stdout)
 		return fmt.Errorf("no help topic for %q", args[0])
@@ -1099,7 +1099,7 @@ func runList() error {
 
 // writeFetchTable / writeSearchTable / writeTimelineTable enumerate the
 // live registries and print one row per provider, so help text and
-// `socialfetch list` always reflect what the binary actually supports.
+// `social-fetch list` always reflect what the binary actually supports.
 // The auth-hint and example-URL lookup tables below stay hand-curated
 // because the registries don't expose either, but they're keyed off
 // the provider name so a missing entry just falls through to a blank
@@ -1191,7 +1191,7 @@ func searchAuthHint(name string) string {
 // collectURLs gathers URLs from positional args and an optional input file.
 // If no positional args and no -i flag are given but stdin is a pipe (not
 // a terminal), URLs are read from stdin automatically — so
-// `cat urls.txt | socialfetch fetch` works without any flag.
+// `cat urls.txt | social-fetch fetch` works without any flag.
 func collectURLs(positional []string, inputFile string) ([]string, error) {
 	urls := append([]string(nil), positional...)
 
@@ -1289,12 +1289,12 @@ func openLog(target string) (io.Writer, func(), error) {
 }
 
 // openAudit composes the user-facing audit destination (per -l/--log)
-// with the always-on global audit log every socialfetch invocation
+// with the always-on global audit log every social-fetch invocation
 // appends to. Each Logf call writes to both. Use the returned close
 // func to flush both sinks.
 //
 // cmd is the subcommand name ("fetch" / "search" / "timeline" / ...) —
-// it lands in the global JSONL line so `socialfetch monitor` can
+// it lands in the global JSONL line so `social-fetch monitor` can
 // distinguish concurrent invocations.
 func openAudit(cmd, target string) (*core.AuditLogger, func(), error) {
 	userW, closeUser, err := openLog(target)
@@ -1356,10 +1356,10 @@ func atoi(s string) (int, error) {
 // runs the daemon in the foreground (good for terminals and `nohup`);
 // `start`/`stop` add background lifecycle control via a PID file.
 //
-//	socialfetch bridge run          run in foreground (default)
-//	socialfetch bridge start        fork detached, write PID file
-//	socialfetch bridge stop         SIGTERM the running daemon
-//	socialfetch bridge status       check connection state
+//	social-fetch bridge run          run in foreground (default)
+//	social-fetch bridge start        fork detached, write PID file
+//	social-fetch bridge stop         SIGTERM the running daemon
+//	social-fetch bridge status       check connection state
 func runBridge(args []string) error {
 	sub := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -1384,13 +1384,13 @@ func runBridge(args []string) error {
 }
 
 func printBridgeHelp() {
-	fmt.Print(`socialfetch bridge — control the browser-extension bridge
+	fmt.Print(`social-fetch bridge — control the browser-extension bridge
 
 Usage:
-  socialfetch bridge [run]         run in foreground (default)
-  socialfetch bridge start         fork a detached daemon (writes PID file)
-  socialfetch bridge stop          stop the running daemon
-  socialfetch bridge status        report extension connection state
+  social-fetch bridge [run]         run in foreground (default)
+  social-fetch bridge start         fork a detached daemon (writes PID file)
+  social-fetch bridge stop          stop the running daemon
+  social-fetch bridge status        report extension connection state
 
 Common flags:
   --port N                         listen port (default 5555)
@@ -1445,9 +1445,9 @@ func runBridgeForeground(args []string) error {
 // alongside source files; falls back to /tmp if the cache lookup fails.
 func bridgeStateDir() string {
 	if d, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(d, "socialfetch")
+		return filepath.Join(d, "social-fetch")
 	}
-	return filepath.Join(os.TempDir(), "socialfetch")
+	return filepath.Join(os.TempDir(), "social-fetch")
 }
 
 func bridgePIDFile() string { return filepath.Join(bridgeStateDir(), "bridge.pid") }
@@ -1480,7 +1480,7 @@ func runBridgeStart(args []string) error {
 	}
 
 	if pid, ok := readBridgePID(); ok && processAlive(pid) {
-		return fmt.Errorf("bridge already running (pid %d) — `socialfetch bridge stop` first", pid)
+		return fmt.Errorf("bridge already running (pid %d) — `social-fetch bridge stop` first", pid)
 	}
 
 	if err := os.MkdirAll(bridgeStateDir(), 0o755); err != nil {
@@ -1639,14 +1639,14 @@ func runBridgeStatus(args []string) error {
 		case "--json":
 			asJSON = true
 		case "-h", "--help":
-			fmt.Print(`socialfetch bridge status — probe the local bridge
+			fmt.Print(`social-fetch bridge status — probe the local bridge
 
 Exits 0 if the extension is connected, 1 if the bridge is up but no
 extension is attached, 2 if the bridge isn't reachable. Useful from
 agents/skills as a precheck before fetching authenticated URLs.
 
 Usage:
-  socialfetch bridge status [--port N] [--json]
+  social-fetch bridge status [--port N] [--json]
 `)
 			return nil
 		default:
@@ -1724,20 +1724,20 @@ func searchTableString() string {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintf(w, `socialfetch %s — fetch social-media URLs and run search queries
+	fmt.Fprintf(w, `social-fetch %s — fetch social-media URLs and run search queries
 
 USAGE
-  socialfetch fetch    <url> [<url>...] [flags]
-  socialfetch search   "<query>" [flags]
-  socialfetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
-  socialfetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok, openai, anthropic, google, tavily, serpapi)
-  socialfetch research "<question>" [flags]    EXPERIMENTAL — multi-angle research workflow (decompose → fan-out → synthesize)
-  socialfetch monitor  [flags]                 live tail of the global audit log
-  socialfetch mcp                              run as MCP server on stdio (Claude Desktop Extension entry)
-  socialfetch bridge   {start|stop|status|run}  control browser-extension bridge
-  socialfetch list                              list fetch + search providers
-  socialfetch help     [fetch|search|timeline|monitor|list]  same as --help on a subcommand
-  socialfetch version                           print version
+  social-fetch fetch    <url> [<url>...] [flags]
+  social-fetch search   "<query>" [flags]
+  social-fetch timeline <user-or-url> [flags]   recent activity for a user (X / LinkedIn)
+  social-fetch ask      "<question>" [flags]    grounded answer engine (perplexity, grok, openai, anthropic, google, tavily, serpapi)
+  social-fetch research "<question>" [flags]    EXPERIMENTAL — multi-angle research workflow (decompose → fan-out → synthesize)
+  social-fetch monitor  [flags]                 live tail of the global audit log
+  social-fetch mcp                              run as MCP server on stdio (Claude Desktop Extension entry)
+  social-fetch bridge   {start|stop|status|run}  control browser-extension bridge
+  social-fetch list                              list fetch + search providers
+  social-fetch help     [fetch|search|timeline|monitor|list]  same as --help on a subcommand
+  social-fetch version                           print version
 
 FETCH FLAGS
   -f, --format        FMT     markdown (default), json, jsonl
@@ -1770,32 +1770,32 @@ SEARCH FLAGS
       --exclude-site  DOMAIN  exclude domain (repeatable)
       --timeout       DUR     overall timeout (default 30s)
 
-FETCH SOURCES (auto-detected by URL host — run 'socialfetch list' for the live registry)
+FETCH SOURCES (auto-detected by URL host — run 'social-fetch list' for the live registry)
 %s
 
-SEARCH PROVIDERS (run 'socialfetch list' for the live registry)
+SEARCH PROVIDERS (run 'social-fetch list' for the live registry)
 %s
 
 EXAMPLES
-  socialfetch fetch https://news.ycombinator.com/item?id=43000000
-  socialfetch fetch https://github.com/anthropics/claude-code -f markdown
-  socialfetch fetch -i urls.txt -o out/ -f json -j 8 --no-comments
-  cat urls.txt | socialfetch fetch -f jsonl > all.jsonl   # stdin auto-detected
-  socialfetch search "vercel ai sdk" -p duckduckgo -n 5
+  social-fetch fetch https://news.ycombinator.com/item?id=43000000
+  social-fetch fetch https://github.com/anthropics/claude-code -f markdown
+  social-fetch fetch -i urls.txt -o out/ -f json -j 8 --no-comments
+  cat urls.txt | social-fetch fetch -f jsonl > all.jsonl   # stdin auto-detected
+  social-fetch search "vercel ai sdk" -p duckduckgo -n 5
 
 NOTES FOR AGENTS
   - Default fetch format is markdown; use -f json or -f jsonl for machine input.
   - With multiple URLs and -f json, output is auto-promoted to jsonl.
   - --log - prints which URL was fetched and any redirects to stderr.
-  - 'socialfetch list' prints the fetch + search providers in machine-friendly form.
+  - 'social-fetch list' prints the fetch + search providers in machine-friendly form.
 `, Version, fetchTableString(), searchTableString())
 }
 
 func printFetchHelp(w io.Writer) {
-	fmt.Fprintf(w, `socialfetch fetch — pull URLs from supported sources
+	fmt.Fprintf(w, `social-fetch fetch — pull URLs from supported sources
 
 Usage:
-  socialfetch fetch <url> [<url>...] [flags]
+  social-fetch fetch <url> [<url>...] [flags]
 
 Sources (auto-detected by URL host):
 %s
@@ -1822,10 +1822,10 @@ Flags:
   -h, --help            Show this help
 
 Examples:
-  socialfetch fetch https://news.ycombinator.com/item?id=43000000
-  socialfetch fetch https://x.com/jane/status/123 -f json
-  socialfetch fetch -i bookmarks.txt -o ./out/ -f markdown -j 8 --no-comments
-  cat urls.txt | socialfetch fetch -f jsonl > all.jsonl
+  social-fetch fetch https://news.ycombinator.com/item?id=43000000
+  social-fetch fetch https://x.com/jane/status/123 -f json
+  social-fetch fetch -i bookmarks.txt -o ./out/ -f markdown -j 8 --no-comments
+  cat urls.txt | social-fetch fetch -f jsonl > all.jsonl
 
 Notes for agents:
   - Default format is markdown; pass -f json or -f jsonl for machine output.
@@ -1837,10 +1837,10 @@ Notes for agents:
 }
 
 func printSearchHelp(w io.Writer) {
-	fmt.Fprintf(w, `socialfetch search — run a query against a search provider
+	fmt.Fprintf(w, `social-fetch search — run a query against a search provider
 
 Usage:
-  socialfetch search "<query>" [flags]
+  social-fetch search "<query>" [flags]
 
 Flags:
   -p, --provider NAME   pick a provider (see below)
@@ -1860,9 +1860,9 @@ Providers:
 %s
 
 Examples:
-  socialfetch search "anthropic claude api" -n 5
-  socialfetch search "harness engineering" -p reddit -n 20
-  socialfetch search "ai harness" -p youtube --last 7d
-  socialfetch search "rust async" -p hackernews -f jsonl -o results.jsonl
+  social-fetch search "anthropic claude api" -n 5
+  social-fetch search "harness engineering" -p reddit -n 20
+  social-fetch search "ai harness" -p youtube --last 7d
+  social-fetch search "rust async" -p hackernews -f jsonl -o results.jsonl
 `, searchTableString())
 }

@@ -1,18 +1,18 @@
 //go:build integration
 
-// End-to-end integration tests that drive the actual socialfetch
-// and socialfetch-ledger binaries (via go build + exec) instead of
+// End-to-end integration tests that drive the actual social-fetch
+// and social-ledger binaries (via go build + exec) instead of
 // calling into internal packages. Verifies the full data path:
 //
-//	socialfetch fetch <url>     →  HTTP GET against an httptest server
+//	social-fetch fetch <url>     →  HTTP GET against an httptest server
 //	                            →  rendered output on stdout
 //	(when SOCIALFETCH_LEDGER=1)
-//	                            →  subprocess to socialfetch-ledger
+//	                            →  subprocess to social-ledger
 //	                            →  SQLite + mirror tree on disk
 //
 // Run with:
 //
-//	go test -tags=integration ./cmd/socialfetch/
+//	go test -tags=integration ./cmd/social-fetch/
 //
 // Skipped by default so `go test ./...` stays fast and offline-only.
 // We build the binaries fresh each test (cached afterward by go's
@@ -30,19 +30,19 @@ import (
 	"testing"
 )
 
-// buildBinaries compiles socialfetch and socialfetch-ledger into a
+// buildBinaries compiles social-fetch and social-ledger into a
 // shared temp dir, returning their absolute paths. Build cost is
 // amortised by go's cache, so successive tests in this package
 // reuse the same compiled output.
 func buildBinaries(t *testing.T) (sf string, ledger string) {
 	t.Helper()
 	dir := t.TempDir()
-	sf = filepath.Join(dir, "socialfetch")
-	ledger = filepath.Join(dir, "socialfetch-ledger")
+	sf = filepath.Join(dir, "social-fetch")
+	ledger = filepath.Join(dir, "social-ledger")
 
 	for _, b := range []struct{ out, pkg string }{
-		{sf, "../socialfetch"},
-		{ledger, "../socialfetch-ledger"},
+		{sf, "../social-fetch"},
+		{ledger, "../social-ledger"},
 	} {
 		cmd := exec.Command("go", "build", "-o", b.out, b.pkg)
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -108,7 +108,7 @@ func TestFetchExplicitlyDisabled(t *testing.T) {
 
 // TestFetchWithLedger verifies SOCIALFETCH_LEDGER=1 routes the
 // fetched item into the ledger via subprocess: SQLite db is created,
-// `socialfetch-ledger list` reports the item, mirror tree contains
+// `social-ledger list` reports the item, mirror tree contains
 // the article markdown.
 func TestFetchWithLedger(t *testing.T) {
 	sf, ledger := buildBinaries(t)
@@ -156,7 +156,7 @@ func TestFetchWithLedger(t *testing.T) {
 		t.Error("ledger tree contains no markdown file referencing the fetched URL")
 	}
 
-	// `socialfetch-ledger list` should report exactly 1 item.
+	// `social-ledger list` should report exactly 1 item.
 	listCmd := exec.Command(ledger, "list", "--data-dir", dataDir)
 	listOut, err := listCmd.CombinedOutput()
 	if err != nil {
@@ -172,7 +172,7 @@ func TestFetchWithLedger(t *testing.T) {
 
 // TestFetchLedgerSurvivesMissingBinary covers the failure mode that
 // motivated the "best-effort, swallow errors" design: if the user
-// sets SOCIALFETCH_LEDGER=1 but never installed socialfetch-ledger,
+// sets SOCIALFETCH_LEDGER=1 but never installed social-ledger,
 // the parent fetch still succeeds. The ledger failure shows up in
 // the audit log only, never as a non-zero exit on the parent.
 func TestFetchLedgerSurvivesMissingBinary(t *testing.T) {
@@ -183,7 +183,7 @@ func TestFetchLedgerSurvivesMissingBinary(t *testing.T) {
 	cmd := exec.Command(sf, "fetch", srv.URL, "--no-comments")
 	cmd.Env = append(os.Environ(),
 		"SOCIALFETCH_LEDGER=1",
-		"SOCIALFETCH_LEDGER_BIN=/nonexistent/socialfetch-ledger",
+		"SOCIALFETCH_LEDGER_BIN=/nonexistent/social-ledger",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

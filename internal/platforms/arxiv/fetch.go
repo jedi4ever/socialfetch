@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const defaultAPIBase = "https://export.arxiv.org/api/query"

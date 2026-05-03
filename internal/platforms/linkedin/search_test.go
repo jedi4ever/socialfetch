@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // LinkedIn content-search results fragment captured from the live

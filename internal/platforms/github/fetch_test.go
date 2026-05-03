@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 func TestMatch(t *testing.T) {

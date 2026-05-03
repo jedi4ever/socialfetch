@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // TestLiveArticleExampleDotCom uses example.com as the most stable HTTP

@@ -1,4 +1,4 @@
-// Package mcp wraps socialfetch's existing capabilities (fetch / search
+// Package mcp wraps social-fetch's existing capabilities (fetch / search
 // / ask / timeline / list / bridge_status) as Model Context Protocol
 // tools, so the same Go binary can be installed as a Claude Desktop
 // Extension (.mcpb) and driven via JSON-RPC over stdio instead of via
@@ -7,10 +7,10 @@
 // This package is purely additive — it consumes the public surface of
 // internal/core and the platform packages without modifying them. The
 // constructor takes already-built registries so this layer doesn't
-// touch buildRegistries / buildAskers in cmd/socialfetch (which are
+// touch buildRegistries / buildAskers in cmd/social-fetch (which are
 // package-main and unimportable anyway).
 //
-// Usage from cmd/socialfetch:
+// Usage from cmd/social-fetch:
 //
 //	srv := mcp.NewServer(mcp.Config{
 //	    Fetchers:           fetchers,
@@ -36,14 +36,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/ledger"
-	"github.com/jedi4ever/socialfetch/internal/research"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/ledger"
+	"github.com/jedi4ever/social-skills/internal/research"
 )
 
 // Config bundles everything the MCP server needs. All fields are
-// non-optional — the caller already has them (cmd/socialfetch builds
+// non-optional — the caller already has them (cmd/social-fetch builds
 // them from buildRegistries/buildAskers/etc.) so there's no win in
 // hiding the dependency.
 type Config struct {
@@ -61,7 +61,7 @@ type Config struct {
 
 	// ToolLogWriter, when non-nil, receives a copy of every tool's
 	// audit lines as they happen. The HTTP transport sets this to
-	// os.Stderr so the operator running `socialfetch mcp --http` /
+	// os.Stderr so the operator running `social-fetch mcp --http` /
 	// `--ngrok` can see incoming tool calls (which platform, which
 	// query, which provider) live alongside the HTTP access log.
 	// Stdio leaves this nil — anything written here would corrupt
@@ -69,12 +69,12 @@ type Config struct {
 	ToolLogWriter io.Writer
 }
 
-// NewServer builds an MCP server with all socialfetch tools registered.
+// NewServer builds an MCP server with all social-fetch tools registered.
 // Call server.ServeStdio(...) on the returned *server.MCPServer to run
 // it.
 func NewServer(cfg Config) *server.MCPServer {
 	s := server.NewMCPServer(
-		"socialfetch",
+		"social-fetch",
 		cfg.Version,
 		server.WithToolCapabilities(false),
 	)
@@ -94,9 +94,9 @@ func registerTools(s *server.MCPServer, cfg Config) {
 
 // openToolAudit opens the always-on global audit log scoped to an MCP
 // tool invocation. The audit log destination matches what
-// `socialfetch fetch` / `search` / `ask` etc. use from the CLI; the
+// `social-fetch fetch` / `search` / `ask` etc. use from the CLI; the
 // only difference is the cmd string is `mcp:<tool>` so an operator
-// running `socialfetch monitor` can tell MCP-driven calls apart from
+// running `social-fetch monitor` can tell MCP-driven calls apart from
 // shell-driven ones.
 //
 // When cfg.ToolLogWriter is non-nil (HTTP/ngrok mode) the audit lines
@@ -108,15 +108,15 @@ func registerTools(s *server.MCPServer, cfg Config) {
 // JSON-RPC channel — anything written there corrupts the protocol
 // stream. Tail the global audit file instead:
 //
-//	socialfetch monitor
+//	social-fetch monitor
 func openToolAudit(cfg Config, toolName string) (*core.AuditLogger, func()) {
 	cmd := "mcp:" + toolName
 	globalW, closeGlobal, err := core.OpenGlobalAudit(cmd)
 	w := cfg.ToolLogWriter
 	if w != nil {
 		// Prefix tool-call lines so they're greppable in stderr next
-		// to the HTTP access log (`socialfetch mcp: http POST /mcp …`).
-		w = prefixWriter{w: w, prefix: []byte("socialfetch mcp: " + cmd + " ")}
+		// to the HTTP access log (`social-fetch mcp: http POST /mcp …`).
+		w = prefixWriter{w: w, prefix: []byte("social-fetch mcp: " + cmd + " ")}
 	}
 	audit := core.NewAuditLogger(w)
 	if err == nil && globalW != nil {
@@ -155,7 +155,7 @@ type fetchArgs struct {
 }
 
 func addFetchTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_fetch",
+	tool := mcp.NewTool("social_fetch_fetch",
 		mcp.WithDescription("Fetch content at a URL — auto-detects the source (HackerNews, Reddit, GitHub, X/Twitter, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic article). Returns a structured Item with title, author, content, comments, etc."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("The URL to fetch")),
 		mcp.WithBoolean("include_comments", mcp.Description("Include comment trees (default true; set false for faster/smaller fetch)")),
@@ -208,7 +208,7 @@ type searchArgs struct {
 }
 
 func addSearchTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_search",
+	tool := mcp.NewTool("social_fetch_search",
 		mcp.WithDescription("Run a search query. Provider names: duckduckgo (default for unauthed), google, brave, serpapi, tavily, perplexity, hackernews, reddit, x (Twitter), youtube, bluesky, arxiv. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
@@ -286,7 +286,7 @@ type askArgs struct {
 }
 
 func addAskTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_ask",
+	tool := mcp.NewTool("social_fetch_ask",
 		mcp.WithDescription("Ask a question of a grounded answer engine. Returns a synthesized answer plus citations. Provider names: perplexity, grok, openai, anthropic, google, tavily, serpapi. Special values: \"auto\" walks the default fallback chain; \"name1,name2\" tries each in order."),
 		mcp.WithString("question", mcp.Required(), mcp.Description("The question to ask")),
 		mcp.WithString("provider", mcp.Description("Provider name, \"auto\", or comma-separated chain (default: auto)")),
@@ -338,7 +338,7 @@ type timelineArgs struct {
 }
 
 func addTimelineTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_timeline",
+	tool := mcp.NewTool("social_fetch_timeline",
 		mcp.WithDescription("Recent activity for a user on X/Twitter or LinkedIn. Accepts bare handles (default to X), @-prefixed handles, or full profile URLs (auto-detected). LinkedIn requires the local browser bridge."),
 		mcp.WithString("user", mcp.Required(), mcp.Description("User handle or profile URL")),
 		mcp.WithString("provider", mcp.Description("x or linkedin; auto-detected from URL")),
@@ -405,7 +405,7 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 // ---- list_providers --------------------------------------------------
 
 func addListProvidersTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_list_providers",
+	tool := mcp.NewTool("social_fetch_list_providers",
 		mcp.WithDescription("List all available fetch / search / ask / timeline providers. Useful for the agent to discover capabilities at runtime."),
 	)
 	s.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -437,8 +437,8 @@ type researchArgs struct {
 }
 
 func addResearchTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_research",
-		mcp.WithDescription("EXPERIMENTAL — multi-angle research workflow. Decomposes the question into 3-8 angles, fans each out concurrently to fetch/search/ask/timeline, then synthesizes a markdown answer with citations. Costs roughly 2 LLM calls + N tool calls per question. Use for questions where you'd otherwise issue 4-8 manual queries; skip for simple lookups (use socialfetch_ask or socialfetch_search directly)."),
+	tool := mcp.NewTool("social_fetch_research",
+		mcp.WithDescription("EXPERIMENTAL — multi-angle research workflow. Decomposes the question into 3-8 angles, fans each out concurrently to fetch/search/ask/timeline, then synthesizes a markdown answer with citations. Costs roughly 2 LLM calls + N tool calls per question. Use for questions where you'd otherwise issue 4-8 manual queries; skip for simple lookups (use social_fetch_ask or social_fetch_search directly)."),
 		mcp.WithString("question", mcp.Required(), mcp.Description("The research question")),
 		mcp.WithString("orchestrator", mcp.Description("Ask provider that drives decompose + synthesize. Default \"auto\" walks the standard ask chain. Override with anthropic, openai, perplexity, etc.")),
 		mcp.WithNumber("max_angles", mcp.Description("Cap decomposition output (default 5, max 8)")),
@@ -469,7 +469,7 @@ func addResearchTool(s *server.MCPServer, cfg Config) {
 			Concurrency:  args.Jobs,
 			OnProgress: func(e research.Event) {
 				// Re-emit research progress lines into the same
-				// audit logger so `socialfetch monitor` shows the
+				// audit logger so `social-fetch monitor` shows the
 				// fan-out unfolding next to the HTTP-level events.
 				audit.Logf("research %s: %s", e.Phase, e.Message)
 			},
@@ -526,7 +526,7 @@ func renderReportMarkdown(r *research.Report) string {
 // ---- bridge_status ---------------------------------------------------
 
 func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
-	tool := mcp.NewTool("socialfetch_bridge_status",
+	tool := mcp.NewTool("social_fetch_bridge_status",
 		mcp.WithDescription("Probe the local browser-extension bridge. Returns {reachable, connected, port}. LinkedIn / Medium / Substack fetches require this to be reachable + connected."),
 	)
 	s.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -562,7 +562,7 @@ func addBridgeStatusTool(s *server.MCPServer, cfg Config) {
 
 // ---- helpers ---------------------------------------------------------
 
-// resolveAsker mirrors cmd/socialfetch.resolveAsker. Duplicated rather
+// resolveAsker mirrors cmd/social-fetch.resolveAsker. Duplicated rather
 // than exported because the chain config differs by caller and the
 // function is tiny.
 func resolveAsker(cfg Config, expr string) (core.Asker, error) {

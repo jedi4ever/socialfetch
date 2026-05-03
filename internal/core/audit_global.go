@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultAuditPath returns the path of the global audit log every
-// socialfetch invocation appends to. Lives under the user cache dir
+// social-fetch invocation appends to. Lives under the user cache dir
 // so it doesn't co-exist with source files; falls back to /tmp if the
 // cache lookup fails.
 //
@@ -23,9 +23,9 @@ func DefaultAuditPath() string {
 		return p
 	}
 	if d, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(d, "socialfetch", "audit.jsonl")
+		return filepath.Join(d, "social-fetch", "audit.jsonl")
 	}
-	return filepath.Join(os.TempDir(), "socialfetch", "audit.jsonl")
+	return filepath.Join(os.TempDir(), "social-fetch", "audit.jsonl")
 }
 
 // AuditEnabled returns false when SOCIALFETCH_AUDIT=0 is set; any

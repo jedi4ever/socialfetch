@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/platforms/linkedin"
-	"github.com/jedi4ever/socialfetch/internal/platforms/twitter"
-	"github.com/jedi4ever/socialfetch/internal/research"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
+	"github.com/jedi4ever/social-skills/internal/research"
 )
 
 type researchFlags struct {
@@ -289,15 +289,15 @@ func renderResearchJSON(w io.Writer, r *research.Report) error {
 }
 
 func printResearchHelp(w io.Writer) {
-	fmt.Fprint(w, `socialfetch research — EXPERIMENTAL multi-angle research workflow
+	fmt.Fprint(w, `social-fetch research — EXPERIMENTAL multi-angle research workflow
 
 Usage:
-  socialfetch research "<question>" [flags]
+  social-fetch research "<question>" [flags]
 
 What it does:
   1. Decomposes the question into 3–8 angles via an LLM call.
   2. Fans each angle out concurrently to fetch / search / ask /
-     timeline using the existing socialfetch primitives.
+     timeline using the existing social-fetch primitives.
   3. Synthesizes the findings into a markdown answer with citations.
 
 EXPERIMENTAL — flag set, prompt schema, and Report shape may change
@@ -332,14 +332,14 @@ Auth:
 
 Progress:
   One line per phase printed to stderr while the run proceeds. Tail
-  the global audit log with 'socialfetch monitor' for HTTP-level
+  the global audit log with 'social-fetch monitor' for HTTP-level
   detail across all parallel workers.
 
 Examples:
-  socialfetch research "is the cline coding agent gaining traction"
-  socialfetch research "what's harness engineering" --rounds 2 --jobs 6
-  socialfetch research "..." --orchestrator anthropic    # force claude
-  socialfetch research "..." --json -o report.json        # structured
+  social-fetch research "is the cline coding agent gaining traction"
+  social-fetch research "what's harness engineering" --rounds 2 --jobs 6
+  social-fetch research "..." --orchestrator anthropic    # force claude
+  social-fetch research "..." --json -o report.json        # structured
 
 Iterating on the prompts:
   Prompts live in internal/research/prompts/{decompose,synthesize}.md

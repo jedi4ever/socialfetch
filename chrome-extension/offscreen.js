@@ -1,5 +1,5 @@
 /**
- * Offscreen document — maintains the WebSocket connection to socialfetch server.
+ * Offscreen document — maintains the WebSocket connection to social-fetch server.
  *
  * Chrome MV3 kills service workers after 30s of inactivity, but offscreen
  * documents persist as long as they're alive. We move the WebSocket here
@@ -32,24 +32,24 @@ async function connect() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
 
   const serverUrl = await getServerUrl();
-  console.log(`[socialfetch offscreen] Connecting to ${serverUrl}...`);
+  console.log(`[social-fetch offscreen] Connecting to ${serverUrl}...`);
 
   try {
     ws = new WebSocket(serverUrl);
   } catch (err) {
-    console.error("[socialfetch offscreen] WebSocket error:", err);
+    console.error("[social-fetch offscreen] WebSocket error:", err);
     scheduleReconnect();
     return;
   }
 
   ws.onopen = async () => {
-    console.log("[socialfetch offscreen] Connected");
+    console.log("[social-fetch offscreen] Connected");
     reconnectAttempt = 0;
     chrome.runtime.sendMessage({ type: "ws_state", state: "connected" });
     const settings = await getSettings();
     ws.send(JSON.stringify({
       type: "hello",
-      agent: "socialfetch-extension",
+      agent: "social-fetch-extension",
       version: "1.1.0",
       settings,
     }));
@@ -61,19 +61,19 @@ async function connect() {
       const msg = JSON.parse(event.data);
       chrome.runtime.sendMessage({ type: "ws_message", payload: msg });
     } catch (e) {
-      console.error("[socialfetch offscreen] Bad JSON:", event.data);
+      console.error("[social-fetch offscreen] Bad JSON:", event.data);
     }
   };
 
   ws.onclose = () => {
-    console.log("[socialfetch offscreen] Disconnected");
+    console.log("[social-fetch offscreen] Disconnected");
     ws = null;
     chrome.runtime.sendMessage({ type: "ws_state", state: "disconnected" });
     scheduleReconnect();
   };
 
   ws.onerror = (err) => {
-    console.error("[socialfetch offscreen] WS error:", err);
+    console.error("[social-fetch offscreen] WS error:", err);
   };
 }
 

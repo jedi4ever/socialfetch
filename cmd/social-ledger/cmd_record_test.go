@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // TestCmdRecordBasic verifies the happy path: record a URL with

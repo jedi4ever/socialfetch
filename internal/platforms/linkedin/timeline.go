@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // linkedinPostFetcher abstracts the per-post LinkedIn fetcher so the

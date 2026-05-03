@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
-	"github.com/jedi4ever/socialfetch/internal/ledger/mirror"
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/mirror"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
 )
 
 // cmdIngest reads JSONL from stdin and ingests every line into the
@@ -55,7 +55,7 @@ func cmdIngest(args []string) error {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	// JSONL items can carry sizable HTML/markdown bodies; default 64KB
-	// scanner buffer trips on real socialfetch output. Bump to 4MB —
+	// scanner buffer trips on real social-fetch output. Bump to 4MB —
 	// enough for the largest HN/article payloads we've observed.
 	scanner.Buffer(make([]byte, 0, 1<<20), 4<<20)
 

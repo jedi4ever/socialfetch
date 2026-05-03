@@ -1,21 +1,21 @@
-// socialfetch-ledger — content + seen-ledger for socialfetch JSONL.
+// social-ledger — content + seen-ledger for social-fetch JSONL.
 //
-// Pipes are the contract. socialfetch produces JSONL of Items; this
+// Pipes are the contract. social-fetch produces JSONL of Items; this
 // binary ingests, indexes (SQLite + FTS5), mirrors to a markdown
 // directory tree for grep-friendly access, and exposes a few
 // stream-shaped subcommands so it composes in shell pipelines:
 //
-//	socialfetch fetch <url> -f jsonl | socialfetch-ledger ingest
-//	socialfetch search "..."  -f jsonl | socialfetch-ledger filter --skip-seen | claude ...
-//	socialfetch-ledger search "tessl"
-//	socialfetch-ledger get <url>
-//	socialfetch-ledger list --source hackernews --since 7d
-//	socialfetch-ledger stats
-//	socialfetch-ledger forget <url>
-//	socialfetch-ledger mirror sync
+//	social-fetch fetch <url> -f jsonl | social-ledger ingest
+//	social-fetch search "..."  -f jsonl | social-ledger filter --skip-seen | claude ...
+//	social-ledger search "tessl"
+//	social-ledger get <url>
+//	social-ledger list --source hackernews --since 7d
+//	social-ledger stats
+//	social-ledger forget <url>
+//	social-ledger mirror sync
 //
-// Storage default: $XDG_DATA_HOME/socialfetch-ledger (or
-// ~/.local/share/socialfetch-ledger). Override with --data-dir.
+// Storage default: $XDG_DATA_HOME/social-ledger (or
+// ~/.local/share/social-ledger). Override with --data-dir.
 package main
 
 import (
@@ -26,14 +26,14 @@ import (
 	"path/filepath"
 )
 
-// Version moves with the ledger binary, independent of socialfetch.
+// Version moves with the ledger binary, independent of social-fetch.
 // Bump on every user-visible change to subcommands, flags, schema,
 // or mirror layout.
 const Version = "0.1.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "socialfetch-ledger:", err)
+		fmt.Fprintln(os.Stderr, "social-ledger:", err)
 		os.Exit(1)
 	}
 }
@@ -67,7 +67,7 @@ func run(args []string) error {
 	case "mirror":
 		return cmdMirror(args[1:])
 	case "version", "--version", "-v":
-		fmt.Println("socialfetch-ledger", Version)
+		fmt.Println("social-ledger", Version)
 		return nil
 	case "help", "-h", "--help":
 		printHelp(os.Stdout)
@@ -80,26 +80,26 @@ func run(args []string) error {
 
 // dataDir resolves the per-user data directory, honoring
 // $SOCIALFETCH_LEDGER_DIR (explicit override) and $XDG_DATA_HOME
-// (XDG default). Falls back to ~/.local/share/socialfetch-ledger.
+// (XDG default). Falls back to ~/.local/share/social-ledger.
 func dataDir() (string, error) {
 	if d := os.Getenv("SOCIALFETCH_LEDGER_DIR"); d != "" {
 		return d, nil
 	}
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
-		return filepath.Join(d, "socialfetch-ledger"), nil
+		return filepath.Join(d, "social-ledger"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", "socialfetch-ledger"), nil
+	return filepath.Join(home, ".local", "share", "social-ledger"), nil
 }
 
 // addCommonFlags registers --data-dir on a FlagSet — every subcommand
 // accepts it so users can point a single invocation at an alternate
 // ledger (test fixtures, scratch ledger, etc.).
 func addCommonFlags(fs *flag.FlagSet, dataDirOut *string) {
-	fs.StringVar(dataDirOut, "data-dir", "", "ledger data directory (default: $SOCIALFETCH_LEDGER_DIR or $XDG_DATA_HOME/socialfetch-ledger)")
+	fs.StringVar(dataDirOut, "data-dir", "", "ledger data directory (default: $SOCIALFETCH_LEDGER_DIR or $XDG_DATA_HOME/social-ledger)")
 }
 
 // resolveDataDir picks the explicit --data-dir flag value when set,
@@ -118,10 +118,10 @@ func resolveDataDir(flagVal string) (string, error) {
 var errUsage = errors.New("usage")
 
 func printHelp(w *os.File) {
-	fmt.Fprintf(w, `socialfetch-ledger %s — content + seen-ledger for socialfetch JSONL
+	fmt.Fprintf(w, `social-ledger %s — content + seen-ledger for social-fetch JSONL
 
 USAGE
-  socialfetch-ledger <command> [flags] [args]
+  social-ledger <command> [flags] [args]
 
 COMMANDS
   ingest                 read JSONL from stdin, store + mirror to disk
@@ -142,20 +142,20 @@ COMMANDS
   help                   this message
 
 DATA LOCATION
-  Default: $XDG_DATA_HOME/socialfetch-ledger or ~/.local/share/socialfetch-ledger
+  Default: $XDG_DATA_HOME/social-ledger or ~/.local/share/social-ledger
   Override with --data-dir <path> on any subcommand, or
   set $SOCIALFETCH_LEDGER_DIR.
 
 EXAMPLES
-  socialfetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
-    | socialfetch-ledger ingest
+  social-fetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
+    | social-ledger ingest
 
-  socialfetch search "go 1.27" -f jsonl \
-    | socialfetch-ledger filter --skip-seen \
+  social-fetch search "go 1.27" -f jsonl \
+    | social-ledger filter --skip-seen \
     | jq .
 
-  socialfetch-ledger search "tessl harness"
-  socialfetch-ledger list --source hackernews --since 7d
-  socialfetch-ledger stats
+  social-ledger search "tessl harness"
+  social-ledger list --source hackernews --since 7d
+  social-ledger stats
 `, Version)
 }

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/store"
-	"github.com/jedi4ever/socialfetch/internal/ledger/urlutil"
+	"github.com/jedi4ever/social-skills/internal/ledger/store"
+	"github.com/jedi4ever/social-skills/internal/ledger/urlutil"
 )
 
 // cmdSeen answers "is this URL already in the ledger?" for one or
@@ -19,9 +19,9 @@ import (
 // re-fetching content they've already pulled — same intent as
 // `filter --skip-seen` but with simpler ergonomics:
 //
-//	socialfetch-ledger seen <url1> <url2> ...
-//	socialfetch-ledger seen -i urls.txt          # one URL per line
-//	cat urls.txt | socialfetch-ledger seen       # via stdin
+//	social-ledger seen <url1> <url2> ...
+//	social-ledger seen -i urls.txt          # one URL per line
+//	cat urls.txt | social-ledger seen       # via stdin
 //
 // Output (default, machine-greppable):
 //
@@ -127,7 +127,7 @@ func cmdSeen(args []string) error {
 // output ordering survives the round-trip.
 //
 // Empty lines and lines starting with `#` are dropped from file /
-// stdin sources, matching the convention of `socialfetch fetch -i`.
+// stdin sources, matching the convention of `social-fetch fetch -i`.
 func collectSeenURLs(positional []string, inputFile string) ([]string, error) {
 	urls := append([]string{}, positional...)
 
@@ -149,7 +149,7 @@ func collectSeenURLs(positional []string, inputFile string) ([]string, error) {
 		}
 		urls = append(urls, more...)
 	} else if !isatty(os.Stdin) {
-		// Piped input — auto-pick it up, mirroring how `socialfetch
+		// Piped input — auto-pick it up, mirroring how `social-fetch
 		// fetch` detects a pipe and reads URLs from stdin without
 		// requiring -i -.
 		more, err := readURLLines(os.Stdin)

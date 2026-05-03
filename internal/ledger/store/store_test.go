@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/ledger/item"
+	"github.com/jedi4ever/social-skills/internal/ledger/item"
 )
 
 // newStore opens a fresh on-disk SQLite in t.TempDir. We don't use
@@ -192,7 +192,7 @@ func TestStats(t *testing.T) {
 }
 
 // Extra fields survive a round trip through SQLite's TEXT column.
-// This is the schema-drift safety net: if socialfetch adds a new Item
+// This is the schema-drift safety net: if social-fetch adds a new Item
 // field, ledger preserves it verbatim and a future ledger version can
 // promote it without losing history.
 func TestExtraSurvivesRoundTrip(t *testing.T) {
