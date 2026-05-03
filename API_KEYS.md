@@ -2,10 +2,10 @@
 
 Every key is **optional**. Features gated on a missing key just degrade gracefully — Tavily search errors with a clear message, YouTube comments are skipped, the X fetcher falls back to the public syndication endpoint, etc.
 
-`socialfetch` reads `.env` files automatically on startup, in this order, **without overriding values already exported in the shell**:
+`social-fetch` reads `.env` files automatically on startup, in this order, **without overriding values already exported in the shell**:
 
 1. `./.env` — the directory you're running from
-2. `<binary_dir>/.env` — next to the installed binary (typically `~/.claude/skills/socialfetch/.env`)
+2. `<binary_dir>/.env` — next to the installed binary (typically `~/.claude/skills/social-fetch/.env`)
 
 Drop a `.env` at either location with whichever keys you need:
 
@@ -194,7 +194,7 @@ One key powers **three** providers:
 Bluesky's `app.bsky.feed.searchPosts` requires an authenticated session. We do the `com.atproto.server.createSession` call once on startup and cache the JWT.
 
 1. Go to **[bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)**.
-2. **Add App Password** → give it a name (e.g. "socialfetch") → copy the displayed string (format: `xxxx-xxxx-xxxx-xxxx`).
+2. **Add App Password** → give it a name (e.g. "social-fetch") → copy the displayed string (format: `xxxx-xxxx-xxxx-xxxx`).
 3. Set both:
    ```
    BLUESKY_HANDLE=you.bsky.social        # or your custom domain handle
@@ -221,7 +221,7 @@ Unknown values fall back to `kaufmann`.
 
 Service-backed reader that replaces the local fetch+parse+convert
 pipeline for the generic article fetcher. When set, the article
-fetcher (`socialfetch fetch <any-url>` for non-host-specific URLs)
+fetcher (`social-fetch fetch <any-url>` for non-host-specific URLs)
 sends the URL to the chosen service and uses its returned markdown
 verbatim.
 

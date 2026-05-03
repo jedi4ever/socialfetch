@@ -1,4 +1,4 @@
-# socialfetch — repo conventions
+# social-skills — repo conventions
 
 ## Error handling for external APIs
 
@@ -60,8 +60,8 @@ profile.go        # reserved for future capability
 
 Capability interfaces live in `internal/core/{fetcher,search,ask,timeline}.go`.
 Adding a platform means adding the package + registering it in
-`cmd/socialfetch/main.go`'s `buildRegistries()` / `buildAskers()`. The
-help text and `socialfetch list` are derived from the registries.
+`cmd/social-fetch/main.go`'s `buildRegistries()` / `buildAskers()`. The
+help text and `social-fetch list` are derived from the registries.
 
 ## Test coverage requirements per platform
 
@@ -103,7 +103,7 @@ Whenever you add or change user-visible functionality — new subcommand,
 new provider, new flag, new env var, removed flag — update the matching
 sections in:
 
-- **`skill/socialfetch/SKILL.md`** (provider lists, flag tables, examples,
+- **`skills/social-fetch/SKILL.md`** (provider lists, flag tables, examples,
   decision rules, the `allowed-tools` frontmatter when a new
   subcommand is added). Claude Desktop / Claude Code load this file
   verbatim — stale entries here mean the agent recommends commands the
@@ -112,11 +112,11 @@ sections in:
   steps, free-tier notes). New providers without a matching API_KEYS
   section leave users guessing where to get the key.
 
-Same rule for the in-binary help text in `cmd/socialfetch/main.go`
-(`printAskHelp`, `printSearchHelp`, etc.) — `socialfetch help` is the
+Same rule for the in-binary help text in `cmd/social-fetch/main.go`
+(`printAskHelp`, `printSearchHelp`, etc.) — `social-fetch help` is the
 authoritative reference, so a feature with no help text is invisible.
 
-**Add `mcpb-extension/manifest.json` to that list whenever a new
+**Add `extensions/claude-desktop/manifest.json` to that list whenever a new
 provider/env-var lands.** The Claude Desktop Extension installer
 shows users every entry in `user_config` as a form field; if a new
 key (e.g. `NEW_API_KEY`) doesn't get an entry there, users won't
@@ -124,23 +124,23 @@ know to set it during install. Keep `user_config` parallel with
 `API_KEYS.md` — both should list the same env vars.
 
 **The Claude Code plugin's SKILL.md is generated** from
-`skill/socialfetch/SKILL.md` via `make plugin-build` — it's the same
-content with `scripts/socialfetch` rewritten to bare `socialfetch`
+`skills/social-fetch/SKILL.md` via `make plugin-build` — it's the same
+content with `scripts/social-fetch` rewritten to bare `social-fetch`
 (plugin assumes PATH install). After editing the standalone SKILL.md,
 run `make plugin-build` and commit the regenerated
-`claude-code-plugin/skills/socialfetch/SKILL.md` so the marketplace
-install (`/plugin marketplace add jedi4ever/socialfetch`) picks up
+`extensions/claude-code/skills/social-fetch/SKILL.md` so the marketplace
+install (`/plugin marketplace add jedi4ever/social-skills`) picks up
 the change. Bump the version in
-`claude-code-plugin/.claude-plugin/plugin.json` and
+`extensions/claude-code/.claude-plugin/plugin.json` and
 `.claude-plugin/marketplace.json` alongside
-`cmd/socialfetch/main.go`'s `Version` and
-`mcpb-extension/manifest.json` — all four version fields move
+`cmd/social-fetch/main.go`'s `Version` and
+`extensions/claude-desktop/manifest.json` — all four version fields move
 together on every user-visible release.
 
 **The Chrome browser-bridge extension has its own version** in
-`chrome-extension/manifest.json` — independent of `cmd/socialfetch/main.go`'s
+`extensions/chrome/manifest.json` — independent of `cmd/social-fetch/main.go`'s
 `Version`. Bump the Chrome extension's version whenever you change
-`chrome-extension/*.js` (content scripts, background.js, popup, etc.).
+`extensions/chrome/*.js` (content scripts, background.js, popup, etc.).
 `make bridge-package` reads that version field to name the dist
 zip; an unbumped version means two zips with the same name and
 older Chrome reloads of the same nominal version may not pick up
@@ -148,8 +148,8 @@ your changes.
 
 ## Versioning
 
-`cmd/socialfetch/main.go` declares a `Version` constant that's
-surfaced via `socialfetch version` and the top of `socialfetch help`.
+`cmd/social-fetch/main.go` declares a `Version` constant that's
+surfaced via `social-fetch version` and the top of `social-fetch help`.
 **Bump it on every user-visible release** — new subcommand, new
 provider, new flag, removed flag, behaviour change a downstream user
 would notice. Bug fixes that don't change behaviour can ride along on
@@ -158,6 +158,6 @@ the next feature bump.
 We follow loose semver: `MAJOR.MINOR.PATCH`. MAJOR for breaking CLI
 changes (removed flags, renamed subcommands), MINOR for additive
 changes (new provider, new flag), PATCH for bug fixes only. The
-constant lives at the top of `cmd/socialfetch/main.go` next to the
+constant lives at the top of `cmd/social-fetch/main.go` next to the
 imports — easy to find when you're already editing the file for
 something else.

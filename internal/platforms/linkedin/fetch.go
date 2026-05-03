@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmd"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmd"
 )
 
 // DefaultBridgeURL is the local bridge endpoint the fetcher POSTs to.
@@ -55,9 +55,9 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	if err != nil {
 		switch {
 		case errors.Is(err, bridge.ErrBridgeUnreachable):
-			return nil, fmt.Errorf("linkedin: bridge daemon not running — `socialfetch bridge start`: %w", err)
+			return nil, fmt.Errorf("linkedin: bridge daemon not running — `social-fetch bridge start`: %w", err)
 		case errors.Is(err, bridge.ErrNoExtensionAttached):
-			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the socialfetch extension running")
+			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the social-fetch extension running")
 		default:
 			return nil, fmt.Errorf("linkedin: %w", err)
 		}

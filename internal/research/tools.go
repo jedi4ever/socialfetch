@@ -7,7 +7,7 @@ import "strings"
 // be registered in one place — the prompt template stays the same
 // because it ranges over whatever buildToolSpecs returns.
 //
-// Name uses the namespaced MCP form (`socialfetch_*`) so the LLM
+// Name uses the namespaced MCP form (`social-fetch_*`) so the LLM
 // sees the same vocabulary across the research command and the
 // other MCP tools. The dispatcher accepts either the namespaced or
 // the bare form (see normalizeToolName).
@@ -30,19 +30,19 @@ func buildToolSpecs(opts Options) []ToolSpec {
 	}
 	return []ToolSpec{
 		{
-			Name:      "socialfetch_ask",
+			Name:      "social_fetch_ask",
 			Purpose:   "grounded answer engine. Use for \"what is X\" or \"why does Y matter\" sub-questions where a synthesized paragraph is more useful than raw URLs.",
 			Providers: strings.Join(opts.Askers.Names(), ", "),
 		},
 		{
-			Name:      "socialfetch_search",
+			Name:      "social_fetch_search",
 			Purpose:   "list of URLs + snippets for a query. Use for \"who is talking about X\" or \"where has Y been discussed\".",
 			Providers: strings.Join(opts.Searchers.Names(), ", "),
 			Notes: "IMPORTANT: do NOT include date operators like `before:`, `after:`, `since:`, `until:` in the query string — most providers reject them.\n" +
 				"  IMPORTANT: `linkedin` is NOT a search provider. Don't pick it for search.",
 		},
 		{
-			Name:    "socialfetch_fetch",
+			Name:    "social_fetch_fetch",
 			Purpose: "the body of a single URL. Use only when you already know the URL is worth reading (a specific HN thread, GitHub repo, arXiv paper). Don't use for general queries; use search instead.",
 			// `Providers` is the auto-detect fetcher list — the URL's
 			// host picks among them. The decomposer doesn't pick a
@@ -52,10 +52,10 @@ func buildToolSpecs(opts Options) []ToolSpec {
 			Notes:     "No `provider` field needed — the URL's host auto-selects the right fetcher.",
 		},
 		{
-			Name:      "socialfetch_timeline",
+			Name:      "social_fetch_timeline",
 			Purpose:   "recent activity for a named person.",
 			Providers: "x, linkedin",
-			Notes:     "LinkedIn requires the local browser bridge; if you suspect the bridge isn't set up, prefer `socialfetch_search` provider=`x` instead.",
+			Notes:     "LinkedIn requires the local browser bridge; if you suspect the bridge isn't set up, prefer `social_fetch_search` provider=`x` instead.",
 		},
 	}
 }

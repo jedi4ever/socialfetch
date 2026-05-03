@@ -1,0 +1,506 @@
+// MCP subcommand: runs an MCP server in one of two transports:
+//
+//   - stdio (default) — for Claude Desktop Extension (.mcpb) installs
+//     where Claude Desktop launches the binary as a subprocess and
+//     speaks JSON-RPC on stdin/stdout.
+//
+//   - HTTP/streamable (--http :PORT) — for remote MCP clients like
+//     claude.ai's Custom Connectors. Pair with `ngrok http PORT`
+//     during local development to get a public HTTPS URL claude.ai
+//     can reach without standing up cloud infra.
+//
+// All tool handlers live in internal/mcp; this file is just the entry
+// point that builds the registries and hands them to the server.
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/mcp"
+	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
+)
+
+func runMCP(args []string) error {
+	var (
+		httpAddr string
+		useNgrok bool
+	)
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "-h", "--help":
+			printMCPHelp()
+			return nil
+		case "--http":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("mcp: --http needs a value (e.g. :8080)")
+			}
+			httpAddr = args[i]
+			// Allow bare "8080" as shorthand for ":8080".
+			if !strings.Contains(httpAddr, ":") {
+				httpAddr = ":" + httpAddr
+			}
+		case "--ngrok":
+			useNgrok = true
+			// --ngrok implies --http; default to :8080 when the
+			// user didn't supply one.
+			if httpAddr == "" {
+				httpAddr = ":8080"
+			}
+		default:
+			return fmt.Errorf("mcp: unknown argument %q", a)
+		}
+	}
+
+	fetchers, searchers := buildRegistries()
+	askers := buildAskers()
+	timelines := core.NewTimelineRegistry(
+		twitter.NewXProvider(twitter.NewSearchProvider()),
+		linkedin.NewLinkedInProvider(),
+	)
+
+	cfg := mcp.Config{
+		Fetchers:           fetchers,
+		Searchers:          searchers,
+		Askers:             askers,
+		Timelines:          timelines,
+		DefaultAskChain:    defaultAskChain,
+		DefaultSearchChain: defaultSearchChain,
+		Version:            Version,
+		BridgePort:         bridge.DefaultPort,
+	}
+	// HTTP/ngrok mode: surface every tool invocation (fetch URL, ask
+	// query+provider, search query, etc.) on stderr so the operator
+	// running the server sees who's calling what in real time. Stdio
+	// keeps this nil because stdout is the JSON-RPC channel.
+	if httpAddr != "" {
+		cfg.ToolLogWriter = os.Stderr
+		return runMCPOverHTTP(mcp.NewServer(cfg), httpAddr, useNgrok)
+	}
+	// ServeStdio reads JSON-RPC from os.Stdin and writes it to
+	// os.Stdout. Anything we log on stdout corrupts the protocol —
+	// the audit logger always writes to a file or stderr, so it's safe.
+	return server.ServeStdio(mcp.NewServer(cfg))
+}
+
+// runMCPOverHTTP serves the MCP protocol over Streamable HTTP. The
+// `MCP_AUTH_TOKEN` env var, if set, gates every request — clients
+// must send `Authorization: Bearer <token>` (or `?token=<token>`).
+// Use a long random string for ngrok-tunneled deployments where
+// the URL is otherwise crawlable. Empty token = no auth (only safe
+// for localhost-only listens like 127.0.0.1:8080).
+//
+// When useNgrok=true:
+//   - If MCP_AUTH_TOKEN isn't set we generate a 32-byte hex token
+//     so the public ngrok URL isn't unauthenticated.
+//   - The HTTP server runs in a goroutine.
+//   - We spawn `ngrok http <port>` as a subprocess.
+//   - Poll ngrok's local agent API (127.0.0.1:4040) for the public
+//     HTTPS URL, then print everything the user needs to paste
+//     into claude.ai's Custom Connector setup.
+//   - On Ctrl+C, kill the ngrok child cleanly.
+func runMCPOverHTTP(mcpSrv *server.MCPServer, addr string, useNgrok bool) error {
+	streamable := server.NewStreamableHTTPServer(mcpSrv)
+	token := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+	tokenSource := "MCP_AUTH_TOKEN env"
+	if token == "" && useNgrok {
+		// Public URL needs auth — generate one for the user.
+		token = randomHex(32)
+		tokenSource = "auto-generated (--ngrok)"
+	}
+
+	// Open the global audit log once at startup so per-request lines
+	// show up under `social-fetch monitor` next to every other audit
+	// event (CLI, MCP-stdio, etc.). Audit failures don't gate the
+	// HTTP server — operator can still tail server stderr.
+	audit := core.NewAuditLogger(nil)
+	if globalW, closeGlobal, err := core.OpenGlobalAudit("mcp:http"); err == nil && globalW != nil {
+		audit.AttachGlobal(globalW)
+		defer closeGlobal()
+	}
+
+	// Build the routing tree. Three buckets:
+	//
+	//   GET / and GET /health → unauthenticated JSON status. Lets
+	//     anyone probe-via-browser see the server is alive without
+	//     hitting the SSE stream that /mcp opens on GET (which
+	//     visually "hangs"). Token deliberately not required —
+	//     leaks no secrets, the response is identical for everyone.
+	//
+	//   /mcp (any method) → Streamable HTTP transport, gated by
+	//     bearer auth. POST is request/response; GET upgrades to
+	//     SSE for server-pushed events. claude.ai's connector
+	//     uses both.
+	//
+	//   everything else → 404.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		writeStatusJSON(w, token != "")
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		writeStatusJSON(w, token != "")
+	})
+
+	// Stack on /mcp: request log → bearer auth → MCP handler.
+	// Logging outermost so we record the request even when auth
+	// rejects it (so brute-force probes against the public URL are
+	// visible).
+	mcpHandler := http.Handler(streamable)
+	if token != "" {
+		mcpHandler = bearerAuth(token, mcpHandler)
+		fmt.Fprintf(os.Stderr, "social-fetch mcp: bearer-token auth enabled (%s)\n", tokenSource)
+	} else {
+		fmt.Fprintf(os.Stderr,
+			"social-fetch mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
+				"  Set MCP_AUTH_TOKEN before exposing the listener via ngrok or any public URL.\n")
+	}
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler) // trailing-slash forgiveness
+
+	handler := requestLog(audit, mux)
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	fmt.Fprintf(os.Stderr, "social-fetch mcp: listening on %s (Streamable HTTP)\n", addr)
+
+	if !useNgrok {
+		return httpSrv.ListenAndServe()
+	}
+
+	// --ngrok mode: serve in a goroutine, spawn ngrok, print URL.
+	errCh := make(chan error, 1)
+	go func() { errCh <- httpSrv.ListenAndServe() }()
+
+	port := portFromAddr(addr)
+	ngrokCmd, publicURL, err := startNgrok(port)
+	if err != nil {
+		_ = httpSrv.Close()
+		return fmt.Errorf("ngrok: %w", err)
+	}
+	defer func() {
+		if ngrokCmd != nil && ngrokCmd.Process != nil {
+			_ = ngrokCmd.Process.Signal(syscall.SIGTERM)
+			_, _ = ngrokCmd.Process.Wait()
+		}
+	}()
+
+	printNgrokInstructions(publicURL, token)
+
+	// Wait for either Ctrl+C or HTTP server failure.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case <-sig:
+		fmt.Fprintln(os.Stderr, "\nsocial-fetch mcp: shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+// startNgrok spawns `ngrok http <port>` as a child process and
+// blocks until ngrok's local agent API reports the tunnel is up,
+// returning the *exec.Cmd handle (so the caller can stop it on
+// shutdown) plus the public HTTPS URL.
+//
+// Failure modes worth surfacing clearly:
+//   - ngrok binary not on PATH → install hint
+//   - tunnel never comes up within ~10s → likely a missing
+//     `ngrok config add-authtoken …` (free tier requires it)
+func startNgrok(port int) (*exec.Cmd, string, error) {
+	if _, err := exec.LookPath("ngrok"); err != nil {
+		return nil, "", fmt.Errorf(
+			"ngrok not found on PATH. Install: brew install ngrok (macOS), or see https://ngrok.com/download. Then run `ngrok config add-authtoken <your-token>` once.",
+		)
+	}
+	cmd := exec.Command("ngrok", "http", fmt.Sprintf("%d", port), "--log=stdout", "--log-level=warn")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return nil, "", fmt.Errorf("spawn ngrok: %w", err)
+	}
+	url, err := waitForNgrokTunnel(10 * time.Second)
+	if err != nil {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_, _ = cmd.Process.Wait()
+		return nil, "", err
+	}
+	return cmd, url, nil
+}
+
+// waitForNgrokTunnel polls ngrok's local API at 127.0.0.1:4040 until
+// it returns at least one tunnel with a public HTTPS URL, or the
+// timeout trips.
+func waitForNgrokTunnel(timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+		resp, err := http.Get("http://127.0.0.1:4040/api/tunnels")
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		var data struct {
+			Tunnels []struct {
+				PublicURL string `json:"public_url"`
+			} `json:"tunnels"`
+		}
+		if err := json.Unmarshal(body, &data); err != nil {
+			continue
+		}
+		for _, t := range data.Tunnels {
+			if strings.HasPrefix(t.PublicURL, "https://") {
+				return t.PublicURL, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("ngrok tunnel didn't come up within %s — check `ngrok config add-authtoken <token>` is set, or run `ngrok http %d` directly to see the actual error", timeout, 0)
+}
+
+// printNgrokInstructions writes the claude.ai-ready connector setup
+// instructions to stderr (stdout is reserved for any future MCP
+// stdio behavior). Plain-text on purpose so the user can copy/paste.
+func printNgrokInstructions(publicURL, token string) {
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "──────────────────────────────────────────────────────────────")
+	fmt.Fprintln(os.Stderr, "  social-fetch MCP server is live via ngrok.")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "  URL:    %s/mcp\n", publicURL)
+	if token != "" {
+		fmt.Fprintf(os.Stderr, "  Token:  %s\n", token)
+	}
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "  Add to claude.ai → Settings → Connectors → Add custom")
+	fmt.Fprintln(os.Stderr, "  connector:")
+	fmt.Fprintf(os.Stderr, "    1. Connector URL:  %s/mcp\n", publicURL)
+	if token != "" {
+		fmt.Fprintln(os.Stderr, "    2. Authentication:  Bearer token (paste the token above)")
+		fmt.Fprintf(os.Stderr, "       Or use this URL with embedded token:\n")
+		fmt.Fprintf(os.Stderr, "         %s/mcp?token=%s\n", publicURL, token)
+	}
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "  Ctrl+C to stop the server and tear down the tunnel.")
+	fmt.Fprintln(os.Stderr, "──────────────────────────────────────────────────────────────")
+	fmt.Fprintln(os.Stderr)
+}
+
+// portFromAddr extracts the numeric port from "host:port" or ":port".
+// Returns 0 on parse failure (callers default to 8080 upstream).
+func portFromAddr(addr string) int {
+	colon := strings.LastIndex(addr, ":")
+	if colon < 0 {
+		return 0
+	}
+	var p int
+	_, err := fmt.Sscanf(addr[colon+1:], "%d", &p)
+	if err != nil {
+		return 0
+	}
+	return p
+}
+
+// randomHex returns 2*n hex chars of crypto-grade randomness.
+// Suitable for short-lived bearer tokens: 32 bytes = 256 bits, way
+// more than needed but cheap.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// writeStatusJSON answers `GET /` and `GET /health` with a small
+// JSON document the operator (or claude.ai's connector preflight)
+// can use to confirm the server is alive without engaging the
+// Streamable HTTP SSE stream — that endpoint at /mcp holds the
+// connection open on GET, which looks like a hang from a browser.
+//
+// Deliberately unauthenticated. Reveals only:
+//   - server name + version (already public via the binary itself)
+//   - whether bearer-auth is required on /mcp (so the operator can
+//     tell at a glance whether they remembered to set MCP_AUTH_TOKEN)
+//   - the protocol-endpoint path
+//
+// No secrets, no environment, no per-instance state.
+func writeStatusJSON(w http.ResponseWriter, authRequired bool) {
+	w.Header().Set("Content-Type", "application/json")
+	body := map[string]any{
+		"name":          "social-fetch",
+		"version":       Version,
+		"mcp_endpoint":  "/mcp",
+		"transport":     "streamable-http",
+		"auth_required": authRequired,
+		"docs":          "https://github.com/jedi4ever/social-skills",
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(body)
+}
+
+// requestLog writes one line per HTTP request to stderr (so the
+// operator running `social-fetch mcp --ngrok` can see traffic in
+// real time) and to the global audit log (so `social-fetch monitor`
+// in another shell sees it tagged `cmd=mcp:http`). Records:
+//
+//   - method, path
+//   - remote address (rightmost X-Forwarded-For entry if present —
+//     ngrok and most reverse proxies put the real client IP there;
+//     local-only deploys see "127.0.0.1:nnnnn")
+//   - response status code (via a tiny ResponseWriter wrapper)
+//   - request duration
+//
+// Sensitive fields (Authorization header, ?token= query string,
+// request body) are intentionally NOT logged — query string is
+// stripped from the path so a leaked log file doesn't reveal the
+// auth token.
+func requestLog(audit *core.AuditLogger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rw, r)
+		dur := time.Since(start).Round(time.Millisecond)
+
+		remote := r.Header.Get("X-Forwarded-For")
+		if remote == "" {
+			remote = r.RemoteAddr
+		} else if i := strings.Index(remote, ","); i >= 0 {
+			// XFF can be a list; the original client is leftmost.
+			remote = strings.TrimSpace(remote[:i])
+		}
+		path := r.URL.Path
+		// Strip the query string entirely so ?token=... never lands
+		// in stderr or audit logs.
+		line := fmt.Sprintf("http %s %s from %s status=%d in %s",
+			r.Method, path, remote, rw.status, dur)
+		fmt.Fprintln(os.Stderr, "social-fetch mcp: "+line)
+		audit.Logf("%s", line)
+	})
+}
+
+// statusRecorder is a tiny http.ResponseWriter wrapper that captures
+// the status code so requestLog can include it. No body buffering
+// — Streamable HTTP responses can be large + chunked, and we don't
+// want to keep them in memory.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// bearerAuth gates `next` on the supplied token. Accepts the token
+// in EITHER place:
+//
+//   - `Authorization: Bearer <token>` header — preferred, the
+//     standard MCP/HTTP auth shape. claude.ai's Custom Connector
+//     UI fills this in automatically when you paste a token in the
+//     auth field.
+//
+//   - `?token=<token>` query string — fallback for clients that
+//     can't set custom headers (some integration UIs don't support
+//     them on user-supplied connectors). The token is logged to
+//     server access logs whenever query-string auth is used, so
+//     prefer the header where possible.
+//
+// Sends 401 with WWW-Authenticate on missing/wrong creds so claude.ai
+// surfaces a clear "this connector needs auth" message.
+func bearerAuth(expected string, next http.Handler) http.Handler {
+	expectedHeader := "Bearer " + expected
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Header path
+		if got := r.Header.Get("Authorization"); got == expectedHeader {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 2. Query-string fallback
+		if got := r.URL.Query().Get("token"); got != "" && got == expected {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="social-fetch-mcp"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
+func printMCPHelp() {
+	fmt.Fprint(os.Stdout, `social-fetch mcp — run an MCP server (stdio or HTTP)
+
+Usage:
+  social-fetch mcp                       # stdio (Claude Desktop Extension)
+  social-fetch mcp --http :8080          # Streamable HTTP (claude.ai, ngrok)
+
+Stdio mode is what Claude Desktop launches when you install the
+.mcpb extension; the server speaks JSON-RPC on stdin/stdout. Don't
+type into a stdio MCP server directly — it expects MCP framing.
+
+HTTP mode (--http :PORT) serves the same tools over Streamable HTTP
+for remote MCP clients like claude.ai's Custom Connectors.
+
+Quickest path for local development — let social-fetch spawn ngrok
+for you and print the connector URL + token:
+
+  $ social-fetch mcp --ngrok                    # defaults to :8080
+  $ social-fetch mcp --ngrok --http :9090       # override the port
+
+Or run them yourself:
+
+  $ MCP_AUTH_TOKEN=$(uuidgen) social-fetch mcp --http :8080
+  $ ngrok http 8080
+
+Then in claude.ai → Settings → Connectors → Add custom connector,
+paste the ngrok URL and the token (claude.ai will send it as
+"Authorization: Bearer <token>"). The query-string fallback
+"?token=<token>" works too if the UI doesn't expose an auth header
+field.
+
+Configure API keys via env vars — same names the other subcommands
+read (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.). The dotenv loader
+picks up nearby .env files automatically.
+
+Auth (HTTP mode only):
+  MCP_AUTH_TOKEN     bearer token required for every request. Empty
+                     = no auth (only safe for 127.0.0.1 listens).
+                     Set this before exposing the listener via ngrok
+                     or any public URL.
+
+Flags:
+  --http :PORT       run as Streamable HTTP server on the given
+                     address (e.g. :8080, 127.0.0.1:8080)
+  --ngrok            spawn ngrok automatically and print the public
+                     URL + a generated bearer token. Defaults to
+                     :8080; combine with --http :PORT to override.
+  -h, --help         show this help
+`)
+}

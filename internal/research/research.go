@@ -12,7 +12,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/ledger"
 )
 
 //go:embed prompts/decompose.md
@@ -230,12 +231,12 @@ func fanOut(parent context.Context, angles []Angle, opts Options, emit func(Even
 }
 
 // normalizeToolName accepts either the namespaced MCP tool name
-// (`socialfetch_fetch`, what the decomposer prompt recommends) or the
+// (`social_fetch_fetch`, what the decomposer prompt recommends) or the
 // bare category (`fetch`, what hand-written angle JSON tends to use).
 // Both resolve to the same dispatcher branch.
 func normalizeToolName(t string) string {
 	t = strings.ToLower(strings.TrimSpace(t))
-	return strings.TrimPrefix(t, "socialfetch_")
+	return strings.TrimPrefix(t, "social-fetch_")
 }
 
 // dispatch turns an Angle into one tool call against the existing
@@ -261,6 +262,10 @@ func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 		}
 		r.Findings = ans.Text
 		r.Sources = ans.Sources
+		// Citation stubs into the ledger so the agent has an index
+		// of every URL the answer engines pointed at, even before
+		// (or without) fully fetching them. See ledger.IngestSources.
+		ledger.IngestSources(ctx, ans.Sources...)
 	case "search":
 		if a.Query == "" {
 			r.Err = errors.New("angle.query is empty for tool=search")
@@ -282,6 +287,10 @@ func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 				Title: h.Title, URL: h.URL, Snippet: h.Snippet, Published: h.Published,
 			})
 		}
+		// Citation stubs for every search hit — same rationale as
+		// ask: the URL gets indexed even though we haven't fetched
+		// the body yet.
+		ledger.IngestSources(ctx, r.Sources...)
 	case "fetch":
 		if a.URL == "" {
 			r.Err = errors.New("angle.url is empty for tool=fetch")
@@ -295,6 +304,14 @@ func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 		}
 		r.Findings = renderItem(item)
 		r.Sources = append(r.Sources, core.Source{Title: item.Title, URL: item.URL})
+		// Auto-ledger: pipe each angle's fetched item through too.
+		// Research is the highest-value ingest target — N angles
+		// per question, each potentially producing a citation an
+		// agent will revisit later. No-op when SOCIAL_LEDGER
+		// is unset.
+		if item != nil {
+			ledger.Ingest(ctx, *item)
+		}
 	case "timeline":
 		if a.User == "" {
 			r.Err = errors.New("angle.user is empty for tool=timeline")
@@ -317,6 +334,13 @@ func dispatch(ctx context.Context, a Angle, opts Options) AngleResult {
 		}
 		r.Findings = renderItem(item)
 		r.Sources = append(r.Sources, core.Source{Title: item.Title, URL: item.URL})
+		if item != nil {
+			toIngest := []core.Item{*item}
+			for _, child := range item.Children {
+				toIngest = append(toIngest, child)
+			}
+			ledger.Ingest(ctx, toIngest...)
+		}
 	default:
 		r.Err = fmt.Errorf("unknown tool %q (want ask|search|fetch|timeline)", a.Tool)
 	}

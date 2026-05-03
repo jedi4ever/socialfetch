@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // TestLiveRSSXKCD fetches a real, well-known feed.

@@ -36,12 +36,12 @@ func Find(start string) string {
 	return ""
 }
 
-// LoadAuto runs the canonical socialfetch `.env` discovery: walks up
+// LoadAuto runs the canonical social-fetch `.env` discovery: walks up
 // from the current working directory and from the binary's location,
 // loading the first `.env` found at each starting point. Existing
 // shell env vars are never overridden (per Load semantics).
 //
-// This is what the `socialfetch` CLI calls at startup AND what every
+// This is what the `social-fetch` CLI calls at startup AND what every
 // live_test.go in the repo uses, so the discovery rules stay
 // consistent: a developer running `go test -tags=live ./...` from any
 // subdir resolves credentials the same way the installed binary does.

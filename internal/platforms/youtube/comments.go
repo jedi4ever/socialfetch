@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // commentThreadsResp models the slice of YouTube Data API v3

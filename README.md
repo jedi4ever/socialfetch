@@ -1,15 +1,23 @@
-# socialfetch
+# social-skills
 
-**A toolkit that lets AI agents read and reason over the social web.**
+**Social-web skills for AI agents.**
+
+Two binaries, one toolkit:
+
+- **`social-fetch`** — pulls structured data from the social web
+  and exposes it as CLI output, an MCP server, or a Claude skill.
+- **`social-ledger`** — local SQLite + FTS5 store that auto-caches
+  every fetch so agents can answer "have we seen this URL?" and
+  "what did we save about X?" without re-fetching.
 
 LLMs are great at understanding text but bad at getting it. The
 social web — HackerNews threads, Reddit comments, GitHub repos,
 X/Twitter posts, LinkedIn timelines, YouTube transcripts, Bluesky
 feeds, arXiv papers, Medium / Substack articles, RSS feeds, generic
 blog posts — lives behind a different API, DOM scraper, auth flow,
-and rate limit per platform. socialfetch hides all of that behind one
-consistent interface and gives the agent **clean Markdown or
-structured JSON** an LLM can actually parse.
+and rate limit per platform. **social-skills** hides all of that
+behind one consistent interface and gives the agent **clean Markdown
+or structured JSON** an LLM can actually parse.
 
 Same shape covers grounded web search (Perplexity, Tavily, Brave,
 SerpAPI, Google, DuckDuckGo) and grounded answer engines (Grok,
@@ -18,12 +26,20 @@ OpenAI, Anthropic, Gemini), and exposes everything as MCP tools so
 into it as a first-class tool — not as another `WebFetch` round-trip
 that returns rendered HTML.
 
+> **Also great as a plain CLI.** Every agent capability is also a
+> shell command — `social-fetch search "vercel ai sdk" -p auto`,
+> `social-ledger search "harness engineering"`, `social-fetch ask
+> "what changed in Go 1.27?" -p perplexity`. Pipe into `jq`,
+> redirect into files, embed in scripts. Agents are the primary
+> audience, but humans get the same toolbox.
+
 ```bash
-socialfetch fetch    https://news.ycombinator.com/item?id=43000000
-socialfetch search   "vercel ai sdk" -p auto -n 10 --last 7d
-socialfetch ask      "what changed in Go 1.27?" -p perplexity
-socialfetch timeline @jedi4ever -p x --last 24h
-socialfetch research "tessl harness engineering" -p anthropic
+social-fetch fetch    https://news.ycombinator.com/item?id=43000000
+social-fetch search   "vercel ai sdk" -p auto -n 10 --last 7d
+social-fetch ask      "what changed in Go 1.27?" -p perplexity
+social-fetch timeline @jedi4ever -p x --last 24h
+social-fetch research "tessl harness engineering" -p anthropic
+social-ledger search  "harness engineering"
 ```
 
 ## What it is
@@ -36,7 +52,7 @@ socialfetch research "tessl harness engineering" -p anthropic
   whichever subset of API keys you've configured determines coverage
   and the rest silently no-op. Drop a key in, the agent gets a new
   capability without code changes.
-- **MCP server built in.** `socialfetch mcp` exposes every CLI
+- **MCP server built in.** `social-fetch mcp` exposes every CLI
   capability as Model Context Protocol tools, runnable over stdio
   (Claude Desktop) or Streamable HTTP (claude.ai, Perplexity, Claude
   Code remote-MCP). Same binary is your CLI and your MCP server.
@@ -54,7 +70,7 @@ socialfetch research "tessl harness engineering" -p anthropic
 
 ## Install
 
-socialfetch is built to plug into AI agents — pick whichever channel
+social-fetch is built to plug into AI agents — pick whichever channel
 matches the agent you're working with. Full step-by-step in
 [INSTALL.md](INSTALL.md).
 
@@ -64,8 +80,8 @@ One-click install with API-key prompts that go straight into the
 macOS Keychain. Best UX if you live in Claude Desktop.
 
 ```
-1. Download socialfetch-claude-extension-<version>-darwin-arm64.mcpb
-   from https://github.com/jedi4ever/socialfetch/releases/latest
+1. Download social-skills-claude-extension-<version>-darwin-arm64.mcpb
+   from https://github.com/jedi4ever/social-skills/releases/latest
 2. Double-click the .mcpb (or drag it onto Claude Desktop →
    Settings → Extensions).
 3. Fill in whichever API keys you have — every key is optional.
@@ -76,16 +92,16 @@ macOS Keychain. Best UX if you live in Claude Desktop.
 One-line install if you use Claude Code:
 
 ```
-/plugin marketplace add jedi4ever/socialfetch
-/plugin install socialfetch
+/plugin marketplace add jedi4ever/social-skills
+/plugin install social-fetch
 ```
 
-Requires the `socialfetch` binary on your PATH separately (the
+Requires the `social-fetch` binary on your PATH separately (the
 plugin is the skill markdown + manifest, not the binary).
 
 ### 3. Skill (file-based, Claude Desktop or Claude Code)
 
-`SKILL.md` + binary dropped into `~/.claude/skills/socialfetch/`.
+`SKILL.md` + binary dropped into `~/.claude/skills/social-fetch/`.
 Useful when you want to manage `.env` yourself or work offline.
 
 **Via npx (no clone, single command)** — using
@@ -94,17 +110,17 @@ the most-used skill installer (works with Claude Code, Claude
 Desktop, OpenCode, Codex, and others):
 
 ```bash
-npx skills add jedi4ever/socialfetch --skill socialfetch
+npx skills add jedi4ever/social-skills --skill social-fetch
 ```
 
-The `socialfetch` binary still needs to be on PATH separately — `npx
+The `social-fetch` binary still needs to be on PATH separately — `npx
 skills` only installs the markdown skill, not the binary.
 
 **Via clone + make** — same end state, plus builds the binary:
 
 ```bash
-git clone https://github.com/jedi4ever/socialfetch.git
-cd socialfetch
+git clone https://github.com/jedi4ever/social-skills.git
+cd social-skills
 make skill-install
 ```
 
@@ -115,13 +131,13 @@ Other community installers ([`claude-plugins`](https://github.com/Kamalnrf/claud
 
 ### 4. Remote MCP server (claude.ai, Perplexity, Claude Code)
 
-`socialfetch mcp` runs the MCP protocol over Streamable HTTP so
+`social-fetch mcp` runs the MCP protocol over Streamable HTTP so
 cloud-hosted clients can reach your local binary:
 
 ```bash
 # Plain HTTP listener — bring-your-own-tunnel
 MCP_AUTH_TOKEN=$(openssl rand -hex 32) \
-  socialfetch mcp --http :8080
+  social-fetch mcp --http :8080
 # expose :8080 publicly with whatever you prefer:
 # Cloudflare Tunnel, Tailscale Funnel, fly.io machine, your own
 # reverse proxy, etc. Then paste the resulting HTTPS URL +
@@ -134,7 +150,7 @@ auto-generated bearer token (requires `ngrok` on PATH and one-time
 `ngrok config add-authtoken …`):
 
 ```bash
-socialfetch mcp --ngrok           # convenience: prints URL + token
+social-fetch mcp --ngrok           # convenience: prints URL + token
 ```
 
 Either way, paste the URL + token into Settings → Connectors /
@@ -150,18 +166,18 @@ API keys stay in your local `.env` — never sent over the wire.
 If you don't need any of the above and just want the binary:
 
 ```bash
-go install github.com/jedi4ever/socialfetch/cmd/socialfetch@latest
+go install github.com/jedi4ever/social-skills/cmd/social-fetch@latest
 # or download a release tarball:
-#   socialfetch-0.9.0-darwin-arm64.tar.gz
-#   socialfetch-0.9.0-darwin-amd64.tar.gz
-#   socialfetch-0.9.0-linux-amd64.tar.gz
+#   social-skills-0.10.0-darwin-arm64.tar.gz
+#   social-skills-0.10.0-darwin-amd64.tar.gz
+#   social-skills-0.10.0-linux-amd64.tar.gz
 ```
 
 Build from source:
 
 ```bash
-git clone https://github.com/jedi4ever/socialfetch.git
-cd socialfetch && make build       # → ./dist/socialfetch
+git clone https://github.com/jedi4ever/social-skills.git
+cd social-skills && make build       # → ./dist/social-fetch
 ```
 
 Requires Go 1.26+. Windows is not currently supported (the bridge
@@ -229,39 +245,39 @@ fallback order. `-p auto` skips providers without keys configured.
 ## CLI commands
 
 ```
-socialfetch fetch     <url> [<url>…]      pull URL(s) into structured Item(s)
-socialfetch search    "<query>"           run a search query
-socialfetch ask       "<question>"        ask a grounded answer engine
-socialfetch timeline  <user-or-url>       recent activity for a user
-socialfetch research  "<question>"        EXPERIMENTAL multi-angle research
-socialfetch mcp       [flags]             run as an MCP server (stdio or HTTP)
-socialfetch bridge    {start|stop|status|run}    Chrome browser-bridge daemon
-socialfetch monitor   [--tail N]          tail the global audit log
-socialfetch list                          list every fetch / search / ask / timeline provider
-socialfetch help      [subcommand]        full flag reference per subcommand
-socialfetch version                       print the version
+social-fetch fetch     <url> [<url>…]      pull URL(s) into structured Item(s)
+social-fetch search    "<query>"           run a search query
+social-fetch ask       "<question>"        ask a grounded answer engine
+social-fetch timeline  <user-or-url>       recent activity for a user
+social-fetch research  "<question>"        EXPERIMENTAL multi-angle research
+social-fetch mcp       [flags]             run as an MCP server (stdio or HTTP)
+social-fetch bridge    {start|stop|status|run}    Chrome browser-bridge daemon
+social-fetch monitor   [--tail N]          tail the global audit log
+social-fetch list                          list every fetch / search / ask / timeline provider
+social-fetch help      [subcommand]        full flag reference per subcommand
+social-fetch version                       print the version
 ```
 
-`socialfetch help <subcommand>` is the authoritative flag reference —
+`social-fetch help <subcommand>` is the authoritative flag reference —
 every flag has a short and long form; output is shaped to be parseable
 by agents.
 
 ### `fetch`
 
 ```
-socialfetch fetch <url>... [-f markdown|json|jsonl] [-o -|FILE|DIR/]
+social-fetch fetch <url>... [-f markdown|json|jsonl] [-o -|FILE|DIR/]
                            [-i FILE|-] [-j N] [--no-comments]
                            [--max-comments N] [--timeout DUR] [-l -|FILE]
 ```
 
 Multiple URLs + `-f json` auto-promotes to `jsonl` (one item per
-line). Stdin auto-detected when piped: `cat urls.txt | socialfetch fetch`.
+line). Stdin auto-detected when piped: `cat urls.txt | social-fetch fetch`.
 `-j N` keeps results in input order despite concurrency.
 
 ### `search`
 
 ```
-socialfetch search "<query>" [-p auto|<provider>|<chain>] [-n N]
+social-fetch search "<query>" [-p auto|<provider>|<chain>] [-n N]
                              [--last 7d|--after YYYY-MM-DD|--before …]
                              [--site DOMAIN[,…]] [-f markdown|json|jsonl]
 ```
@@ -273,7 +289,7 @@ quirks.
 ### `ask`
 
 ```
-socialfetch ask "<question>" [-p auto|<provider>|<chain>] [--model NAME]
+social-fetch ask "<question>" [-p auto|<provider>|<chain>] [--model NAME]
                              [--recency day|week|month|year]
                              [--max-tokens N] [--instructions "…"]
 ```
@@ -285,7 +301,7 @@ anthropic, google).
 ### `timeline`
 
 ```
-socialfetch timeline <handle-or-url> [-p x|linkedin]
+social-fetch timeline <handle-or-url> [-p x|linkedin]
                                      [--kind all|tweets|replies|retweets|posts|comments|reactions]
                                      [--last 7d] [-n N] [--expand] [--no-reshares]
 ```
@@ -296,7 +312,7 @@ deep-fetches each post (LinkedIn — slower but fuller content).
 ### `research` (experimental)
 
 ```
-socialfetch research "<question>" [--orchestrator <ask-provider>]
+social-fetch research "<question>" [--orchestrator <ask-provider>]
                                   [--max-angles N] [-j N] [--json]
 ```
 
@@ -308,12 +324,12 @@ when you'd otherwise issue 4-8 manual queries.
 ### `mcp`
 
 ```
-socialfetch mcp                       # stdio (Claude Desktop Extension)
-socialfetch mcp --http :PORT          # Streamable HTTP (claude.ai, ngrok)
-socialfetch mcp --ngrok               # spawn ngrok automatically
+social-fetch mcp                       # stdio (Claude Desktop Extension)
+social-fetch mcp --http :PORT          # Streamable HTTP (claude.ai, ngrok)
+social-fetch mcp --ngrok               # spawn ngrok automatically
 ```
 
-Exposes `socialfetch_fetch`, `_search`, `_ask`, `_timeline`,
+Exposes `social_fetch_fetch`, `_search`, `_ask`, `_timeline`,
 `_research`, `_list_providers`, `_bridge_status` as MCP tools. Set
 `MCP_AUTH_TOKEN` for HTTP mode (auto-generated when `--ngrok` is
 combined with no env var). HTTP-mode tee's tool calls + outbound
@@ -322,21 +338,21 @@ platform HTTP traffic to stderr live.
 ### `bridge`
 
 ```
-socialfetch bridge start         # daemonize on :5555
-socialfetch bridge status        # exit 0 connected / 1 not connected / 2 not running
-socialfetch bridge stop          # SIGTERM
-socialfetch bridge run           # foreground (no daemon)
+social-fetch bridge start         # daemonize on :5555
+social-fetch bridge status        # exit 0 connected / 1 not connected / 2 not running
+social-fetch bridge stop          # SIGTERM
+social-fetch bridge run           # foreground (no daemon)
 ```
 
-One-time setup: load `chrome-extension/` in `chrome://extensions/`
+One-time setup: load `extensions/chrome/` in `chrome://extensions/`
 (Developer mode → Load unpacked). Required for LinkedIn, Medium /
 Substack paywall fetches.
 
 ### `monitor`
 
 ```
-socialfetch monitor                  # follow ~/Library/Caches/socialfetch/audit.jsonl
-socialfetch monitor --tail 200       # last N lines then follow
+social-fetch monitor                  # follow ~/Library/Caches/social-fetch/audit.jsonl
+social-fetch monitor --tail 200       # last N lines then follow
 ```
 
 The audit log is always-on across CLI, MCP-stdio, and MCP-HTTP runs.
@@ -395,19 +411,19 @@ config required) — `HTML2MD_READER=jina` only forces Jina for
 ## Browser bridge (LinkedIn, Medium / Substack paywalls)
 
 LinkedIn (and the member-only paths of Medium / Substack) only
-return useful content to an authenticated session. socialfetch's
-answer is a small Chrome MV3 extension at `chrome-extension/` that
-opens a WebSocket to a local daemon (`socialfetch bridge run`) and
+return useful content to an authenticated session. social-fetch's
+answer is a small Chrome MV3 extension at `extensions/chrome/` that
+opens a WebSocket to a local daemon (`social-fetch bridge run`) and
 brokers requests through your real, logged-in browser tab. Public
 content keeps going direct over HTTP — the bridge is only used
 when a fetcher explicitly opts in.
 
 ```bash
-# one-time: load chrome-extension/ in chrome://extensions/
+# one-time: load extensions/chrome/ in chrome://extensions/
 #   (Developer mode → Load unpacked → pick the directory)
-socialfetch bridge start         # daemonize on :5555
-socialfetch bridge status        # 0 connected / 1 not connected / 2 not running
-socialfetch bridge stop          # SIGTERM the daemon
+social-fetch bridge start         # daemonize on :5555
+social-fetch bridge status        # 0 connected / 1 not connected / 2 not running
+social-fetch bridge stop          # SIGTERM the daemon
 ```
 
 > **Permissions model — narrow by default, broad on opt-in.**
@@ -437,11 +453,11 @@ socialfetch bridge stop          # SIGTERM the daemon
 >   the network. Anything running locally that can reach that port
 >   can still drive the extension, so treat the bridge like any
 >   other localhost dev service.
-> - Source is in `chrome-extension/` (~10 small files); audit
+> - Source is in `extensions/chrome/` (~10 small files); audit
 >   `background.js` + `content.js` if you'd like to see the
 >   actual surface.
 > - Toggle the extension off in `chrome://extensions/` when you're
->   not using socialfetch and the host permissions stop applying
+>   not using social-fetch and the host permissions stop applying
 >   entirely.
 
 ## Credentials
@@ -466,7 +482,7 @@ redistribute. The license itself includes the standard "as is, no
 warranty, no liability" clauses; what follows is an explicit
 plain-language version of those for the AI-specific bits.
 
-> **socialfetch is plumbing for AI agents — and AI agents make
+> **social-fetch is plumbing for AI agents — and AI agents make
 > mistakes.** This tool fetches third-party content (HackerNews,
 > Reddit, X, LinkedIn, articles, …) and routes it through LLMs
 > (Perplexity, OpenAI, Anthropic, Gemini, Grok, …) that can
@@ -474,19 +490,19 @@ plain-language version of those for the AI-specific bits.
 > outdated information. Every answer in this stack is a best-effort
 > synthesis, not a verified fact.
 >
-> **Things you should NOT do** based solely on socialfetch output,
+> **Things you should NOT do** based solely on social-fetch output,
 > without independent verification:
 >
 > - make legal, medical, or financial decisions
 > - quote the output as if it were the source
 > - act on factual claims that aren't covered by the citations
->   socialfetch returns alongside the answer
+>   social-fetch returns alongside the answer
 > - assume a missing citation means the claim is unsupported (or
 >   the inverse — that a citation means the claim is correct)
 >
 > The `source` / `url` / `fetched_at` metadata on every result
 > exists precisely so you can click back to the original. Do that
-> for anything you care about. Treat socialfetch like a research
+> for anything you care about. Treat social-fetch like a research
 > assistant who's read a lot but might be wrong about any specific
 > detail — useful for breadth, not authoritative on accuracy.
 >

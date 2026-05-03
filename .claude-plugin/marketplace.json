@@ -1,16 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "socialfetch-marketplace",
-  "version": "0.9.1",
-  "description": "Patrick Debois' marketplace for socialfetch — fetch + search the social web from Claude Code.",
+  "name": "social-skills-marketplace",
+  "version": "0.10.0",
+  "description": "Patrick Debois' marketplace for social-skills — social-web skills for AI agents.",
   "owner": {
     "name": "Patrick Debois"
   },
   "plugins": [
     {
-      "name": "socialfetch",
-      "description": "Fetch URLs / search / ask / timeline across HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic articles. Requires the `socialfetch` binary on PATH (see plugin README).",
-      "source": "./claude-code-plugin",
+      "name": "social-skills",
+      "description": "Social-web skills for AI agents — fetch / search / ask / timeline / research across HN, Reddit, GitHub, X, LinkedIn, YouTube, Bluesky, arXiv, Medium, Substack, RSS, generic articles. Requires the `social-fetch` and (optional) `social-ledger` binaries on PATH (see plugin README).",
+      "source": "./extensions/claude-code",
       "category": "research"
     }
   ]

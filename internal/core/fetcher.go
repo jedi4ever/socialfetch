@@ -56,6 +56,16 @@ func (r *Registry) Fetch(ctx context.Context, raw string, opts Options) (*Item, 
 		opts.Audit.Logf("fetch %s FAILED via %s: %v", raw, f.Name(), err)
 		return nil, err
 	}
+	// Stamp the original request URL on the way out, unless the
+	// fetcher already set it (some fetchers know better — e.g. an
+	// API-backed fetcher that received a short-form ID and wants
+	// to record the user's exact input separately). Only set when
+	// it differs from the canonical URL the fetcher produced;
+	// the JSON `omitempty` then keeps the wire shape identical to
+	// before for the no-redirect case.
+	if item != nil && item.RequestURL == "" && item.URL != raw {
+		item.RequestURL = raw
+	}
 	opts.Audit.Logf("fetch %s ok via %s bytes=%d comments=%d media=%d",
 		raw, f.Name(), len(item.Content), len(item.Comments), len(item.Media))
 	return item, nil

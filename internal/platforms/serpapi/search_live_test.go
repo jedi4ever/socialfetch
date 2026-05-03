@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/util/dotenv"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/util/dotenv"
 )
 
 // TestLiveSerpAPISearch hits SerpAPI's google search engine via the

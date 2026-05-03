@@ -25,7 +25,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const defaultSearchBase = "https://api.perplexity.ai/search"

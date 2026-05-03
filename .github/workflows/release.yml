@@ -3,17 +3,17 @@ name: release
 # Builds + uploads release artifacts when you push a `v<version>`
 # tag (e.g. `git tag v0.8.3 && git push --tags`). Artifacts:
 #
-#   - socialfetch-<version>-<os>-<arch>.tar.gz           bare binaries
+#   - social-fetch-<version>-<os>-<arch>.tar.gz           bare binaries
 #       darwin/arm64, darwin/amd64, linux/amd64
-#   - socialfetch-claude-extension-<version>-darwin-arm64.mcpb
+#   - social-skills-claude-extension-<version>-darwin-arm64.mcpb
 #       Claude Desktop Extension (drag into Settings → Extensions)
-#   - socialfetch-skill-<version>.zip
-#       Standalone skill bundle (~/.claude/skills/socialfetch/)
-#   - socialfetch-claude-code-plugin-<version>.zip
+#   - social-fetch-skill-<version>.zip
+#       Standalone skill bundle (~/.claude/skills/social-fetch/)
+#   - social-skills-claude-code-plugin-<version>.zip
 #       Claude Code plugin bundle (no binary; user provides PATH)
-#   - socialfetch-chrome-extension-<version>.zip
+#   - social-skills-chrome-extension-<version>.zip
 #       Chrome browser-bridge extension (independent version,
-#       read from chrome-extension/manifest.json at package time)
+#       read from extensions/chrome/manifest.json at package time)
 #
 # Windows is intentionally not in the matrix: the bridge daemon
 # code uses Unix-only syscalls (syscall.Kill, SysProcAttr.Setsid).
@@ -54,23 +54,23 @@ jobs:
       - name: Resolve version from tag
         # Strip the leading `v` so the tag name `v0.8.3` becomes
         # `0.8.3` — matches the format declared in
-        # cmd/socialfetch/main.go's Version constant and used in
+        # cmd/social-fetch/main.go's Version constant and used in
         # all our existing artifact filenames.
         id: ver
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Sanity — tag matches binary version
         # Catches the easy mistake of tagging without bumping
-        # cmd/socialfetch/main.go's Version constant. We don't want
+        # cmd/social-fetch/main.go's Version constant. We don't want
         # to ship a `v0.9.0` release whose binary still reports
-        # `socialfetch 0.8.2`.
+        # `social-fetch 0.8.2`.
         run: |
           set -euo pipefail
-          go build -o /tmp/sf ./cmd/socialfetch
+          go build -o /tmp/sf ./cmd/social-fetch
           actual=$(/tmp/sf version | awk '{print $2}')
           expected="${{ steps.ver.outputs.value }}"
           if [[ "$actual" != "$expected" ]]; then
-            echo "::error::tag is v$expected but binary reports $actual — bump cmd/socialfetch/main.go's Version constant"
+            echo "::error::tag is v$expected but binary reports $actual — bump cmd/social-fetch/main.go's Version constant"
             exit 1
           fi
 
@@ -82,14 +82,24 @@ jobs:
           set -euo pipefail
           mkdir -p dist/binaries
           V="${{ steps.ver.outputs.value }}"
+          # Each platform archive contains BOTH binaries so users
+          # get a complete kit. social-ledger is optional at
+          # runtime (the auto-ingest hook is a no-op without it),
+          # but shipping them together avoids a "where do I get
+          # the ledger?" round-trip when someone wants to flip it
+          # on. Keeps the JSONL contract decoupled at runtime;
+          # tighter coupling at packaging time.
           build() {
             local os="$1" arch="$2"
-            local dir="dist/binaries/socialfetch-${V}-${os}-${arch}"
+            local dir="dist/binaries/social-fetch-${V}-${os}-${arch}"
             mkdir -p "$dir"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
               go build -ldflags="-s -w" -trimpath \
-              -o "$dir/socialfetch" ./cmd/socialfetch
-            cp README.md INSTALL.md API_KEYS.md HINTS.md "$dir/"
+              -o "$dir/social-fetch" ./cmd/social-fetch
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -ldflags="-s -w" -trimpath \
+              -o "$dir/social-ledger" ./cmd/social-ledger
+            cp README.md INSTALL.md API_KEYS.md HINTS.md docs/ledger.md "$dir/"
           }
           build darwin arm64
           build darwin amd64
@@ -99,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist/binaries
-          for d in socialfetch-*-*-*; do
+          for d in social-fetch-*-*-*; do
             tar -czf "../${d}.tar.gz" "$d"
           done
           ls -lh ../*.tar.gz
@@ -119,10 +129,10 @@ jobs:
           V="${{ steps.ver.outputs.value }}"
           STAGE=$(mktemp -d)
           mkdir -p "$STAGE/scripts"
-          cp skill/socialfetch/SKILL.md "$STAGE/SKILL.md"
-          cp "dist/binaries/socialfetch-${V}-darwin-arm64/socialfetch" "$STAGE/scripts/socialfetch"
-          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/socialfetch-skill-${V}.zip" .)
-          ls -lh "dist/socialfetch-skill-${V}.zip"
+          cp skills/social-fetch/SKILL.md "$STAGE/SKILL.md"
+          cp "dist/binaries/social-fetch-${V}-darwin-arm64/social-fetch" "$STAGE/scripts/social-fetch"
+          (cd "$STAGE" && zip -qr "$GITHUB_WORKSPACE/dist/social-fetch-skill-${V}.zip" .)
+          ls -lh "dist/social-fetch-skill-${V}.zip"
 
       - name: Package Claude Code plugin zip
         run: make plugin-package
@@ -150,6 +160,6 @@ jobs:
           # intermediate dist/binaries/ tree so we ship archives,
           # not the staging dirs themselves.
           files: |
-            dist/socialfetch-*.mcpb
-            dist/socialfetch-*.zip
-            dist/socialfetch-*.tar.gz
+            dist/social-fetch-*.mcpb
+            dist/social-fetch-*.zip
+            dist/social-fetch-*.tar.gz

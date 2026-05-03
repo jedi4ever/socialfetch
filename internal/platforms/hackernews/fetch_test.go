@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // fakeAPI is a minimal stand-in for hacker-news.firebaseio.com. Tests register

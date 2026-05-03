@@ -1,5 +1,5 @@
 // Package bridge connects a Chrome extension (running in the user's
-// logged-in browser) to socialfetch fetchers that need an authenticated
+// logged-in browser) to social-fetch fetchers that need an authenticated
 // page render — LinkedIn posts, X for-you feed, anything that requires a
 // real session.
 //

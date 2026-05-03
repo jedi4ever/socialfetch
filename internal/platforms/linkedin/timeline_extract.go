@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmd"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmd"
 	"golang.org/x/net/html"
 )
 
@@ -155,9 +155,9 @@ func randScrollPause() time.Duration {
 func wrapBridgeErr(err error) error {
 	switch {
 	case errors.Is(err, bridge.ErrBridgeUnreachable):
-		return fmt.Errorf("linkedin timeline: bridge daemon not running — `socialfetch bridge start`: %w", err)
+		return fmt.Errorf("linkedin timeline: bridge daemon not running — `social-fetch bridge start`: %w", err)
 	case errors.Is(err, bridge.ErrNoExtensionAttached):
-		return fmt.Errorf("linkedin timeline: no extension attached — open your browser with the socialfetch extension running")
+		return fmt.Errorf("linkedin timeline: no extension attached — open your browser with the social-fetch extension running")
 	default:
 		return fmt.Errorf("linkedin timeline: %w", err)
 	}

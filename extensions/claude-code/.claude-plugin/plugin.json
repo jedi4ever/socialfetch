@@ -1,0 +1,17 @@
+{
+  "name": "social-skills",
+  "description": "Social-web skills for AI agents. Wraps HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search and grounded-answer engines (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI). Auto-caches every fetch in a local SQLite ledger so 'have we seen this URL?' is instant.",
+  "version": "0.10.0",
+  "author": {
+    "name": "Patrick Debois"
+  },
+  "homepage": "https://github.com/jedi4ever/social-skills",
+  "repository": "https://github.com/jedi4ever/social-skills",
+  "license": "MIT",
+  "keywords": [
+    "agent-skills", "mcp", "claude", "ai-agents",
+    "social-media", "search", "fetch", "ledger", "research",
+    "hackernews", "reddit", "github", "twitter", "x", "linkedin",
+    "youtube", "bluesky", "arxiv", "medium", "substack", "rss"
+  ]
+}

@@ -21,10 +21,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/bridge"
-	"github.com/jedi4ever/socialfetch/internal/core"
-	"github.com/jedi4ever/socialfetch/internal/render/htmlmd"
-	"github.com/jedi4ever/socialfetch/internal/util/htmlmeta"
+	"github.com/jedi4ever/social-skills/internal/bridge"
+	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
+	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
 
 // Extractor turns a parsed HTML page into a populated *core.Item. The
@@ -92,12 +92,15 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	// Direct fetch first. We do the GET ourselves (rather than
 	// core.GetBytes) so we can inspect headers + status before
 	// committing to the response body — needed for CF detection.
-	body, cfBlocked, err := directFetch(ctx, raw)
+	body, finalURL, cfBlocked, err := directFetch(ctx, raw)
 	via := "http"
 	if err != nil && !cfBlocked {
 		return nil, fmt.Errorf("article: %w", err)
 	}
 	if cfBlocked {
+		// CF detection happens after the redirect chain settles, so
+		// finalURL still records the post-redirect target — useful
+		// even when we fall through to bridge/Jina.
 		// Try the browser bridge. Real Chromium with the user's
 		// session cookies passes the JS challenge that our HTTP
 		// client cannot.
@@ -162,6 +165,21 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		item.Extra = map[string]any{}
 	}
 	item.Extra["via"] = via
+	// If the HTTP redirect chain resolved to a different URL than
+	// the user supplied, prefer it as the canonical URL — that's
+	// the page actually rendered. Registry.Fetch will then stamp
+	// item.RequestURL with the original `raw` automatically (since
+	// raw != item.URL), so consumers downstream (the ledger, the
+	// JSONL output) see both.
+	//
+	// We only override when the extractor didn't already pick up a
+	// canonical URL via og:url / link[rel=canonical] — those are
+	// usually authoritative and the redirect target may be a
+	// CDN-prefixed or query-parameterised variant the publisher
+	// intentionally redirected away from.
+	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
+		item.URL = finalURL
+	}
 	return item, nil
 }
 
@@ -172,31 +190,41 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 //   - (nil,  true,  nil)  — CF challenge detected, caller should retry via bridge/Jina
 //   - (nil,  false, err)  — real network or HTTP-level error, no recovery
 //
-// We read the response body even on non-2xx so we can fingerprint the
-// challenge HTML — the headers alone aren't always enough. Capped at
-// 2 KiB for the snippet to bound memory; the full body is returned
-// only on 2xx.
-func directFetch(ctx context.Context, raw string) ([]byte, bool, error) {
+// directFetch GETs raw and returns the body + the post-redirect URL
+// + a Cloudflare-blocked flag. The post-redirect URL comes from
+// resp.Request.URL, which net/http mutates as it follows the
+// redirect chain — by the time Do() returns, it points at the
+// final landing page. Equal to `raw` when there was no redirect.
+//
+// We read the response body even on non-2xx so we can fingerprint
+// the challenge HTML — the headers alone aren't always enough.
+// Capped at 2 KiB for the snippet to bound memory; the full body
+// is returned only on 2xx.
+func directFetch(ctx context.Context, raw string) (body []byte, finalURL string, cfBlocked bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	req.Header.Set("User-Agent", core.UserAgent)
 	resp, err := core.HTTPClient.Do(req)
 	if err != nil {
-		return nil, false, err
+		return nil, "", false, err
 	}
 	defer resp.Body.Close()
+	finalURL = raw
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		body, rerr := io.ReadAll(resp.Body)
-		return body, false, rerr
+		b, rerr := io.ReadAll(resp.Body)
+		return b, finalURL, false, rerr
 	}
 	// Non-2xx: read a snippet for CF detection, decide, then surface.
 	snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	if core.IsCloudflareBlocked(resp, snippet) {
-		return nil, true, nil
+		return nil, finalURL, true, nil
 	}
-	return nil, false, fmt.Errorf("GET %s: HTTP %d: %s", raw, resp.StatusCode, core.HTTPErrorBody(resp))
+	return nil, finalURL, false, fmt.Errorf("GET %s: HTTP %d: %s", raw, resp.StatusCode, core.HTTPErrorBody(resp))
 }
 
 func hostOf(raw string) string {

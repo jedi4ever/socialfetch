@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const defaultBaseURL = "https://api.github.com"

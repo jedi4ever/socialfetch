@@ -1,4 +1,4 @@
-# socialfetch — hints & gotchas
+# social-skills — hints & gotchas
 
 Accumulated landmines from real failures. Things the API responses won't
 tell you, the docs bury, or the error message points the wrong way.
@@ -60,7 +60,7 @@ search.
 `--last` is best-effort on DDG. For strict date windows use Brave,
 YouTube, Bluesky, X, HN, or arXiv — those have native date filters.
 
-**Bing Search v7 is removed from socialfetch.**
+**Bing Search v7 is removed from social-fetch.**
 Microsoft has been migrating it out of Cognitive Services since 2025
 and we removed the `bing` provider in 0.2.0. A future Azure-backed
 ask provider will replace it. If you need a paid web search today,
@@ -97,7 +97,7 @@ buttons.
 
 **LinkedIn — no anonymous read path.**
 Every LinkedIn fetch / timeline / search goes through the bridge.
-Always run `socialfetch bridge status` before fetching authenticated
+Always run `social-fetch bridge status` before fetching authenticated
 URLs. Exit codes: `0` connected / `1` not connected / `2` bridge
 not running.
 
@@ -119,7 +119,7 @@ target URL. If you have Chrome focused on `chrome://extensions/`
 or another non-LinkedIn page when a fetch fires, the navigate may
 return before the page is actually rendered + observed and the
 scrape sees a half-loaded page. Fix: leave a LinkedIn tab focused
-in Chrome while running socialfetch.
+in Chrome while running social-fetch.
 
 ---
 
@@ -169,8 +169,8 @@ diffing the output. Works on every subcommand.
 ## When in doubt
 
 1. Run with `--log -` to see the actual HTTP requests + statuses.
-2. Check the global audit log: `tail -f ~/Library/Caches/socialfetch/audit.jsonl`
-   (or `socialfetch monitor`).
+2. Check the global audit log: `tail -f ~/Library/Caches/social-fetch/audit.jsonl`
+   (or `social-fetch monitor`).
 3. Confirm your `.env` is being loaded — add a non-existent key, run
    any subcommand, look for `warning: reading .env:` to know the file
    was found. (No warning + missing-key error = file not located.)

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 // Fetcher pulls a feed and converts it to a core.Item with Children.

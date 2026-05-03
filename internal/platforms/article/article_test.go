@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jedi4ever/socialfetch/internal/core"
+	"github.com/jedi4ever/social-skills/internal/core"
 )
 
 const mediumPage = `<!DOCTYPE html>
@@ -120,3 +120,59 @@ func TestFetchGenericPage(t *testing.T) {
 		t.Errorf("content: %q", item.Content)
 	}
 }
+
+// TestFetchFollowsRedirectAndPopulatesURL verifies that when the
+// HTTP layer follows a redirect, the article fetcher records the
+// post-redirect URL on item.URL — without that, Registry.Fetch
+// can't stamp item.RequestURL with the original input, breaking
+// the "seen via shortener" guarantee. We don't override og:url /
+// canonical here so the redirect target IS the canonical URL.
+func TestFetchFollowsRedirectAndPopulatesURL(t *testing.T) {
+	// final server — the post-redirect destination. Returns a
+	// minimal page WITHOUT og:url / link[rel=canonical] so the
+	// extractor doesn't override our redirect URL.
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Destination</title></head><body><article><p>The real article.</p></article></body></html>`))
+	}))
+	defer final.Close()
+
+	// short-link server — redirects to final.
+	short := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/article", http.StatusMovedPermanently)
+	}))
+	defer short.Close()
+
+	rawURL := short.URL + "/abc"
+	item, err := New().Fetch(context.Background(), rawURL, core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	wantURL := final.URL + "/article"
+	if item.URL != wantURL {
+		t.Errorf("item.URL = %q, want %q (post-redirect target)", item.URL, wantURL)
+	}
+}
+
+// TestFetchPreservesURLWhenNoRedirect — the no-redirect case
+// keeps item.URL == raw, so Registry.Fetch's auto-stamp leaves
+// RequestURL empty and the JSON output has no `request_url` field.
+func TestFetchPreservesURLWhenNoRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Direct</title></head><body><article><p>No redirect.</p></article></body></html>`))
+	}))
+	defer srv.Close()
+
+	rawURL := srv.URL + "/page"
+	item, err := New().Fetch(context.Background(), rawURL, core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if item.URL != rawURL {
+		t.Errorf("item.URL = %q, want %q (unchanged when no redirect)", item.URL, rawURL)
+	}
+}
+
+// silence unused-import lint when no helpers below need it.
+var _ = url.Parse
