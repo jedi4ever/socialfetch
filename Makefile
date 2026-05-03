@@ -270,6 +270,37 @@ fmt:  ## gofmt -s -w .
 
 lint: vet  ## Alias for vet
 
+# `make check` is the pre-commit gate — runs the same battery the
+# CI workflow runs. Always invoke this before `git commit` to
+# avoid pushing breakage that the CI catches on the next run.
+#   1. gofmt -l . must be empty (CI step `gofmt`)
+#   2. go vet ./... must be silent (CI step `go vet`)
+#   3. go test ./... must pass (CI step `go test (offline)`)
+#   4. plugin SKILL.md must already be regenerated (CI step
+#      `Plugin SKILL.md is in sync` runs make plugin-build and
+#      git diff --exit-code)
+check:  ## Run the same checks CI runs (gofmt + vet + test + plugin SKILL.md sync)
+	@set -euo pipefail; \
+	out=$$(gofmt -l .); \
+	if [ -n "$$out" ]; then \
+		echo "::error::gofmt issues — run 'make fmt'"; \
+		echo "$$out"; \
+		exit 1; \
+	fi; \
+	echo "✓ gofmt clean"
+	@go vet ./...
+	@echo "✓ go vet clean"
+	@go test ./... -count=1 >/dev/null
+	@echo "✓ go test passing"
+	@$(MAKE) -s plugin-build >/dev/null
+	@if ! git diff --exit-code extensions/claude-code/skills/social-fetch/SKILL.md >/dev/null 2>&1; then \
+		echo "::error::extensions/claude-code/skills/social-fetch/SKILL.md is stale — commit the regenerated file"; \
+		exit 1; \
+	fi
+	@echo "✓ plugin SKILL.md in sync"
+	@echo ""
+	@echo "all checks passed — safe to commit"
+
 run: build  ## Build and fetch URL (override with URL=...)
 	$(BIN) fetch $(URL)
 
