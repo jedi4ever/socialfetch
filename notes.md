@@ -103,3 +103,54 @@ when `ledger.PreferLedger()` is true. Hook in:
   if we see agents consistently reading from it.
 
 ---
+
+## Event-platform search — Luma + Sessionize
+
+Two tech-event platforms worth considering as native providers:
+
+- **Luma (lu.ma)** — event hosting + RSVPs. Public discovery at
+  `lu.ma/discover`. Individual event pages are at `lu.ma/<slug>`
+  and ship JSON-LD `<script type="application/ld+json">` blocks
+  with `Event` schema (name, startDate, endDate, location,
+  organizer, eventStatus). No documented public search API.
+- **Sessionize (sessionize.com)** — speaker / agenda management.
+  Public event pages live at `sessionize.com/<event-slug>/` with
+  `/sessions`, `/speakers`, `/agenda` subpaths. No public search
+  API; some events expose JSON via `/api/v2/<event-id>/` but the
+  IDs aren't discoverable without a referrer.
+
+**Practical now (no new code):** `tavily` and `serpapi` honor the
+`--site` filter, so `social-fetch search "AI agents meetup" -p
+tavily --site lu.ma` works today and returns dated event URLs
+ranked by relevance. Same pattern for Sessionize:
+`--site sessionize.com`.
+
+**Native fetcher worth it if:**
+- Users frequently search "what events are happening about X
+  next month" — pure search-via-tavily misses upcoming events
+  that haven't been indexed yet.
+- Agents need structured event metadata (start/end times,
+  location, speakers list) that Tavily's snippet doesn't surface.
+
+**Sketch:**
+- `internal/platforms/luma/fetch.go` — claims `lu.ma/<slug>`
+  URLs, parses JSON-LD `Event` schema → `core.Item` with
+  `Kind: "event"`, dates in `Published`, location in a new
+  `Item.Extra["event"]` block (or a typed field if events become
+  a recurring kind across platforms).
+- `internal/platforms/luma/search.go` — scrape `lu.ma/discover`
+  with the topic as query parameter. Returns upcoming events
+  ordered by date. Best-effort; HTML shape will drift.
+- Sessionize search is harder — `sessionize.com` has no
+  discover page, only event-scoped agenda pages. Probably skip
+  search; just add a fetcher for event/session URLs.
+
+**Hints to add (when shipped):** rate-limit caution (both
+platforms watch for scraping), `Event` schema field shape,
+Tavily `--site` fallback recipe.
+
+**Status:** deferred. Tavily/SerpAPI `--site` filter covers the
+common case; native fetcher has clear scope but no urgent demand
+yet.
+
+---
