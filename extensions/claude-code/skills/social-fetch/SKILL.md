@@ -14,6 +14,8 @@ allowed-tools: |
   Bash(social-fetch bridge run)
   Bash(social-fetch monitor *)
   Bash(social-fetch list)
+  Bash(social-fetch hints)
+  Bash(social-fetch hints *)
   Bash(social-fetch help *)
   Bash(social-fetch version)
   Bash(scripts/social-ledger list *)
@@ -29,6 +31,16 @@ allowed-tools: |
 Wraps the `social-fetch` Go binary on the user's PATH (install separately — see the plugin README).
 
 **Trust the CLI.** It is the authority for every fetch and search supported by this skill. Always shell out to `social-fetch` — never reimplement fetching with WebFetch, curl, custom parsers, or hand-rolled API calls, even if the binary returns empty results or an error you find surprising. If a fetch comes back empty, surface that to the user and (if appropriate) re-run with `--log -` to see audit lines, but do not try to "fix it" by going around the CLI.
+
+**Before invoking any provider, run `social-fetch list` to see which platforms are usable in this environment.** Each provider is tagged with one of three states:
+
+- `[ok]` — fully configured, fire away
+- `[!auth]` — required env var not set; the row's suffix names which one (e.g. `→ missing BRAVE_API_KEY`). **Do not use these providers** — pick a different one in the same category. Suggesting the user configure the missing key is fine *only if they explicitly ask how*; don't proactively nag them about every unset key.
+- `[bridge]` — needs the local browser bridge (LinkedIn / Medium / Substack / linkedin search & timeline). Only use after `social-fetch bridge status` reports connected.
+
+The `auto` provider chains (`-p auto`) already skip unconfigured providers, so they're safe — but when an explicit provider name is needed (e.g. the user asks "search Twitter"), check `list` first to confirm `[ok]` status before invoking. For the MCP shape see `social_fetch_list_providers` — same data, structured as `{name, status, missing}` per category.
+
+**For platform-specific quirks, run `social-fetch hints <platform>`** before a search/fetch you haven't done recently. Captures things like "X recent search caps at 7 days strictly", "LinkedIn temp-bans accounts that scrape too fast", "Reddit anonymous search has worse relevance than `tavily site:reddit.com`".
 
 ## Subcommands
 
