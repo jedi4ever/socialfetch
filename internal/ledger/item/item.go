@@ -20,6 +20,17 @@ import (
 	"time"
 )
 
+// Media mirrors the {URL, Type, Alt} shape of social-fetch's
+// core.Media so it survives the JSONL round-trip. Defined locally
+// instead of importing core because the ledger's contract with
+// social-fetch is JSON, not Go types — keeping the import-graph
+// boundary clean lets the two binaries evolve independently.
+type Media struct {
+	URL  string `json:"url"`
+	Type string `json:"type,omitempty"`
+	Alt  string `json:"alt,omitempty"`
+}
+
 // Item is the minimal projection of social-fetch's core.Item that the
 // ledger needs to index and retrieve. Unknown fields land in Extra
 // so they survive a round-trip.
@@ -46,7 +57,16 @@ type Item struct {
 	Content     string     `json:"content,omitempty"`
 	Score       int        `json:"score,omitempty"`
 	Tags        []string   `json:"tags,omitempty"`
-	FetchedAt   time.Time  `json:"fetched_at"`
+
+	// Media is the list of images / video posters / GIFs attached
+	// to the post (LinkedIn photos, X/Twitter media, Medium / Substack
+	// figures, YouTube thumbnails, generic article images). The
+	// agent's vision tool reads each Media[].URL directly when the
+	// user asks "what's in the diagram?" — so persisting these
+	// matters even when the rendered Content already inlines them.
+	Media []Media `json:"media,omitempty"`
+
+	FetchedAt time.Time `json:"fetched_at"`
 
 	// Extra captures every field we don't have a typed slot for.
 	// Populated by UnmarshalJSON, written back by MarshalJSON, so a
@@ -151,5 +171,5 @@ func (it Item) MarshalJSON() ([]byte, error) {
 var typedKeys = []string{
 	"source", "kind", "url", "canonical_id", "title", "author",
 	"author_url", "published", "summary", "content", "score",
-	"tags", "fetched_at",
+	"tags", "media", "fetched_at",
 }

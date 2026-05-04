@@ -110,6 +110,21 @@ func printItem(it item.Item) {
 	if it.Content != "" {
 		fmt.Println(it.Content)
 	}
+	// Media — surface attached images / video posters as a
+	// trailing section so the agent's vision tool sees the URLs
+	// alongside the prose. Same shape as the mirror output.
+	if len(it.Media) > 0 {
+		fmt.Println()
+		fmt.Println("## Media")
+		fmt.Println()
+		for _, m := range it.Media {
+			alt := m.Alt
+			if alt == "" {
+				alt = m.Type
+			}
+			fmt.Printf("- ![%s](%s)\n", alt, m.URL)
+		}
+	}
 }
 
 // ----- list: browse ----------------------------------------------

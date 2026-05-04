@@ -175,7 +175,23 @@ func (s *Store) Ingest(it item.Item) (IngestResult, error) {
 	now := time.Now().Unix()
 	hash := it.Hash()
 	key := it.Key()
-	extraJSON, _ := json.Marshal(it.Extra)
+	// The schema has typed columns for the fields we filter / index
+	// on (source, url, title, content, etc.) plus a generic `extra`
+	// blob for everything else. Media doesn't fit either pattern
+	// cleanly — it's structured but not queryable — so we stash it
+	// inside the extra blob under a reserved `media` key. scanItem
+	// hydrates the typed Media slice back out on read. Avoids a
+	// schema migration while preserving the data.
+	extraForStorage := it.Extra
+	if len(it.Media) > 0 {
+		if extraForStorage == nil {
+			extraForStorage = map[string]json.RawMessage{}
+		}
+		if mediaJSON, err := json.Marshal(it.Media); err == nil {
+			extraForStorage["media"] = mediaJSON
+		}
+	}
+	extraJSON, _ := json.Marshal(extraForStorage)
 	pubAt := int64(0)
 	if it.Published != nil {
 		pubAt = it.Published.Unix()
@@ -549,6 +565,18 @@ func scanItem(row rowScanner) (*item.Item, error) {
 	it.FetchedAt = time.Unix(fetched, 0).UTC()
 	if extraStr != "" && extraStr != "null" {
 		_ = json.Unmarshal([]byte(extraStr), &it.Extra)
+		// Promote the reserved `media` key from extra back to the
+		// typed Item.Media slice — mirrors the Upsert path. Failure
+		// to decode is silent so a bad blob doesn't kill the read;
+		// at worst the agent sees no Media on this row.
+		if mediaRaw, ok := it.Extra["media"]; ok {
+			if err := json.Unmarshal(mediaRaw, &it.Media); err == nil {
+				delete(it.Extra, "media")
+				if len(it.Extra) == 0 {
+					it.Extra = nil
+				}
+			}
+		}
 	}
 	return &it, nil
 }

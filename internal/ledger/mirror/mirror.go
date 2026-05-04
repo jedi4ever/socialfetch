@@ -231,6 +231,21 @@ func render(it item.Item) string {
 			b.WriteByte('\n')
 		}
 	}
+	// Media list — rendered after the body so the agent's vision
+	// tool can pick up image URLs directly from the markdown without
+	// parsing the post body. Each entry is `![alt](url)`; entries
+	// with no alt fall back to the type tag so the link still has
+	// a label.
+	if len(it.Media) > 0 {
+		b.WriteString("\n## Media\n\n")
+		for _, m := range it.Media {
+			alt := m.Alt
+			if alt == "" {
+				alt = m.Type
+			}
+			fmt.Fprintf(&b, "- ![%s](%s)\n", alt, m.URL)
+		}
+	}
 	return b.String()
 }
 
