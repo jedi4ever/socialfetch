@@ -79,7 +79,13 @@ func bridgeOrDirect(ctx context.Context, raw, endpoint string, audit *core.Audit
 	if err == nil {
 		return htmlStr, finalURL, "bridge", nil
 	}
-	if !errors.Is(err, bridge.ErrBridgeUnreachable) && !errors.Is(err, bridge.ErrNoExtensionAttached) {
+	// Fall back to direct HTTP for any "can't get content from
+	// the bridge" condition: daemon down, extension detached,
+	// or page-load timeout. Real navigate errors (extension
+	// reported a real failure) bubble up so we don't mask bugs.
+	if !errors.Is(err, bridge.ErrBridgeUnreachable) &&
+		!errors.Is(err, bridge.ErrNoExtensionAttached) &&
+		!errors.Is(err, bridge.ErrBridgeTimeout) {
 		// A real extension/timeout error — surface it. Falling back
 		// after a navigate that *partly* worked could mask bugs.
 		return "", "", "", err

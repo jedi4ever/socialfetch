@@ -58,6 +58,8 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		switch {
 		case errors.Is(err, bridge.ErrBridgeUnreachable):
 			return nil, fmt.Errorf("linkedin: bridge daemon not running — `social-fetch bridge start`: %w", err)
+		case errors.Is(err, bridge.ErrBridgeTimeout):
+			return nil, fmt.Errorf("linkedin: bridge timed out loading the page — LinkedIn can be slow; try again or set SOCIAL_BRIDGE_TIMEOUT=180s for headroom: %w", err)
 		case errors.Is(err, bridge.ErrNoExtensionAttached):
 			return nil, fmt.Errorf("linkedin: no extension attached — open your browser with the social-fetch extension running")
 		default:

@@ -38,9 +38,12 @@ import (
 const DefaultPort = 5555
 
 // DefaultCommandTimeout caps how long /cmd waits for the extension to
-// respond before returning 504. LinkedIn posts can take ~3-5s to render
-// after navigation, so the default leaves plenty of headroom.
-const DefaultCommandTimeout = 30 * time.Second
+// respond before returning 504. LinkedIn posts can take 30-60s to
+// render after navigation when the page is heavy (lots of comments,
+// reactions, reposts) — the default leaves headroom for that. Bump
+// via SOCIAL_BRIDGE_TIMEOUT (Server.CommandTimeout reads it on
+// startup) when you're hitting timeouts on a slow network.
+const DefaultCommandTimeout = 90 * time.Second
 
 // Server is a single-extension bridge. Construct with New, then call
 // Routes() to mount on an http.ServeMux, or Run() to serve directly.
@@ -57,11 +60,15 @@ type Server struct {
 	nextID  atomic.Uint64
 }
 
-// New returns a Server with no logger and default timeout.
+// New returns a Server with no logger and the SOCIAL_BRIDGE_TIMEOUT-
+// configured command timeout (or DefaultCommandTimeout when unset).
+// Same env var the client honours, so daemon + client scale together
+// when an operator bumps it for slow networks.
 func New() *Server {
 	return &Server{
-		pending: map[string]chan json.RawMessage{},
-		Logf:    func(string, ...any) {},
+		pending:        map[string]chan json.RawMessage{},
+		CommandTimeout: bridgeTimeout(),
+		Logf:           func(string, ...any) {},
 	}
 }
 

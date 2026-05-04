@@ -9,8 +9,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
 )
@@ -79,8 +81,19 @@ type Client struct {
 func NewClient() *Client { return &Client{Endpoint: DefaultEndpoint} }
 
 // ErrBridgeUnreachable signals the bridge daemon isn't running. Used
-// by callers to branch to a fallback.
+// by callers to branch to a fallback. NOTE: this is the
+// "couldn't establish a TCP connection" case — when the bridge IS
+// running but the page-load takes longer than the timeout, callers
+// see ErrBridgeTimeout instead so they don't misdiagnose the
+// failure as "go start the daemon".
 var ErrBridgeUnreachable = errors.New("bridge: daemon not running")
+
+// ErrBridgeTimeout signals the bridge accepted the connection but
+// didn't reply within the configured timeout. Distinct from
+// ErrBridgeUnreachable so the agent / operator gets actionable
+// guidance: "page may be heavy, bump SOCIAL_BRIDGE_TIMEOUT" rather
+// than "daemon not running" (which is the wrong fix here).
+var ErrBridgeTimeout = errors.New("bridge: request timed out")
 
 // ErrNoExtension signals the bridge is up but no extension is attached.
 // A separate sentinel so callers can distinguish "ran but failed" from
@@ -256,6 +269,50 @@ func (c *Client) endpoint() string {
 	return DefaultEndpoint
 }
 
+// bridgeHTTPClient is the dedicated HTTP client for bridge calls.
+// Separate from core.HTTPClient because:
+//
+//  1. Timeout is much longer (default 90s, configurable via
+//     SOCIAL_BRIDGE_TIMEOUT). LinkedIn / Medium / Substack page
+//     hydration through a real browser regularly takes 30-60s for
+//     heavy posts; the global 30s timeout cuts these mid-load and
+//     produces the misleading "daemon not running" error.
+//  2. No cookie jar is needed — the BROWSER (extension) carries
+//     the relevant session cookies, the bridge HTTP path is
+//     localhost-only RPC.
+//  3. Reuses core.HTTPClient.Transport so audit/logging behaviour
+//     stays consistent (every bridge call still emits the
+//     `http POST 127.0.0.1:5555/cmd` audit line).
+//
+// The package-init pattern keeps the client-construction cost off
+// the hot path.
+var bridgeHTTPClient = newBridgeHTTPClient()
+
+func newBridgeHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:   bridgeTimeout(),
+		Transport: core.HTTPClient.Transport,
+	}
+}
+
+// bridgeTimeout returns the configured POST timeout. Defaults to
+// 90s — comfortably above the typical 30-60s LinkedIn hydration
+// window. Operators on slow networks bump it via
+// SOCIAL_BRIDGE_TIMEOUT="180s" / "3m" / etc. Anything time.ParseDuration
+// accepts works.
+func bridgeTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_BRIDGE_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		// Bare number → seconds (operator convenience).
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 90 * time.Second
+}
+
 func (c *Client) call(ctx context.Context, endpoint string, payload map[string]any) ([]byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -267,8 +324,21 @@ func (c *Client) call(ctx context.Context, endpoint string, payload map[string]a
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := core.HTTPClient.Do(req)
+	resp, err := bridgeHTTPClient.Do(req)
 	if err != nil {
+		// Distinguish "couldn't connect" from "connected then
+		// timed out" so the operator-facing error gets the
+		// right fix recipe. net.OpError + connection-refused-
+		// shaped messages = real not-running. Anything with
+		// "deadline exceeded" / "Client.Timeout" = bridge
+		// accepted but stuck.
+		msg := err.Error()
+		if strings.Contains(msg, "deadline exceeded") ||
+			strings.Contains(msg, "Client.Timeout") ||
+			strings.Contains(msg, "context deadline") {
+			return nil, fmt.Errorf("%w after %s: %v (LinkedIn / Medium / Substack page-load via the browser can be slow; bump SOCIAL_BRIDGE_TIMEOUT=180s if your pages need more headroom)",
+				ErrBridgeTimeout, bridgeTimeout(), err)
+		}
 		return nil, fmt.Errorf("%w: %v", ErrBridgeUnreachable, err)
 	}
 	defer resp.Body.Close()
