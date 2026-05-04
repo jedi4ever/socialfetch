@@ -26,3 +26,4 @@
 - curl installer ?
 - passwrod browser connection/secret
 - backup ledger
+- skills installer

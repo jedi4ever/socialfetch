@@ -297,8 +297,12 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials,
 	}
 
 	q := url.Values{
-		"expansions":   {"author_id,attachments.media_keys"},
-		"tweet.fields": {"created_at,public_metrics,lang,note_tweet,article,entities,conversation_id"},
+		// referenced_tweets.id expands to the full quoted /
+		// retweeted tweet body in Includes.Tweets — without it
+		// quote-tweet content is invisible. The matching field
+		// `referenced_tweets` is added under tweet.fields.
+		"expansions":   {"author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id"},
+		"tweet.fields": {"created_at,public_metrics,lang,note_tweet,article,entities,conversation_id,referenced_tweets"},
 		"user.fields":  {"username,name"},
 		"media.fields": {"url,type,variants"},
 	}
@@ -372,6 +376,16 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, creds Credentials,
 				media = append(media, core.Media{URL: best, Type: "video"})
 			}
 		}
+	}
+
+	// Append quoted / retweeted content. Each ref shows up in
+	// referenced_tweets with a type (`quoted` / `retweeted` /
+	// `replied_to`); we render the first two inline as a markdown
+	// section so an agent reading the body sees both the comment
+	// and the original. `replied_to` is intentionally skipped —
+	// reply context is built separately via fetchReplies.
+	if quoted := renderReferencedTweets(body); quoted != "" {
+		text = strings.TrimRight(text, "\n") + "\n\n" + quoted
 	}
 
 	published := parseTwitterTime(body.Data.CreatedAt)
@@ -457,6 +471,17 @@ type apiTweet struct {
 				ExpandedURL string `json:"expanded_url"`
 			} `json:"urls"`
 		} `json:"entities"`
+		// ReferencedTweets links this tweet to others via three
+		// relationship types: "replied_to" (reply chain),
+		// "quoted" (quote-tweet — the quoted post is the
+		// payload), "retweeted" (RT — this tweet IS the
+		// reposted one). For quoted/retweeted, the referenced
+		// tweet's content lands in Includes.Tweets via the
+		// `referenced_tweets.id` expansion.
+		ReferencedTweets []struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		} `json:"referenced_tweets"`
 	} `json:"data"`
 	Includes struct {
 		Users []struct {
@@ -474,7 +499,89 @@ type apiTweet struct {
 				URL         string `json:"url"`
 			} `json:"variants"`
 		} `json:"media"`
+		// Tweets carries the full body of any tweet referenced
+		// via referenced_tweets (quoted or retweeted). Only
+		// populated when expansions=referenced_tweets.id.
+		Tweets []struct {
+			ID        string `json:"id"`
+			Text      string `json:"text"`
+			AuthorID  string `json:"author_id"`
+			CreatedAt string `json:"created_at"`
+			NoteTweet *struct {
+				Text string `json:"text"`
+			} `json:"note_tweet"`
+			PublicMetrics struct {
+				Likes int `json:"like_count"`
+			} `json:"public_metrics"`
+		} `json:"tweets"`
 	} `json:"includes"`
+}
+
+// renderReferencedTweets formats quoted-tweet and retweet content as a
+// markdown section appended to the main tweet body. Returns "" when
+// no quoted/retweeted refs are present (the typical reply-only case).
+//
+// Type semantics:
+//   - "quoted"     → the parent tweet has a comment, the referenced
+//     tweet is the post being commented on. Rendered
+//     as `## Quoted tweet`.
+//   - "retweeted"  → the parent tweet IS a bare retweet (no comment).
+//     Rendered as `## Retweeted`. In practice the
+//     parent's `text` field is `RT @user: ...` with
+//     the original truncated; the expansion gives us
+//     the full body.
+//   - "replied_to" → skipped here. Reply context is the conversation
+//     tree, built separately in fetchReplies.
+//
+// When the same ID is referenced multiple times (rare — usually only
+// happens on chained quote-tweets) we render each occurrence; dedup
+// would mask the structure.
+func renderReferencedTweets(body apiTweet) string {
+	if len(body.Data.ReferencedTweets) == 0 || len(body.Includes.Tweets) == 0 {
+		return ""
+	}
+	// Index referenced bodies by ID for O(1) lookup.
+	byID := map[string]int{}
+	for i, t := range body.Includes.Tweets {
+		byID[t.ID] = i
+	}
+	authorByID := map[string]string{}
+	for _, u := range body.Includes.Users {
+		authorByID[u.ID] = fmt.Sprintf("%s (@%s)", u.Name, u.Username)
+	}
+
+	var out strings.Builder
+	for _, ref := range body.Data.ReferencedTweets {
+		if ref.Type != "quoted" && ref.Type != "retweeted" {
+			continue
+		}
+		idx, ok := byID[ref.ID]
+		if !ok {
+			continue
+		}
+		t := body.Includes.Tweets[idx]
+		text := t.Text
+		if t.NoteTweet != nil && t.NoteTweet.Text != "" {
+			text = t.NoteTweet.Text
+		}
+		header := "## Quoted tweet"
+		if ref.Type == "retweeted" {
+			header = "## Retweeted"
+		}
+		author := authorByID[t.AuthorID]
+		if author == "" {
+			author = "(unknown)"
+		}
+		permalink := fmt.Sprintf("https://x.com/i/status/%s", t.ID)
+		fmt.Fprintf(&out, "\n%s\n\n", header)
+		fmt.Fprintf(&out, "*%s · [%s](%s)*\n\n", author, t.CreatedAt, permalink)
+		// Indent the body as a blockquote so it visually distinguishes
+		// from the parent tweet's prose.
+		for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+			fmt.Fprintf(&out, "> %s\n", line)
+		}
+	}
+	return strings.TrimSpace(out.String())
 }
 
 // pickV2Video returns the highest-bitrate MP4 variant from v2's media list.

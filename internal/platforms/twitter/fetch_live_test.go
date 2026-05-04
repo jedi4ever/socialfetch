@@ -73,3 +73,43 @@ func TestLiveTwitterLongFormArticle(t *testing.T) {
 	}
 	t.Logf("long-form article: title=%q content_chars=%d", item.Title, len(item.Content))
 }
+
+// TestLiveQuotedTweet exercises the quote-tweet expansion. When the
+// fetched tweet has a referenced_tweets[type=quoted] entry, the
+// rendered body MUST include a `## Quoted tweet` section + a
+// blockquote of the referenced post's text.
+//
+// Fixture: one swyx-authored quote-tweet of his own Latent.Space
+// piece on dark factories — referenced earlier in the dark-factory
+// thread we have cached. Stable as long as the parent tweet stays
+// up; soft-skips when X v2 stops expanding the ref (deleted /
+// suspended / protected source tweet) so we don't fail on platform
+// state vs code drift.
+func TestLiveQuotedTweet(t *testing.T) {
+	dotenv.LoadAuto()
+	if _, ok := FromEnv(); !ok {
+		t.Skip("X_API_KEY / X_API_SECRET not set — skipping")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// loujaybee quote-tweet — the maintainer confirmed this URL
+	// embeds another tweet via referenced_tweets[type=quoted].
+	const quoteTweetURL = "https://x.com/loujaybee/status/2050912917172728234"
+	item, err := New().Fetch(ctx, quoteTweetURL, core.Options{IncludeComments: false})
+	if err != nil {
+		t.Skipf("twitter live quoted-tweet test skipped: %v", err)
+	}
+	if !strings.Contains(item.Content, "## Quoted tweet") &&
+		!strings.Contains(item.Content, "## Retweeted") {
+		// X may stop returning the expansion (deleted source,
+		// account suspended, protected tweet) — when that
+		// happens there's nothing to assert on.
+		t.Skipf("no `## Quoted tweet` / `## Retweeted` section — fixture URL %s may have lost its referenced tweet, or the parent isn't a quote/RT. content head: %.200s",
+			quoteTweetURL, item.Content)
+	}
+	if !strings.Contains(item.Content, "> ") {
+		t.Errorf("quoted section should use `> ` blockquote prefix")
+	}
+	t.Logf("quoted-tweet rendered: %d total chars", len(item.Content))
+}

@@ -92,6 +92,57 @@ func TestLiveLinkedInFetchMedia(t *testing.T) {
 	}
 }
 
+// TestLiveLinkedInFetchQuotedRepost confirms the rendered post body
+// includes the embedded reposted/quoted post. LinkedIn nests the
+// reshared post inside `feed-shared-mini-update` (which used to be
+// in cleanHTML's deny-list and silently stripped). After the deny
+// fix the embedded card stays in the DOM and htmlmd.Convert renders
+// its text inline.
+//
+// Fixture URL is a known reshare on LinkedIn; if it goes away,
+// swap with any post that has a quoted/reshared inner post. The
+// assertion is intentionally soft — we look for SOME signal of an
+// embedded post (a second author / a second timestamp / a "reposted"
+// affordance) rather than a specific phrase, so the test survives
+// LinkedIn DOM rotations.
+func TestLiveLinkedInFetchQuotedRepost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	// Hugo de Gooijer's repost of an AI Engineer Europe talk
+	// — confirmed by the maintainer to embed an original post
+	// inline. If it goes away, swap with any post whose URL ends
+	// in `-activity-...` and has visible reshare commentary.
+	const repostURL = "https://www.linkedin.com/posts/hugodegooijer_one-of-my-favorite-talks-at-ai-engineer-europe-activity-7454456510899945473-RJ-L"
+	item, err := New().Fetch(ctx, repostURL, core.DefaultOptions())
+	if err != nil {
+		if isBridgeEnvErr(err) {
+			t.Skipf("bridge not available: %v", err)
+		}
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// The rendered body should be substantially longer than a
+	// single-post fetch because the embedded reshare contributes
+	// its own text. Single LinkedIn posts typically run 500-2000
+	// chars; reshares should clear ~1500.
+	if len(item.Content) < 1500 {
+		t.Errorf("body too short for a reshare (%d chars) — embedded post may have been stripped", len(item.Content))
+	}
+
+	// The fixture URL is Hugo de Gooijer resharing a Patrick
+	// Debois post about AI agents and CDLC. Assert a phrase
+	// that's specifically from the EMBEDDED original (not Hugo's
+	// commentary) — if it disappears the embed is being stripped
+	// again. Update this assertion when swapping the fixture URL.
+	const embeddedPostMarker = "AI agents start from zero every session"
+	if !strings.Contains(item.Content, embeddedPostMarker) {
+		t.Errorf("expected embedded-post phrase %q not found — `feed-shared-mini-update` deny-list may have re-emerged. content head:\n%.500s",
+			embeddedPostMarker, item.Content)
+	}
+	t.Logf("linkedin reshare body=%d chars, embedded marker found", len(item.Content))
+}
+
 // isBridgeEnvErr reports whether err looks like a missing-bridge or
 // missing-extension condition — both of which are environment problems
 // rather than code regressions, so we should skip rather than fail.

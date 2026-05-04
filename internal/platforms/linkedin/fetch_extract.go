@@ -95,7 +95,17 @@ var classDenyContains = []string{
 	"reactions-react-button",
 	"feed-shared-social-action-bar",
 	"social-counts-reactions",
-	"feed-shared-mini-update",
+	// `feed-shared-mini-update` was deny-listed wholesale, but
+	// LinkedIn uses the same class for both:
+	//   - "you might be interested in" sidebar suggestion cards
+	//     (chrome — should drop)
+	//   - the quoted/reshared post embedded INSIDE a parent
+	//     update (real content — must keep)
+	// Removing the entry so the embedded reshare survives. The
+	// suggestion cards typically also have a `mini-update-suggestion`
+	// or `discover` ancestor; relying on the post-body container
+	// pick (pickContent) to scope what we extract is a safer
+	// filter than this class denylist.
 	"artdeco-toast",
 	"artdeco-modal",
 	"sign-in-modal",
