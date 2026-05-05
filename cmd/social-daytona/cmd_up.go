@@ -24,6 +24,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -102,13 +103,26 @@ func cmdUp(args []string) error {
 			continue
 		}
 
-		// Settle a moment so the sandbox transitions to "started"
-		// before we ask for a preview URL. The API tolerates an
-		// early call but the resulting URL won't connect until
-		// the workspace's port is listening — better to pause and
-		// have a working URL on first display than confuse the
-		// operator with a 502.
-		time.Sleep(500 * time.Millisecond)
+		// Boot the daemons inside the sandbox. Daytona's runtime
+		// runs its own daytona binary as PID 1 and doesn't honour
+		// the image's CMD the same way `docker run` does — our
+		// entrypoint script gets exec'd but exits before the
+		// daemons stay listening. Instead we explicitly call
+		// `daytona exec` to detach the entrypoint as a background
+		// process. setsid + nohup + redirect-to-file gives us a
+		// boot that survives the exec session ending, plus a
+		// log file we can tail later.
+		if err := bootDaemons(ws.ID); err != nil {
+			results[i] = result{ID: ws.ID, Err: fmt.Errorf("boot daemons: %w", err)}
+			continue
+		}
+
+		// Wait for the daemons to actually listen. Headless takes
+		// the longest because of the chromium pool warmup; ledger
+		// and MCP come up in a few seconds. Poll up to ~30s before
+		// surfacing the preview URL — better to have a working URL
+		// on first display than confuse the operator with a 502.
+		waitForDaemons(ws.ID, 30*time.Second)
 
 		preview, err := c.GetPreviewURL(ctx, ws.ID, *port, *expires)
 		if err != nil {
@@ -155,3 +169,60 @@ func randomHex(n int) string {
 // fields, which need a pointer to distinguish "send 0 to mean
 // never" from "field absent, use API default."
 func intPtr(n int) *int { return &n }
+
+// bootDaemons launches docker-entrypoint.sh inside the sandbox as
+// a detached background process. Daytona's runtime PID 1 is its
+// own daytona binary which doesn't honour the docker image's
+// CMD persistently — our entrypoint runs once but exits, leaving
+// no daemons. By calling `daytona exec` after create we control
+// when + how the daemons start, and we get a log file we can
+// follow with `social-daytona logs`.
+//
+// The shell wrapper does three things in one line:
+//
+//  1. setsid: detach from the controlling terminal so the
+//     process tree survives the exec session ending.
+//  2. nohup: ignore SIGHUP, redirect output to /var/log.
+//  3. < /dev/null: close stdin so the wrapping `daytona exec`
+//     can return immediately without waiting for input.
+//
+// Without all three, daytona exec hangs (waiting for the
+// foreground entrypoint) or the daemons get killed when our exec
+// session disconnects.
+func bootDaemons(sandboxID string) error {
+	// Log file lives in /tmp because the non-root sf user can't
+	// write to /var/log inside the Daytona sandbox image. /tmp is
+	// world-writable per Linux convention; tail it via
+	// `daytona exec <id> -- tail -f /tmp/social-skills.log`.
+	wrapper := `setsid nohup /usr/local/bin/docker-entrypoint.sh all > /tmp/social-skills.log 2>&1 < /dev/null &
+exit 0`
+	cmd := exec.Command("daytona", "exec", sandboxID, "--", "/bin/sh", "-c", wrapper)
+	cmd.Env = ensureDaytonaAPIEnv(os.Environ())
+	cmd.Stdout = os.Stderr // log line goes to stderr so the URL list on stdout stays clean
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("daytona exec: %w", err)
+	}
+	return nil
+}
+
+// waitForDaemons polls the in-sandbox /health endpoint via
+// `daytona exec curl 127.0.0.1:5558/health` until either it
+// responds 200 or the timeout fires. Returns true on success.
+// Side effect: lengthens the up flow by up to `timeout` seconds
+// for first-time spawns; on a warm pool the call returns in <1s.
+func waitForDaemons(sandboxID string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cmd := exec.Command("daytona", "exec", sandboxID, "--",
+			"/bin/sh", "-c",
+			"curl -fsS -o /dev/null -m 2 http://127.0.0.1:5558/health")
+		cmd.Env = ensureDaytonaAPIEnv(os.Environ())
+		// Discard output — we only care about exit code.
+		if err := cmd.Run(); err == nil {
+			return true
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return false
+}

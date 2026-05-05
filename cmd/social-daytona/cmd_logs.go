@@ -43,7 +43,11 @@ func cmdLogs(args []string) error {
 	// `tail -f /data/logs/*.log` works. For v1 we just point at
 	// what's there; if the file doesn't exist the tail prints a
 	// clear error and the operator falls back to `daytona ssh`.
-	remoteCmd := fmt.Sprintf("tail %s /data/logs/headless.log /data/logs/ledger.log /data/logs/mcp.log 2>/dev/null || echo '(no /data/logs/*.log yet — try `daytona ssh %s` for a live shell)'", tailFlags, id)
+	// /tmp/social-skills.log is where bootDaemons in cmd_up.go
+	// redirects the entrypoint output. tail -f survives the
+	// daytona-exec session ending so the agent gets a live stream
+	// when --follow is passed.
+	remoteCmd := fmt.Sprintf("tail %s /tmp/social-skills.log 2>/dev/null || echo '(no /tmp/social-skills.log yet — try `daytona ssh %s` for a live shell)'", tailFlags, id)
 
 	cmd := exec.Command("daytona", "exec", id, "--", "/bin/sh", "-c", remoteCmd)
 	cmd.Stdout = os.Stdout
