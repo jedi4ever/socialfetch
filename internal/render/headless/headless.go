@@ -267,7 +267,15 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) (*Result, error) {
 	if len(f.Options.Cookies) == 0 && os.Getenv("SOCIAL_FETCH_HEADLESS_DAEMON_DISABLE") == "" {
 		client := NewDaemonClient()
 		if client.Reachable(ctx) {
-			return client.Fetch(ctx, raw)
+			// Forward the caller's explicit Settle to the daemon
+			// when it differs from the default — that's how the
+			// article fetcher's "retry with longer settle" path
+			// gets the daemon to wait extra on a SPA shell.
+			settle := time.Duration(0)
+			if f.Options.Settle != DefaultOptions.Settle {
+				settle = f.Options.Settle
+			}
+			return client.FetchWithSettle(ctx, raw, settle)
 		}
 	}
 

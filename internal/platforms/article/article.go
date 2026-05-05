@@ -224,6 +224,12 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, opts core.Option
 	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
 		item.URL = finalURL
 	}
+	if isThinContent(item) {
+		if opts.Audit != nil {
+			opts.Audit.Logf("article: http returned thin content (%d chars), falling through", len(item.Content))
+		}
+		return nil, errThinContent
+	}
 	return item, nil
 }
 
@@ -232,6 +238,11 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, opts core.Option
 // challenges and UA-sniff blocks that the plain HTTP path can't.
 // Same parse + extract pipeline as the HTTP runner — just a
 // different bytes-source.
+//
+// Returns errThinContent when the bridge produced an Item with
+// effectively empty Content. The bridge has already done its
+// session render; no retry helps. Letting the chain fall through
+// is the right move.
 func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	c := &bridge.Client{Endpoint: f.BridgeURL}
 	htmlStr, finalURL, _, err := c.GetHTML(ctx, raw, opts.Audit)
@@ -246,6 +257,12 @@ func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Opti
 	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
 		item.URL = finalURL
 	}
+	if isThinContent(item) {
+		if opts.Audit != nil {
+			opts.Audit.Logf("article: bridge returned thin content (%d chars), falling through", len(item.Content))
+		}
+		return nil, errThinContent
+	}
 	return item, nil
 }
 
@@ -256,8 +273,54 @@ func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Opti
 // is JS-rendered or behind a soft anti-bot but the user doesn't have
 // the bridge daemon running, and we'd rather not send the URL to a
 // third party.
+//
+// Retry semantics: when the first call returns thin content
+// (typically a SPA shell that hadn't hydrated yet), automatically
+// retries ONCE with a longer settle delay (6s vs the default 2s).
+// SPAs with code-split bundles often need ≥4s for the article
+// container to mount. If the retry STILL produces thin content,
+// returns errThinContent so the chain falls through to jina —
+// jina renders server-side and almost always succeeds where local
+// chromedp gave up.
 func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
-	res, err := headless.New().Fetch(ctx, raw)
+	item, err := f.runHeadlessOnce(ctx, raw, opts, 0)
+	if err != nil {
+		return nil, err
+	}
+	if !isThinContent(item) {
+		return item, nil
+	}
+	if opts.Audit != nil {
+		opts.Audit.Logf("article: thin content via headless (%d chars), retrying with settle=6s", len(item.Content))
+	}
+	item2, err := f.runHeadlessOnce(ctx, raw, opts, 6*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if isThinContent(item2) {
+		if opts.Audit != nil {
+			opts.Audit.Logf("article: headless retry still thin (%d chars), falling through", len(item2.Content))
+		}
+		return nil, errThinContent
+	}
+	if opts.Audit != nil {
+		opts.Audit.Logf("article: headless retry succeeded (%d chars)", len(item2.Content))
+	}
+	return item2, nil
+}
+
+// runHeadlessOnce performs one headless fetch with optional settle
+// override. Centralised so the retry path doesn't duplicate
+// post-fetch wiring (parseAndExtract + via/engine stamping +
+// finalURL handling).
+func (f *Fetcher) runHeadlessOnce(ctx context.Context, raw string, opts core.Options, settle time.Duration) (*core.Item, error) {
+	hf := headless.New()
+	if settle > 0 {
+		hopts := hf.Options
+		hopts.Settle = settle
+		hf = headless.NewWithOptions(hopts)
+	}
+	res, err := hf.Fetch(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +334,25 @@ func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, opts core.Op
 		item.URL = res.FinalURL
 	}
 	return item, nil
+}
+
+// errThinContent is the sentinel a runner returns when it
+// produced an Item with effectively no body. fetchchain.Run
+// treats it like any other error — logs the failure and tries
+// the next method.
+//
+// 100 chars is the threshold: real articles are typically
+// 500-50,000 chars, SPA shells hover near zero. 100 is comfortably
+// above legitimate-but-short responses while still catching the
+// "this clearly didn't work" case.
+var errThinContent = errors.New("thin content (likely JS-rendered, falling through to next chain method)")
+
+func isThinContent(it *core.Item) bool {
+	if it == nil {
+		return true
+	}
+	const thinThreshold = 100
+	return len(strings.TrimSpace(it.Content)) < thinThreshold
 }
 
 // fetchViaJina is the service-backed catch-all. Routes through

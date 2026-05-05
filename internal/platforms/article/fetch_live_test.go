@@ -83,3 +83,34 @@ func TestLiveArticleFetchHeadless(t *testing.T) {
 	t.Logf("article headless: title=%q content_chars=%d engine=%v",
 		item.Title, len(item.Content), item.Extra["engine"])
 }
+
+// TestLiveArticleSPAFallthrough hits a known pure-SPA site
+// (oia.agentics.org — a React/Vite shell with code-split chunks)
+// and verifies the chain produces a non-empty body via the
+// retry-and-fallthrough machinery. The chain is expected to:
+//
+//  1. Try headless with default 2s settle → thin (SPA still hydrating).
+//  2. Retry headless with 6s settle → may succeed, may still be thin.
+//  3. If still thin, fall through to http (also thin), bridge
+//     (likely permission_required without bridge config), jina
+//     (renders server-side, almost always works).
+//
+// The assertion is intentionally soft: we just want a non-empty
+// Content. Which method actually produced it is logged for
+// debug visibility but not asserted — different machines /
+// network conditions will land on different rungs.
+func TestLiveArticleSPAFallthrough(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	const spaURL = "https://oia.agentics.org/"
+	item, err := New().Fetch(ctx, spaURL, core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(strings.TrimSpace(item.Content)) < 100 {
+		t.Errorf("expected non-empty content via chain fallthrough, got %d chars", len(item.Content))
+	}
+	t.Logf("oia.agentics.org: via=%v engine=%v title=%q content_chars=%d",
+		item.Extra["via"], item.Extra["engine"], item.Title, len(item.Content))
+}

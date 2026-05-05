@@ -64,6 +64,14 @@ func (c *DaemonClient) Reachable(ctx context.Context) bool {
 // the response. Returns the same Result shape as in-process Fetch
 // so callers can swap implementations without branching on origin.
 func (c *DaemonClient) Fetch(ctx context.Context, url string) (*Result, error) {
+	return c.FetchWithSettle(ctx, url, 0)
+}
+
+// FetchWithSettle is Fetch with a per-call settle override. settle
+// of 0 falls back to the daemon's configured default (today: 2s).
+// Used by the article fetcher's thin-content retry path —
+// "retry the same URL with a longer hydration wait."
+func (c *DaemonClient) FetchWithSettle(ctx context.Context, url string, settle time.Duration) (*Result, error) {
 	body, err := json.Marshal(fetchRequest{URL: url})
 	if err != nil {
 		return nil, err
@@ -76,7 +84,11 @@ func (c *DaemonClient) Fetch(ctx context.Context, url string) (*Result, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.BaseURL+"/fetch", bytes.NewReader(body))
+	endpoint := c.BaseURL + "/fetch"
+	if settle > 0 {
+		endpoint += "?settle=" + settle.String()
+	}
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

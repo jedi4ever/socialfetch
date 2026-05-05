@@ -239,7 +239,7 @@ Knobs (env, with `--flag` equivalents on `start`):
 | `SOCIAL_FETCH_HEADLESS_DAEMON_DISABLE` | unset | non-empty = clients always use in-process spawn |
 | `SOCIAL_FETCH_HEADLESS_USER_AGENT` | real-Chrome | UA the spawned browsers advertise |
 | `SOCIAL_FETCH_HEADLESS_TIMEOUT` | 60s | per-fetch deadline including launch |
-| `SOCIAL_FETCH_HEADLESS_SETTLE` | 2s | post-navigate sleep for JS hydration |
+| `SOCIAL_FETCH_HEADLESS_SETTLE` | 2s | post-navigate sleep for JS hydration. The article fetcher auto-retries any thin (<100 char) response with a 6s settle once before falling through to the next chain method, so single-SPA flakes self-correct without operator action. Bump this for batch runs against many slow-hydrating sites. |
 
 When daemon's down, the headless transport falls back to in-process
 spawn so fetches still work — they just pay ~2s cold-start each.

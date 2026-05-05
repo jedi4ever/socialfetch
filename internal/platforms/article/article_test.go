@@ -40,9 +40,12 @@ const mediumPage = `<!DOCTYPE html>
 </body>
 </html>`
 
+// Body padded past the 100-char thin-content threshold so the
+// generic test exercises the happy path of the article fetcher
+// without tripping the SPA-shell fallthrough.
 const genericPage = `<!DOCTYPE html>
 <html><head><title>Plain Page</title></head>
-<body><article><p>Just text.</p></article></body></html>`
+<body><article><p>Just text. Padded out to clear the article fetcher's thin-content fallthrough threshold so the test exercises the happy path.</p></article></body></html>`
 
 func TestMatch(t *testing.T) {
 	f := New()
@@ -133,7 +136,10 @@ func TestFetchFollowsRedirectAndPopulatesURL(t *testing.T) {
 	// extractor doesn't override our redirect URL.
 	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Destination</title></head><body><article><p>The real article.</p></article></body></html>`))
+		// Body needs >100 chars of prose to clear the
+		// thin-content threshold the article fetcher uses to
+		// decide "this looked like a SPA shell, fall through."
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Destination</title></head><body><article><p>The real article body. This paragraph is intentionally long enough to clear the thin-content fallthrough threshold the article fetcher uses to detect SPA shells.</p></article></body></html>`))
 	}))
 	defer final.Close()
 
@@ -160,7 +166,10 @@ func TestFetchFollowsRedirectAndPopulatesURL(t *testing.T) {
 func TestFetchPreservesURLWhenNoRedirect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Direct</title></head><body><article><p>No redirect.</p></article></body></html>`))
+		// Same threshold reasoning as TestFetchFollowsRedirectAndPopulatesURL:
+		// body needs >100 chars to avoid being flagged as SPA-shell thin
+		// content and triggering the chain's fallthrough.
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Direct</title></head><body><article><p>No redirect happened on this fetch. Body is intentionally long enough to clear the thin-content fallthrough threshold.</p></article></body></html>`))
 	}))
 	defer srv.Close()
 
@@ -172,6 +181,71 @@ func TestFetchPreservesURLWhenNoRedirect(t *testing.T) {
 	if item.URL != rawURL {
 		t.Errorf("item.URL = %q, want %q (unchanged when no redirect)", item.URL, rawURL)
 	}
+}
+
+// TestFetchSPAShellFallsThrough — when the http response is a SPA
+// shell (empty <body> or unparseable body) the http runner should
+// return errThinContent so the chain proceeds to the next method.
+// We verify by pointing the article fetcher at a server that
+// returns a React-style empty shell — the chain has nowhere to fall
+// through (bridge unavailable, jina unreachable in unit tests),
+// so the final error wraps every method including the
+// "thin content" message from http. That confirms the http runner
+// short-circuited as expected.
+func TestFetchSPAShellFallsThrough(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>SPA</title></head><body><div id="root"></div><script src="/bundle.js"></script></body></html>`))
+	}))
+	defer srv.Close()
+
+	// Force chain to use ONLY http so we can observe the
+	// thin-content fallthrough cleanly. With the default chain,
+	// headless+bridge would also try and add noise to the error.
+	t.Setenv("SOCIAL_FETCH_CHAIN_ARTICLE", "http")
+	_, err := New().Fetch(context.Background(), srv.URL+"/spa", core.DefaultOptions())
+	if err == nil {
+		t.Fatal("expected fetch to fail (every method thin)")
+	}
+	if !strings.Contains(err.Error(), "thin content") {
+		t.Errorf("expected 'thin content' in error, got: %v", err)
+	}
+}
+
+// TestIsThinContent locks in the threshold + nil-safe behaviour.
+// Spotted by go test on every refactor.
+func TestIsThinContent(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"nil-safe", "", true},
+		{"empty", "", true},
+		{"whitespace only", "   \n\t  ", true},
+		{"50 chars (still thin)", strings.Repeat("a", 50), true},
+		{"99 chars (still thin)", strings.Repeat("a", 99), true},
+		{"100 chars (boundary)", strings.Repeat("a", 100), false},
+		{"500 chars (clearly real)", strings.Repeat("a", 500), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			it := &core.Item{Content: c.body}
+			if got := isThinContent(it); got != c.want {
+				t.Errorf("isThinContent(%q-len=%d) = %v, want %v", c.body[:min(20, len(c.body))], len(c.body), got, c.want)
+			}
+		})
+	}
+	if !isThinContent(nil) {
+		t.Error("isThinContent(nil) should be true")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // silence unused-import lint when no helpers below need it.

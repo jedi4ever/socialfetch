@@ -339,7 +339,17 @@ func (d *Daemon) handleFetch(w http.ResponseWriter, r *http.Request) {
 	startAt := time.Now()
 	d.markBusy(s.id, req.URL, startAt)
 
-	html, finalURL, fetchErr := d.runFetch(r.Context(), s, req.URL)
+	// Optional per-call settle override — used by callers that
+	// want a longer JS-hydration wait without restarting the
+	// daemon. Empty / unparseable → daemon's default.
+	settleOverride := time.Duration(0)
+	if v := strings.TrimSpace(r.URL.Query().Get("settle")); v != "" {
+		if d2, err := time.ParseDuration(v); err == nil && d2 > 0 {
+			settleOverride = d2
+		}
+	}
+
+	html, finalURL, fetchErr := d.runFetch(r.Context(), s, req.URL, settleOverride)
 	dur := time.Since(startAt)
 
 	// Release: replace or recycle. Always returns a slot to the
@@ -456,7 +466,13 @@ func (d *Daemon) releaseSlot(s *slot, errored bool) *slot {
 // instead of spinning up a fresh allocator per call. A child
 // context with chromedp.NewContext(slot.browserCtx) gives us a
 // fresh tab inside the warm browser.
-func (d *Daemon) runFetch(reqCtx context.Context, s *slot, url string) (html, finalURL string, err error) {
+//
+// settleOverride > 0 replaces the daemon's default settle for
+// this call. Used by callers retrying a thin-content fetch
+// (article fetcher does this automatically when the first
+// attempt's body is suspiciously short — likely a JS-rendered
+// SPA that needed more hydration time).
+func (d *Daemon) runFetch(reqCtx context.Context, s *slot, url string, settleOverride time.Duration) (html, finalURL string, err error) {
 	// New tab inside the warm browser. cancel() closes the tab,
 	// not the browser.
 	tabCtx, cancelTab := chromedp.NewContext(s.browserCtx)
@@ -478,7 +494,10 @@ func (d *Daemon) runFetch(reqCtx context.Context, s *slot, url string) (html, fi
 		chromedp.Navigate(url),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	}
-	settle := d.FetcherOptions.Settle
+	settle := settleOverride
+	if settle == 0 {
+		settle = d.FetcherOptions.Settle
+	}
 	if settle == 0 {
 		settle = DefaultOptions.Settle
 	}
