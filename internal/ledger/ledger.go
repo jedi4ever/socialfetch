@@ -126,6 +126,82 @@ func resetAutoDetectForTests() {
 	autoDetectResult = false
 }
 
+// Get is the daemon-aware read counterpart to Ingest. Looks up
+// one item by URL (or any of the canonical key shapes the
+// `social-ledger get` subcommand recognises) and returns the
+// matching *core.Item, or (nil, nil) when no row matches.
+//
+// Probes the ledger daemon first (transparent HTTP path when up,
+// no filesystem access needed) and falls through to a subprocess
+// `social-ledger get <url> --format json` when the daemon is
+// disabled or unreachable. Returns (nil, nil) for "not found"
+// rather than an error so callers can distinguish "database
+// problem" from "this URL hasn't been ingested yet" — important
+// for upsert flows like the subscriptions package's merge step.
+func Get(ctx context.Context, urlOrKey string) (*core.Item, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+
+	// Daemon-mode fast path. The daemon's /get endpoint returns
+	// 404 for unknown rows; DaemonClient.Get already maps that
+	// to (nil, nil).
+	if !Disabled() {
+		client := NewDaemonClient()
+		if client.Reachable(ctx) {
+			it, err := client.Get(ctx, urlOrKey)
+			if err != nil {
+				return nil, err
+			}
+			if it == nil {
+				return nil, nil
+			}
+			// daemon returns *item.Item; bridge to *core.Item via
+			// JSON re-encoding (both share the same JSON tags so
+			// this is lossless).
+			raw, mErr := json.Marshal(it)
+			if mErr != nil {
+				return nil, mErr
+			}
+			var ci core.Item
+			if uErr := json.Unmarshal(raw, &ci); uErr != nil {
+				return nil, uErr
+			}
+			return &ci, nil
+		}
+	}
+
+	// Subprocess fallback. social-ledger get <url> --format json
+	// emits the item as JSON; exit-1 + "not found" stderr means
+	// no match — we surface that as (nil, nil).
+	bin, err := binaryPath()
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"get", "--format", "json"}
+	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
+		args = append(args, "--data-dir", dir)
+	}
+	args = append(args, urlOrKey)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		// "not found" is the expected exit-1 case for first-time
+		// upserts; treat it as (nil, nil) rather than propagating.
+		if strings.Contains(stderr.String(), "not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("ledger get: %s", strings.TrimSpace(stderr.String()))
+	}
+	var ci core.Item
+	if err := json.Unmarshal(stdout.Bytes(), &ci); err != nil {
+		return nil, err
+	}
+	return &ci, nil
+}
+
 // Ingest pipes the supplied items into `social-ledger ingest`
 // as a single JSONL stream. No-op + nil error when Enabled() is
 // false or when the ledger binary can't be located. Failures during

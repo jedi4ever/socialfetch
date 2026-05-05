@@ -207,9 +207,12 @@ func (c *DaemonClient) Stats(ctx context.Context) (*store.Stats, error) {
 // the canonical Key. Returns true when something was deleted.
 func (c *DaemonClient) Forget(ctx context.Context, urlOrKey string) (bool, error) {
 	req := ForgetRequest{}
-	// Heuristic: anything starting with http(s):// is a URL,
-	// otherwise treat as Key.
-	if strings.HasPrefix(urlOrKey, "http://") || strings.HasPrefix(urlOrKey, "https://") {
+	// Heuristic: anything that looks like a URL (contains "://")
+	// is treated as URL — daemon resolves URL→key server-side.
+	// Without "://" we treat as a raw Key. This handles the
+	// common http/https case AND synthetic schemes
+	// (subscription://, citation://) used elsewhere.
+	if strings.Contains(urlOrKey, "://") {
 		req.URL = urlOrKey
 	} else {
 		req.Key = urlOrKey

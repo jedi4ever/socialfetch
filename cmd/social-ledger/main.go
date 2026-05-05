@@ -82,6 +82,8 @@ func run(args []string) error {
 		return cmdMirror(args[1:])
 	case "daemon":
 		return cmdDaemon(args[1:])
+	case "influencer", "influencers":
+		return cmdInfluencer(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("social-ledger", Version)
 		return nil

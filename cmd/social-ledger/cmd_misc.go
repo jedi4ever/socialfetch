@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -23,6 +24,7 @@ func cmdGet(args []string) error {
 	var dataDirFlag string
 	addCommonFlags(fs, &dataDirFlag)
 	source := fs.String("source", "", "force a specific source when looking up by canonical_id")
+	format := fs.String("format", "text", "output format: text (default) | json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -41,6 +43,14 @@ func cmdGet(args []string) error {
 	}
 	defer s.Close()
 
+	emit := func(it item.Item) error {
+		if *format == "json" {
+			return json.NewEncoder(os.Stdout).Encode(it)
+		}
+		printItem(it)
+		return nil
+	}
+
 	// Try every candidate Key shape so users can paste either form.
 	candidates := []string{}
 	if *source != "" {
@@ -58,8 +68,7 @@ func cmdGet(args []string) error {
 			return err
 		}
 		if it != nil {
-			printItem(*it)
-			return nil
+			return emit(*it)
 		}
 	}
 	// Last-ditch: list scan filtered by url. Cheap because URL fits
@@ -70,8 +79,7 @@ func cmdGet(args []string) error {
 	}
 	for _, it := range hits {
 		if it.URL == target || it.CanonicalID == target {
-			printItem(it)
-			return nil
+			return emit(it)
 		}
 	}
 	return fmt.Errorf("get: %q not found in ledger", target)
