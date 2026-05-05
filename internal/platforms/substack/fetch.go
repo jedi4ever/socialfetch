@@ -1,18 +1,28 @@
-// Package substack fetches Substack posts. Like internal/sources/medium
-// it tries the browser bridge first so logged-in member content is
-// readable, then falls back to direct HTTP for public excerpts.
+// Package substack fetches Substack posts via the shared fetch chain.
+// Default chain is `bridge,http,jina` — same shape as Medium, since
+// the paywall + member-only patterns are nearly identical:
+//
+//   - `bridge` — uses the user's logged-in browser session for
+//     subscriber-only posts.
+//   - `http`   — direct GET; returns public excerpts for paywalled
+//     posts and the full body for free posts.
+//   - `jina`   — anonymous catch-all for when both local methods fail.
+//
+// Operators override per call via SOCIAL_FETCH_CHAIN_SUBSTACK.
 package substack
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
 
@@ -38,17 +48,82 @@ func (Fetcher) Match(u *url.URL) bool {
 	return host == "substack.com" || strings.HasSuffix(host, ".substack.com")
 }
 
+var defaultChain = []fetchchain.Method{
+	fetchchain.MethodBridge,
+	fetchchain.MethodHTTP,
+	fetchchain.MethodJina,
+}
+
+var supportedMethods = map[fetchchain.Method]bool{
+	fetchchain.MethodBridge: true,
+	fetchchain.MethodHTTP:   true,
+	fetchchain.MethodJina:   true,
+}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
-	htmlStr, finalURL, via, err := bridgeOrDirect(ctx, raw, f.BridgeURL, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("substack"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodBridge: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaBridge(ctx, raw, opts)
+		},
+		fetchchain.MethodHTTP: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHTTP(ctx, raw, opts)
+		},
+		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaJina(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "substack", raw, opts.Audit, chain, runners)
 	if err != nil {
 		return nil, fmt.Errorf("substack: %w", err)
 	}
+	return item, nil
+}
 
-	page, err := htmlmeta.Parse(bytes.NewReader([]byte(htmlStr)))
+func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	c := &bridge.Client{Endpoint: f.BridgeURL}
+	htmlStr, finalURL, _, err := c.GetHTML(ctx, raw, opts.Audit)
 	if err != nil {
-		return nil, fmt.Errorf("substack: parse: %w", err)
+		return nil, err
 	}
+	return f.parseAndExtract(raw, finalURL, []byte(htmlStr), "bridge")
+}
 
+func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
+	body, err := core.GetBytes(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	return f.parseAndExtract(raw, raw, body, "http")
+}
+
+// fetchViaJina is the anonymous catch-all. See medium/fetch.go for
+// the full rationale — Jina returns body-only markdown so the
+// resulting Item has no structured Author/Published/Tags/Media.
+func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
+	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	return &core.Item{
+		Source:      "substack",
+		Kind:        "article",
+		URL:         raw,
+		CanonicalID: raw,
+		Content:     strings.TrimSpace(md),
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"requested_url": raw,
+			"via":           "jina",
+		},
+	}, nil
+}
+
+func (f *Fetcher) parseAndExtract(raw, finalURL string, body []byte, via string) (*core.Item, error) {
+	page, err := htmlmeta.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
 	target := finalURL
 	if target == "" {
 		target = raw
@@ -62,30 +137,4 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	}
 	item.Extra["via"] = via
 	return item, nil
-}
-
-// bridgeOrDirect: same behavior as the Medium helper. Kept inline
-// (rather than factored out) so each per-host fetcher can tweak its
-// own logging prefix or fallback policy independently if it ever
-// needs to.
-func bridgeOrDirect(ctx context.Context, raw, endpoint string, audit *core.AuditLogger) (htmlStr, finalURL, via string, err error) {
-	c := &bridge.Client{Endpoint: endpoint}
-	htmlStr, finalURL, _, err = c.GetHTML(ctx, raw, audit)
-	if err == nil {
-		return htmlStr, finalURL, "bridge", nil
-	}
-	// Fall back to direct HTTP for any "can't get content from
-	// the bridge" condition: daemon down, extension detached,
-	// or page-load timeout. Real navigate errors bubble up.
-	if !errors.Is(err, bridge.ErrBridgeUnreachable) &&
-		!errors.Is(err, bridge.ErrNoExtensionAttached) &&
-		!errors.Is(err, bridge.ErrBridgeTimeout) {
-		return "", "", "", err
-	}
-	audit.Logf("falling back to direct HTTP (%v)", err)
-	body, err := core.GetBytes(ctx, raw)
-	if err != nil {
-		return "", "", "", err
-	}
-	return string(body), raw, "http", nil
 }

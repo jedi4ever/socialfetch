@@ -8,6 +8,12 @@
 // this package's BaseFromPage / RenderArticle helpers but own their
 // site-specific selectors. The article package itself only ships the
 // GenericExtractor.
+//
+// Fetch path: the article fetcher walks a configurable chain of
+// methods (default `http,bridge,jina`). PDF URLs and the
+// `HTML2MD_READER=jina` opt-in pre-empt the chain entirely — they're
+// service-backed paths that bypass the local fetch+parse pipeline.
+// Operators override the chain via SOCIAL_FETCH_CHAIN_ARTICLE.
 package article
 
 import (
@@ -23,6 +29,7 @@ import (
 
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
@@ -40,14 +47,39 @@ type Extractor interface {
 // Fetcher pulls a URL, parses it, and runs it through GenericExtractor.
 // Per-host fetchers (medium, substack) are registered before this in
 // the top-level fetch registry so they claim their hosts first.
+//
+// BridgeURL is overridable so tests can point the bridge runner at a
+// httptest server. Production uses bridge.DefaultEndpoint.
 type Fetcher struct {
 	extractor Extractor
+	BridgeURL string
 }
 
 func New() *Fetcher {
 	return &Fetcher{
 		extractor: &GenericExtractor{},
+		BridgeURL: bridge.DefaultEndpoint,
 	}
+}
+
+// defaultChain is the order the article fetcher tries when no env
+// override is set. HTTP first because it's the cheapest path and most
+// articles aren't behind any kind of bot challenge; bridge second
+// because the user's logged-in browser handles CF challenges, UA
+// sniffing, and JS-rendered SPA shells; Jina last as the
+// service-backed catch-all (anti-bot infrastructure + clean markdown).
+var defaultChain = []fetchchain.Method{
+	fetchchain.MethodHTTP,
+	fetchchain.MethodBridge,
+	fetchchain.MethodJina,
+}
+
+// supportedMethods filters the env var so a typo doesn't disable the
+// fetcher (see fetchchain.Resolve).
+var supportedMethods = map[fetchchain.Method]bool{
+	fetchchain.MethodHTTP:   true,
+	fetchchain.MethodBridge: true,
+	fetchchain.MethodJina:   true,
 }
 
 func (Fetcher) Name() string { return "article" }
@@ -66,13 +98,12 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	// PDF early-exit. Local extractors don't read PDFs at all (they
 	// expect HTML), so anything that looks like a PDF gets routed
 	// through PDFReader (Jina by default, configurable via
-	// PDF_READER). We check the URL extension up front rather than
-	// HEAD-probing first — saves a network round trip on the common
-	// case (URL ends in .pdf) at the cost of one false negative class
-	// (PDFs served from extension-less URLs, which we'd discover
-	// through the failing HTML parse below; a future improvement is
-	// to retry via PDFReader on parse failure when the response's
-	// Content-Type is application/pdf).
+	// PDF_READER). Pre-empts the fetch chain entirely — PDFs aren't
+	// HTML, so http / bridge wouldn't know what to do with them.
+	// We check the URL extension up front rather than HEAD-probing
+	// first — saves a network round trip on the common case (URL
+	// ends in .pdf) at the cost of one false negative class (PDFs
+	// served from extension-less URLs).
 	if htmlmd.IsPDFURL(raw) {
 		reader := htmlmd.DefaultPDFReader()
 		if reader == nil {
@@ -98,13 +129,13 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	}
 
 	// HTML2MD_READER=jina opts into a service-backed fetch path that
-	// runs the URL through r.jina.ai for cleaning. Useful when the
-	// site is behind Cloudflare or renders only via JS — Jina handles
-	// both. Skips the local GetBytes + htmlmeta parse + extractor
-	// chain entirely; we still build a metadata-bearing core.Item but
-	// the body comes pre-cleaned as markdown.
+	// runs the URL through r.jina.ai for cleaning. Pre-empts the
+	// chain — operators who set this want Jina unconditionally, not
+	// "Jina if the local methods fail". Will be folded into
+	// SOCIAL_FETCH_CHAIN_ARTICLE in a follow-up release; kept for
+	// backwards compat for now.
 	if reader := htmlmd.DefaultReader(); reader != nil {
-		opts.Audit.Logf("article: routing via service-backed reader")
+		opts.Audit.Logf("article: routing via service-backed reader (HTML2MD_READER)")
 		md, err := reader.Read(ctx, raw)
 		if err != nil {
 			return nil, fmt.Errorf("article: %w", err)
@@ -123,128 +154,93 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		}, nil
 	}
 
-	// Direct fetch first. We do the GET ourselves (rather than
-	// core.GetBytes) so we can inspect headers + status before
-	// committing to the response body — needed for CF detection.
-	body, finalURL, cfBlocked, uaBlocked, err := directFetch(ctx, raw)
-	via := "http"
-	// Three "the server is rejecting our client" signals all flow to
-	// the same Jina-Reader fallback because Jina has browser-like
-	// infrastructure that handles each:
-	//
-	//   - redirect loops (server 302s to itself forever; milvus.io,
-	//     some nginx region-detection setups)
-	//   - UA-sniff 4xx (server returns 404 + SPA shell when our UA
-	//     isn't a real browser)
-	//   - Cloudflare challenges (handled below; falls through to
-	//     bridge first because logged-in browser sessions matter)
-	if err != nil && errors.Is(err, core.ErrRedirectLoop) {
-		opts.Audit.Logf("article: redirect loop detected, trying Jina Reader")
-		return jinaFallback(ctx, raw, "jina-redirect-loop-fallback")
+	chain := fetchchain.Resolve(fetchchain.FromEnv("article"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodHTTP: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHTTP(ctx, raw, opts)
+		},
+		fetchchain.MethodBridge: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaBridge(ctx, raw, opts)
+		},
+		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaJina(ctx, raw, opts)
+		},
 	}
-	if uaBlocked {
-		opts.Audit.Logf("article: UA-sniff block detected (4xx + SPA shell), trying Jina Reader")
-		return jinaFallback(ctx, raw, "jina-ua-block-fallback")
-	}
-	if err != nil && !cfBlocked {
-		return nil, fmt.Errorf("article: %w", err)
-	}
-	if cfBlocked {
-		// CF detection happens after the redirect chain settles, so
-		// finalURL still records the post-redirect target — useful
-		// even when we fall through to bridge/Jina.
-		// Try the browser bridge. Real Chromium with the user's
-		// session cookies passes the JS challenge that our HTTP
-		// client cannot.
-		opts.Audit.Logf("article: cloudflare challenge detected, trying bridge")
-		c := &bridge.Client{Endpoint: bridge.DefaultEndpoint}
-		htmlStr, _, _, berr := c.GetHTML(ctx, raw, opts.Audit)
-		switch {
-		case berr == nil:
-			body = []byte(htmlStr)
-			via = "bridge"
-		case errors.Is(berr, bridge.ErrBridgeUnreachable) || errors.Is(berr, bridge.ErrNoExtensionAttached):
-			// Bridge isn't running. Last-resort fallback: route the
-			// URL through Jina Reader, which has its own anti-CF
-			// infrastructure and returns markdown directly. We bypass
-			// the htmlmeta+extractor chain since Jina's output is
-			// already clean.
-			opts.Audit.Logf("article: bridge unavailable (%v), trying Jina Reader", berr)
-			md, jerr := htmlmd.NewJinaReader().Read(ctx, raw)
-			if jerr != nil {
-				return nil, fmt.Errorf("article: cloudflare blocked + bridge unavailable + jina failed: %w", jerr)
-			}
-			return &core.Item{
-				Source:      "article",
-				Kind:        "article",
-				URL:         raw,
-				CanonicalID: raw,
-				Content:     strings.TrimSpace(md),
-				FetchedAt:   time.Now().UTC(),
-				Extra: map[string]any{
-					"requested_url": raw,
-					"via":           "jina-cf-fallback",
-				},
-			}, nil
-		default:
-			// Bridge gave a real error (timeout, navigation failure).
-			// Surface it.
-			return nil, fmt.Errorf("article: cloudflare blocked, bridge fetch failed: %w", berr)
-		}
-	}
-
-	page, err := htmlmeta.Parse(bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("article: parse: %w", err)
-	}
-
-	host := hostOf(raw)
-
-	// --generic-extraction is now a no-op for this fetcher (the only
-	// extractor here IS the generic one) — kept as a logged signal so
-	// the audit trail still records the user's intent. Per-host
-	// extractors live in their own packages and have their own bypass.
-	if opts.GenericExtraction {
-		opts.Audit.Logf("article: forced generic extractor (host=%s)", host)
-	} else {
-		opts.Audit.Logf("article: %s extractor (via=%s)", f.extractor.Name(), via)
-	}
-	item, err := f.extractor.Extract(raw, page)
+	item, _, err := fetchchain.Run(ctx, "article", raw, opts.Audit, chain, runners)
 	if err != nil {
 		return nil, err
 	}
-	if item.Extra == nil {
-		item.Extra = map[string]any{}
+	return item, nil
+}
+
+// fetchViaHTTP is the local-network path. Performs a plain GET, follows
+// redirects, parses the resulting HTML, and runs the body through the
+// generic extractor. Returns errors for the three "server rejecting
+// our client" signals (redirect loop, UA-sniff block, Cloudflare
+// challenge) which the chain treats the same way as any other failure
+// — try the next method.
+func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	body, finalURL, cfBlocked, uaBlocked, err := directFetch(ctx, raw)
+	switch {
+	case err != nil && errors.Is(err, core.ErrRedirectLoop):
+		return nil, fmt.Errorf("redirect loop: %w", err)
+	case uaBlocked:
+		return nil, fmt.Errorf("UA-sniff block (4xx + SPA shell)")
+	case cfBlocked:
+		return nil, fmt.Errorf("cloudflare challenge")
+	case err != nil:
+		return nil, err
 	}
-	item.Extra["via"] = via
+
+	item, err := f.parseAndExtract(raw, body, opts)
+	if err != nil {
+		return nil, err
+	}
+	item.Extra["via"] = "http"
 	// If the HTTP redirect chain resolved to a different URL than
 	// the user supplied, prefer it as the canonical URL — that's
-	// the page actually rendered. Registry.Fetch will then stamp
-	// item.RequestURL with the original `raw` automatically (since
-	// raw != item.URL), so consumers downstream (the ledger, the
-	// JSONL output) see both.
-	//
-	// We only override when the extractor didn't already pick up a
-	// canonical URL via og:url / link[rel=canonical] — those are
-	// usually authoritative and the redirect target may be a
-	// CDN-prefixed or query-parameterised variant the publisher
-	// intentionally redirected away from.
+	// the page actually rendered. We only override when the extractor
+	// didn't already pick up a canonical URL via og:url /
+	// link[rel=canonical] — those are usually authoritative.
 	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
 		item.URL = finalURL
 	}
 	return item, nil
 }
 
-// jinaFallback routes a URL through r.jina.ai and packages the
-// returned markdown as a core.Item. Centralized here because three
-// different upstream failure modes (redirect loops, UA-sniff blocks,
-// Cloudflare challenges with bridge unavailable) all flow to the
-// same recovery path. The `via` arg is stamped into Extra so audit
-// readers / agents can tell which failure triggered the fallback.
-func jinaFallback(ctx context.Context, raw, via string) (*core.Item, error) {
+// fetchViaBridge routes the URL through the local browser bridge.
+// Real Chromium with the user's session cookies passes the JS
+// challenges and UA-sniff blocks that the plain HTTP path can't.
+// Same parse + extract pipeline as the HTTP runner — just a
+// different bytes-source.
+func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	c := &bridge.Client{Endpoint: f.BridgeURL}
+	htmlStr, finalURL, _, err := c.GetHTML(ctx, raw, opts.Audit)
+	if err != nil {
+		return nil, err
+	}
+	item, err := f.parseAndExtract(raw, []byte(htmlStr), opts)
+	if err != nil {
+		return nil, err
+	}
+	item.Extra["via"] = "bridge"
+	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
+		item.URL = finalURL
+	}
+	return item, nil
+}
+
+// fetchViaJina is the service-backed catch-all. Routes through
+// r.jina.ai which has its own anti-CF + headless-browser
+// infrastructure and returns clean markdown. We don't run it through
+// htmlmeta because Jina has already stripped the structural HTML —
+// no og: tags / JSON-LD / canonical link survives, so the resulting
+// Item is body-only with empty Author / Published / Tags / Media.
+func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	_ = opts // audit goes through ctx via core.WithAudit
 	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
 	if err != nil {
-		return nil, fmt.Errorf("article: jina fallback failed (%s): %w", via, err)
+		return nil, err
 	}
 	return &core.Item{
 		Source:      "article",
@@ -255,9 +251,34 @@ func jinaFallback(ctx context.Context, raw, via string) (*core.Item, error) {
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": raw,
-			"via":           via,
+			"via":           "jina",
 		},
 	}, nil
+}
+
+// parseAndExtract is the shared "bytes → Item" tail used by both the
+// http and bridge runners. Centralised so the per-method runner only
+// has to worry about getting the bytes; the parse + extract +
+// extra-stamp pipeline is identical.
+func (f *Fetcher) parseAndExtract(raw string, body []byte, opts core.Options) (*core.Item, error) {
+	page, err := htmlmeta.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	host := hostOf(raw)
+	if opts.GenericExtraction {
+		opts.Audit.Logf("article: forced generic extractor (host=%s)", host)
+	} else {
+		opts.Audit.Logf("article: %s extractor", f.extractor.Name())
+	}
+	item, err := f.extractor.Extract(raw, page)
+	if err != nil {
+		return nil, err
+	}
+	if item.Extra == nil {
+		item.Extra = map[string]any{}
+	}
+	return item, nil
 }
 
 // directFetch performs a plain HTTP GET and inspects the response for
