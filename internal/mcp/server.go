@@ -115,6 +115,10 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addReadFileTool(s, cfg)
 	// Platform-specific quirks lookup.
 	addHintsTool(s, cfg)
+	// Local browser bookmarks — Chrome today; future twitter/reddit
+	// pipe in via the same shape.
+	addBookmarksListTool(s, cfg)
+	addBookmarksProfilesTool(s, cfg)
 }
 
 // ---- hints -----------------------------------------------------------
