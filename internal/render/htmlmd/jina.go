@@ -26,11 +26,18 @@ const jinaReaderBase = "https://r.jina.ai/"
 // quality, fresh content, agent-friendly output" — the same values
 // every fetcher gets via NewJinaReader().
 //
-// These are intentionally not env-driven yet: the user asked to
-// centralise the values in code first so they're easy to find and
-// swap. The next step (when needed) is to read each field from
-// JINA_ENGINE / JINA_NO_CACHE / JINA_FORMAT / JINA_TIMEOUT env vars
-// in NewJinaReader, with the constants below as fallbacks.
+// These are intentionally not env-driven yet: centralised in code
+// first so they're easy to find and swap. The next step (when
+// needed) is to read each field from these env vars in NewJinaReader
+// with the DefaultJinaOptions values as fallbacks:
+//
+//	SOCIAL_FETCH_JINA_ENGINE      browser | direct | cf-browser-rendering
+//	SOCIAL_FETCH_JINA_NO_CACHE    true | false
+//	SOCIAL_FETCH_JINA_FORMAT      json | markdown
+//	SOCIAL_FETCH_JINA_TIMEOUT     60s | 90s | …
+//
+// The `SOCIAL_FETCH_` prefix matches the rest of the binary
+// (`SOCIAL_FETCH_CHAIN_<PLATFORM>`, `SOCIAL_FETCH_AUDIT_*`).
 type JinaOptions struct {
 	// Engine picks the renderer Jina uses behind the scenes. "browser"
 	// runs a real headless Chromium — slower but handles JS-rendered
