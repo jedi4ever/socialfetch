@@ -417,6 +417,13 @@ func fetchHTTP(ctx context.Context, urlStr string) ([]byte, string, error) {
 // Claude Desktop / vision-capable LLMs render it natively
 // without a follow-up fetch).
 //
+// When the image is a slice (cropped or auto-cropped from a tall
+// page), we insert a third TextContent block right before the
+// ImageContent that explicitly tells the agent "this is part of
+// a longer page" + how to read more. Buried-in-JSON fields like
+// `next_offset_y` are easy to miss; an adjacent text hint is
+// hard to skip past when the agent looks at the image.
+//
 // Keeping the JSON envelope ALONGSIDE the image is deliberate —
 // the agent might read the metadata first (cropped status, file
 // path, URL) and decide whether to even look at the image,
@@ -430,6 +437,12 @@ func buildScreenshotResult(env map[string]any, png []byte, inline bool) *mcp.Cal
 	contents := []mcp.Content{
 		mcp.TextContent{Type: mcp.ContentTypeText, Text: string(body)},
 	}
+	if hint := sliceHintFromEnv(env); hint != "" {
+		contents = append(contents, mcp.TextContent{
+			Type: mcp.ContentTypeText,
+			Text: hint,
+		})
+	}
 	if inline && len(png) > 0 && len(png) <= inlineCap {
 		contents = append(contents, mcp.NewImageContent(
 			base64.StdEncoding.EncodeToString(png),
@@ -437,6 +450,61 @@ func buildScreenshotResult(env map[string]any, png []byte, inline bool) *mcp.Cal
 		))
 	}
 	return &mcp.CallToolResult{Content: contents}
+}
+
+// sliceHintFromEnv builds the explicit "this is a slice" message
+// when the envelope describes a cropped capture. Returns empty
+// string for full-page (un-cropped) results so a complete
+// screenshot doesn't get a noisy "you got everything" hint.
+//
+// Pulls fields out of the same map the JSON envelope was built
+// from, keeping one source of truth for slice arithmetic.
+func sliceHintFromEnv(env map[string]any) string {
+	cropped, _ := env["cropped"].(bool)
+	if !cropped {
+		return ""
+	}
+	height, _ := env["height"].(int)
+	origH, _ := env["original_height"].(int)
+	nextY, _ := env["next_offset_y"].(int)
+	slicesLeft, _ := env["slices_remaining"].(int)
+	autoCropped, _ := env["auto_cropped"].(bool)
+
+	// content_url filename (basename) is what read_screenshot
+	// wants. Fall back to content_file's basename when only that
+	// path is populated.
+	filename := ""
+	if u, ok := env["content_url"].(string); ok && u != "" {
+		// last path segment of the URL
+		if idx := strings.LastIndex(u, "/"); idx >= 0 && idx+1 < len(u) {
+			filename = u[idx+1:]
+		}
+	}
+	if filename == "" {
+		if f, ok := env["content_file"].(string); ok && f != "" {
+			if idx := strings.LastIndex(f, "/"); idx >= 0 && idx+1 < len(f) {
+				filename = f[idx+1:]
+			} else {
+				filename = f
+			}
+		}
+	}
+
+	var b strings.Builder
+	if autoCropped {
+		fmt.Fprintf(&b, "NOTE: this is the top %d px of a %d px tall page (auto-cropped to fit the inline-image cap).", height, origH)
+	} else {
+		fmt.Fprintf(&b, "NOTE: this is a %d px slice of a %d px tall page.", height, origH)
+	}
+	if nextY > 0 && slicesLeft > 0 {
+		fmt.Fprintf(&b, " %d slice(s) remain below.", slicesLeft)
+		if filename != "" {
+			fmt.Fprintf(&b, " Call `social_fetch_read_screenshot` with filename=%q offset_y=%d to read the next slice.", filename, nextY)
+		} else {
+			fmt.Fprintf(&b, " Call `social_fetch_read_screenshot` with offset_y=%d to read the next slice.", nextY)
+		}
+	}
+	return b.String()
 }
 
 // PNG dimension reading + cropping helpers live in

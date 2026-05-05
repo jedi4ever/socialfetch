@@ -117,4 +117,7 @@ docker container for different deamons
   - README section + make docker-build / make docker-run targets
 
 ====
+If you hand it to me as base64 in a text field
+
+====
 /monitor , /health endpoints on daemons
