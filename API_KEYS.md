@@ -37,6 +37,11 @@ TAVILY_TOPIC=news                    # switch Tavily to news topic for stricter 
 YOUTUBE_TRANSCRIPT_PROVIDER=auto     # auto | ytdlp | innertube | kkdai
 HTML2MD_PROVIDER=kaufmann            # kaufmann (default) | builtin (legacy hand-roll)
 SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge,jina  # article fetch chain (per-platform vars exist for every fetcher)
+SOCIAL_FETCH_JINA_ENGINE=browser     # browser (default) | direct | cf-browser-rendering
+SOCIAL_FETCH_JINA_NO_CACHE=true      # bypass Jina's cache (default true)
+SOCIAL_FETCH_JINA_FORMAT=json        # json (default) | markdown
+SOCIAL_FETCH_JINA_TIMEOUT=60s        # any time.ParseDuration value
+SOCIAL_FETCH_JINA_MODEL=             # blank (default heuristic) | readerlm-v2
 HTML2MD_READER=local                 # DEPRECATED: use SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge instead
 ```
 
@@ -256,6 +261,36 @@ SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge        # air-gapped: never use Jina
 
 Set `JINA_API_KEY` if any chain includes `jina` and you want
 higher rate limits than the free tier.
+
+## Jina request knobs — `SOCIAL_FETCH_JINA_*`
+
+Every fetcher's Jina path is shaped by the same set of env vars.
+Defaults are tuned for "best quality, fresh content, structured
+output"; flip them per-run to A/B compare or tune for specific
+sites. Unset / empty = default.
+
+```bash
+# default chain (also the in-code defaults if all unset)
+SOCIAL_FETCH_JINA_ENGINE=browser     # real headless Chromium
+SOCIAL_FETCH_JINA_NO_CACHE=true      # always re-fetch upstream
+SOCIAL_FETCH_JINA_FORMAT=json        # parse the {data:{content}} envelope
+SOCIAL_FETCH_JINA_TIMEOUT=60s
+
+# A/B compare the LLM-based extractor against the heuristic default
+SOCIAL_FETCH_JINA_MODEL=readerlm-v2  # better tables / structured metadata, slower
+
+# Speed mode — direct fetch, no JS render, accepts cached responses
+SOCIAL_FETCH_JINA_ENGINE=direct
+SOCIAL_FETCH_JINA_NO_CACHE=false
+```
+
+| var | values | notes |
+|---|---|---|
+| `SOCIAL_FETCH_JINA_ENGINE` | `browser` (default) / `direct` / `cf-browser-rendering` | browser = highest quality + slowest |
+| `SOCIAL_FETCH_JINA_NO_CACHE` | `true` (default) / `false` | bypass Jina's cache |
+| `SOCIAL_FETCH_JINA_FORMAT` | `json` (default) / `markdown` | wire shape; Read() always returns markdown |
+| `SOCIAL_FETCH_JINA_TIMEOUT` | any `time.ParseDuration` value (default `60s`) | per-request HTTP deadline |
+| `SOCIAL_FETCH_JINA_MODEL` | unset (default — heuristic) / `readerlm-v2` | swap to Jina's HTML→markdown LLM |
 
 ### Deprecated: `HTML2MD_READER`
 

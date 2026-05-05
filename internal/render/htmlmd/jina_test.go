@@ -94,6 +94,111 @@ func TestJinaReader_TimeoutDefaulted(t *testing.T) {
 	}
 }
 
+// TestJinaOptionsFromEnv covers the env-var override layer.
+// SOCIAL_FETCH_JINA_* vars overlay DefaultJinaOptions; bad values
+// fall through to the default rather than failing the build.
+func TestJinaOptionsFromEnv(t *testing.T) {
+	t.Run("all unset returns defaults", func(t *testing.T) {
+		opts := JinaOptionsFromEnv()
+		if opts != DefaultJinaOptions {
+			t.Errorf("with no env, got %+v, want %+v", opts, DefaultJinaOptions)
+		}
+	})
+
+	t.Run("engine override", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_ENGINE", "direct")
+		if got := JinaOptionsFromEnv().Engine; got != "direct" {
+			t.Errorf("Engine = %q, want direct", got)
+		}
+	})
+
+	t.Run("no-cache toggle off", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_NO_CACHE", "false")
+		if got := JinaOptionsFromEnv().NoCache; got != false {
+			t.Errorf("NoCache = %v, want false", got)
+		}
+	})
+
+	t.Run("format markdown", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_FORMAT", "markdown")
+		if got := JinaOptionsFromEnv().Format; got != JinaFormatMarkdown {
+			t.Errorf("Format = %q, want markdown", got)
+		}
+	})
+
+	t.Run("timeout parse", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_TIMEOUT", "120s")
+		if got := JinaOptionsFromEnv().Timeout; got != 120*time.Second {
+			t.Errorf("Timeout = %v, want 120s", got)
+		}
+	})
+
+	t.Run("timeout bad value falls back to default", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_TIMEOUT", "not-a-duration")
+		if got := JinaOptionsFromEnv().Timeout; got != DefaultJinaOptions.Timeout {
+			t.Errorf("Timeout = %v, want default %v", got, DefaultJinaOptions.Timeout)
+		}
+	})
+
+	t.Run("model readerlm-v2", func(t *testing.T) {
+		t.Setenv("SOCIAL_FETCH_JINA_MODEL", "readerlm-v2")
+		if got := JinaOptionsFromEnv().Model; got != "readerlm-v2" {
+			t.Errorf("Model = %q, want readerlm-v2", got)
+		}
+	})
+}
+
+// TestJinaReader_ModelHeader verifies SOCIAL_FETCH_JINA_MODEL
+// surfaces as the X-Respond-With header — the wire signal that
+// switches Jina from heuristic readability to the LLM-based
+// extractor.
+func TestJinaReader_ModelHeader(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_JINA_MODEL", "readerlm-v2")
+
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"content": "ok"},
+		})
+	}))
+	defer srv.Close()
+
+	r := NewJinaReader()
+	r.BaseURL = srv.URL + "/"
+	if _, err := r.Read(context.Background(), "https://example.com/"); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got := gotHeaders.Get("X-Respond-With"); got != "readerlm-v2" {
+		t.Errorf("X-Respond-With = %q, want readerlm-v2", got)
+	}
+}
+
+// TestJinaReader_ModelDefaultUnset confirms the X-Respond-With
+// header is absent when no model is configured — the default Jina
+// extractor stays the wire default, not readerlm-v2.
+func TestJinaReader_ModelDefaultUnset(t *testing.T) {
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"content": "ok"},
+		})
+	}))
+	defer srv.Close()
+
+	r := NewJinaReader()
+	r.BaseURL = srv.URL + "/"
+	if _, err := r.Read(context.Background(), "https://example.com/"); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got := gotHeaders.Get("X-Respond-With"); got != "" {
+		t.Errorf("X-Respond-With = %q, want empty (default)", got)
+	}
+}
+
 // Compile-time guard: ensure Default* values stay non-zero so the
 // defaults don't silently flip back to "no-cache off / engine
 // unset" after a refactor.

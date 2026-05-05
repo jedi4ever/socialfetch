@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
@@ -22,22 +24,20 @@ import (
 const jinaReaderBase = "https://r.jina.ai/"
 
 // JinaOptions centralises the request-shaping knobs we send to
-// r.jina.ai on every call. The defaults below are tuned for "best
-// quality, fresh content, agent-friendly output" — the same values
-// every fetcher gets via NewJinaReader().
+// r.jina.ai on every call. Defaults are tuned for "best quality,
+// fresh content, agent-friendly output" — every fetcher gets these
+// via NewJinaReader() unless the operator overrides per env var:
 //
-// These are intentionally not env-driven yet: centralised in code
-// first so they're easy to find and swap. The next step (when
-// needed) is to read each field from these env vars in NewJinaReader
-// with the DefaultJinaOptions values as fallbacks:
-//
-//	SOCIAL_FETCH_JINA_ENGINE      browser | direct | cf-browser-rendering
-//	SOCIAL_FETCH_JINA_NO_CACHE    true | false
-//	SOCIAL_FETCH_JINA_FORMAT      json | markdown
-//	SOCIAL_FETCH_JINA_TIMEOUT     60s | 90s | …
+//	SOCIAL_FETCH_JINA_ENGINE      browser (default) | direct | cf-browser-rendering
+//	SOCIAL_FETCH_JINA_NO_CACHE    true (default) | false
+//	SOCIAL_FETCH_JINA_FORMAT      json (default) | markdown
+//	SOCIAL_FETCH_JINA_TIMEOUT     60s (default) — any time.ParseDuration value
+//	SOCIAL_FETCH_JINA_MODEL       (default unset, classic heuristic) | readerlm-v2
 //
 // The `SOCIAL_FETCH_` prefix matches the rest of the binary
-// (`SOCIAL_FETCH_CHAIN_<PLATFORM>`, `SOCIAL_FETCH_AUDIT_*`).
+// (`SOCIAL_FETCH_CHAIN_<PLATFORM>`, `SOCIAL_FETCH_AUDIT_*`). Unset /
+// empty env vars fall through to DefaultJinaOptions, so unsetting
+// everything reproduces the in-code defaults exactly.
 type JinaOptions struct {
 	// Engine picks the renderer Jina uses behind the scenes. "browser"
 	// runs a real headless Chromium — slower but handles JS-rendered
@@ -66,6 +66,19 @@ type JinaOptions struct {
 	// for heavily-JS-rendered pages is 30-45s; 60s of headroom keeps
 	// timeouts rare without letting one bad page hang a batch.
 	Timeout time.Duration
+
+	// Model swaps Jina's HTML→markdown extraction algorithm. Empty
+	// (default) uses the classic heuristic readability extractor.
+	// "readerlm-v2" routes through Jina's small LLM tuned for
+	// HTML→markdown — better fidelity on tables, structured
+	// metadata, and ambiguous markup, at higher latency + cost.
+	// Sent as `X-Respond-With` when non-empty.
+	//
+	// Today the only meaningful value is "readerlm-v2"; future Jina
+	// model releases drop in here as additional opt-in strings.
+	// Operators flip via SOCIAL_FETCH_JINA_MODEL=readerlm-v2 to
+	// A/B compare the two extractors on the same URLs.
+	Model string
 }
 
 // JinaFormat is the response-body shape Jina returns.
@@ -104,11 +117,55 @@ type JinaReader struct {
 	Options JinaOptions
 }
 
-// NewJinaReader builds a reader with DefaultJinaOptions applied —
-// the configuration most callers want. Tests / specialised call
-// sites that need different behaviour use NewJinaReaderWithOptions.
+// NewJinaReader builds a reader using DefaultJinaOptions overlaid
+// with whatever SOCIAL_FETCH_JINA_* env vars are set. The env vars
+// are read once per call (cheap — Getenv is a map lookup) so a
+// long-running daemon picks up changes by recreating the reader,
+// not by restarting.
+//
+// Tests / specialised call sites that want to bypass env vars
+// entirely should use NewJinaReaderWithOptions(opts) with explicit
+// options.
 func NewJinaReader() *JinaReader {
-	return NewJinaReaderWithOptions(DefaultJinaOptions)
+	return NewJinaReaderWithOptions(JinaOptionsFromEnv())
+}
+
+// JinaOptionsFromEnv returns DefaultJinaOptions overlaid with any
+// SOCIAL_FETCH_JINA_* env vars the operator has set. Unknown /
+// unparseable values fall through to the default with a warning to
+// the audit log — fail-soft, since a typo in a Jina knob shouldn't
+// turn off the whole fetcher.
+func JinaOptionsFromEnv() JinaOptions {
+	opts := DefaultJinaOptions
+
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_ENGINE")); v != "" {
+		opts.Engine = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_NO_CACHE")); v != "" {
+		switch strings.ToLower(v) {
+		case "true", "1", "yes", "on":
+			opts.NoCache = true
+		case "false", "0", "no", "off":
+			opts.NoCache = false
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_FORMAT")); v != "" {
+		switch strings.ToLower(v) {
+		case "json":
+			opts.Format = JinaFormatJSON
+		case "markdown", "md":
+			opts.Format = JinaFormatMarkdown
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			opts.Timeout = d
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_MODEL")); v != "" {
+		opts.Model = v
+	}
+	return opts
 }
 
 // NewJinaReaderWithOptions lets a specific call site override the
@@ -144,6 +201,9 @@ func (j *JinaReader) Read(ctx context.Context, url string) (string, error) {
 	}
 	if j.Options.NoCache {
 		req.Header.Set("X-No-Cache", "true")
+	}
+	if j.Options.Model != "" {
+		req.Header.Set("X-Respond-With", j.Options.Model)
 	}
 	switch j.Options.Format {
 	case JinaFormatJSON:
