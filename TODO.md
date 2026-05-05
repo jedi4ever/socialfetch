@@ -124,3 +124,8 @@ ledger fetch autostore ?????
 daytona-cli spnins up 
 =====
 youtube summaries over mcp - too long or too much text on output
+===
+
+avoid daytonw specxidficx in social-skells fetcher
+===
+defaulkt mem/cpu of daytona

@@ -32,7 +32,7 @@ import (
 // Bump together — see cmd/social-fetch/main.go for the canonical
 // versioning rule + the make-check rule that enforces all five
 // version fields agree before a commit lands.
-const Version = "0.13.14"
+const Version = "0.13.15"
 
 func main() {
 	// Pull DAYTONA_API_KEY / ORG_ID / API_URL out of any .env in
@@ -68,6 +68,8 @@ func run(args []string) error {
 		return cmdDown(args[1:])
 	case "logs":
 		return cmdLogs(args[1:])
+	case "env":
+		return cmdEnv(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("social-daytona", Version)
 		return nil
@@ -97,6 +99,10 @@ COMMANDS
   down [<id>...]     delete sandboxes — by id, or all of ours when no
                      id is given
   logs <id>          tail combined daemon logs from one sandbox
+  env [<id>]         print export statements pointing the local
+                     social-fetch / social-ledger at the remote
+                     daemons in a sandbox; eval the output to
+                     run fetch via the remote chromedp pool.
 
   version            print version
   help               this message

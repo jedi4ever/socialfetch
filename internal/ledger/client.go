@@ -27,17 +27,42 @@ type DaemonClient struct {
 	BaseURL string       // e.g. http://127.0.0.1:5557
 	HTTP    *http.Client // override for tests; default has 30s Timeout
 	Timeout time.Duration
+	// Token, when non-empty, attaches as Authorization: Bearer +
+	// X-Daytona-Preview-Token on every request. Required when the
+	// URL points at a Daytona-tunneled daemon
+	// (https://5557-<id>.daytonaproxy01.net) — that proxy gates on
+	// Auth0 unless one of those headers carries the preview token.
+	// Empty for local daemons; no auth needed on loopback.
+	Token string
 }
 
 // NewDaemonClient builds a client pointed at the configured daemon
 // URL. SOCIAL_LEDGER_DAEMON_URL overrides; default is the loopback
 // address `daemon start` listens on.
+//
+// SOCIAL_LEDGER_DAEMON_TOKEN, when set, attaches as bearer +
+// Daytona-preview header on every call — required when the URL
+// points at a Daytona tunnel or any other auth-gated reverse proxy.
 func NewDaemonClient() *DaemonClient {
 	u := strings.TrimSpace(os.Getenv("SOCIAL_LEDGER_DAEMON_URL"))
 	if u == "" {
 		u = fmt.Sprintf("http://127.0.0.1:%d", DefaultDaemonPort)
 	}
-	return &DaemonClient{BaseURL: u, Timeout: 30 * time.Second}
+	return &DaemonClient{
+		BaseURL: u,
+		Timeout: 30 * time.Second,
+		Token:   strings.TrimSpace(os.Getenv("SOCIAL_LEDGER_DAEMON_TOKEN")),
+	}
+}
+
+// applyAuth adds bearer + Daytona-preview headers when the client
+// has a token. No-op for local daemons.
+func (c *DaemonClient) applyAuth(req *http.Request) {
+	if c.Token == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("X-Daytona-Preview-Token", c.Token)
 }
 
 // Disabled reports whether daemon-mode is suppressed via env.
@@ -50,16 +75,19 @@ func Disabled() bool {
 
 // Reachable does a cheap GET /status to check whether the daemon
 // is alive. Used at the top of every caller path to decide
-// daemon-mode vs direct/subprocess. ~50 ms when up, fast-fail when
-// down — capped at 250 ms to bound overhead per call.
+// daemon-mode vs direct/subprocess. ~50 ms when up locally, fast-fail
+// when down. Cap at 1.5s so cross-region Daytona-tunnel latency
+// (~500ms RTT) doesn't silently route every remote-daemon call back
+// to direct/subprocess — the previous 250ms was localhost-only safe.
 func (c *DaemonClient) Reachable(ctx context.Context) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.BaseURL+"/status", nil)
 	if err != nil {
 		return false
 	}
-	client := c.client(250 * time.Millisecond)
+	c.applyAuth(req)
+	client := c.client(1500 * time.Millisecond)
 	resp, err := client.Do(req)
 	if err != nil {
 		return false
@@ -78,6 +106,7 @@ func (c *DaemonClient) Status(ctx context.Context) (*StatusResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.applyAuth(req)
 	resp, err := c.client(2 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
@@ -283,6 +312,7 @@ func (c *DaemonClient) UploadScreenshot(ctx context.Context, png []byte, name st
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "image/png")
+	c.applyAuth(req)
 
 	client := c.HTTP
 	if client == nil {
@@ -339,6 +369,7 @@ func (c *DaemonClient) get(ctx context.Context, path string) (body []byte, statu
 	if err != nil {
 		return nil, 0, err
 	}
+	c.applyAuth(req)
 	resp, err := c.client(timeout).Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -363,6 +394,7 @@ func (c *DaemonClient) post(ctx context.Context, path string, reqBody []byte) (b
 		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
 	resp, err := c.client(timeout).Do(req)
 	if err != nil {
 		return nil, 0, err

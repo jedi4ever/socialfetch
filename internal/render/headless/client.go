@@ -20,11 +20,23 @@ type DaemonClient struct {
 	BaseURL string        // e.g. http://127.0.0.1:5556
 	HTTP    *http.Client  // override for tests; default has 90s Timeout
 	Timeout time.Duration // per-request deadline (default 90s)
+	// Token, when non-empty, is sent as Authorization: Bearer <token>
+	// AND X-Daytona-Preview-Token: <token> on every request. Daytona's
+	// signed proxy URLs accept either header form; we send both so the
+	// same client reaches a self-hosted daemon (which may want plain
+	// Bearer for its own auth) or a Daytona-tunneled one without
+	// branching on URL shape.
+	Token string
 }
 
 // NewDaemonClient builds a client pointed at the configured daemon
 // URL. SOCIAL_FETCH_HEADLESS_DAEMON_URL overrides; default is the
 // loopback address `headless start` listens on.
+//
+// SOCIAL_FETCH_HEADLESS_DAEMON_TOKEN, when set, attaches as a
+// bearer + Daytona-preview header on every call — required when
+// the URL points at a Daytona tunnel (`https://5556-<id>.daytonaproxy01.net`)
+// or any other auth-gated reverse proxy.
 func NewDaemonClient() *DaemonClient {
 	url := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_HEADLESS_DAEMON_URL"))
 	if url == "" {
@@ -33,23 +45,38 @@ func NewDaemonClient() *DaemonClient {
 	return &DaemonClient{
 		BaseURL: url,
 		Timeout: 90 * time.Second,
+		Token:   strings.TrimSpace(os.Getenv("SOCIAL_FETCH_HEADLESS_DAEMON_TOKEN")),
 	}
+}
+
+// applyAuth adds bearer + Daytona-preview headers to req when
+// the client has a token. No-op for local daemons.
+func (c *DaemonClient) applyAuth(req *http.Request) {
+	if c.Token == "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("X-Daytona-Preview-Token", c.Token)
 }
 
 // Reachable does a cheap GET /status to check whether the daemon is
 // alive. Used by Fetcher.Fetch to decide between daemon-mode and
-// in-process spawn. ~50 ms when up, ~connection-refused-fast when
-// down — we cap at 250 ms to bound the overhead on every fetch.
+// in-process spawn. ~50 ms when up locally, ~connection-refused-fast
+// when down. Cap at 1.5s — covers cross-region Daytona-tunnel
+// latency (~500ms RTT EU↔US) plus TLS overhead on the proxy. The
+// previous 250ms cap silently routed every Daytona-remote daemon
+// call to in-process spawn because the probe always timed out.
 func (c *DaemonClient) Reachable(ctx context.Context) bool {
-	probeCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.BaseURL+"/status", nil)
 	if err != nil {
 		return false
 	}
+	c.applyAuth(req)
 	client := c.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 250 * time.Millisecond}
+		client = &http.Client{Timeout: 1500 * time.Millisecond}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -93,6 +120,7 @@ func (c *DaemonClient) FetchWithSettle(ctx context.Context, url string, settle t
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
 
 	client := c.HTTP
 	if client == nil {
@@ -151,6 +179,7 @@ func (c *DaemonClient) Screenshot(ctx context.Context, url string, settle time.D
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
 
 	client := c.HTTP
 	if client == nil {
@@ -205,6 +234,7 @@ func (c *DaemonClient) Status(ctx context.Context) (*StatusResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.applyAuth(req)
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 2 * time.Second}
