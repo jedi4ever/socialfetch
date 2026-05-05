@@ -121,6 +121,11 @@ func TestFetchWithLedger(t *testing.T) {
 		"SOCIAL_LEDGER=1",
 		"SOCIAL_LEDGER_BIN="+ledger,
 		"SOCIAL_LEDGER_DIR="+dataDir,
+		// Skip the daemon path — a developer's machine may have
+		// `social-ledger daemon run` up on :5557 from a previous
+		// session, which would steal the ingest and write to its
+		// own data dir rather than this test's tempdir.
+		"SOCIAL_LEDGER_DAEMON_DISABLE=1",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -130,12 +135,15 @@ func TestFetchWithLedger(t *testing.T) {
 		t.Errorf("expected article title in stdout, got:\n%s", out)
 	}
 
-	// SQLite db should exist.
-	if _, err := os.Stat(filepath.Join(dataDir, "ledger.db")); err != nil {
+	// SQLite db should exist under the project subdir (env path
+	// always applies projects/<NAME>/, default project name is
+	// "social_fetch"). See cmd/social-ledger/main.go's dataDir().
+	projDir := filepath.Join(dataDir, "projects", "social_fetch")
+	if _, err := os.Stat(filepath.Join(projDir, "ledger.db")); err != nil {
 		t.Fatalf("ledger.db not created: %v", err)
 	}
 	// Markdown mirror tree should have the item somewhere under tree/.
-	treeDir := filepath.Join(dataDir, "tree")
+	treeDir := filepath.Join(projDir, "tree")
 	if _, err := os.Stat(treeDir); err != nil {
 		t.Fatalf("tree dir not created: %v", err)
 	}
@@ -156,8 +164,12 @@ func TestFetchWithLedger(t *testing.T) {
 		t.Error("ledger tree contains no markdown file referencing the fetched URL")
 	}
 
-	// `social-ledger list` should report exactly 1 item.
-	listCmd := exec.Command(ledger, "list", "--data-dir", dataDir)
+	// `social-ledger article list` should report exactly 1 item.
+	// Use SOCIAL_LEDGER_DIR (env path applies projects/<NAME>/)
+	// instead of --data-dir (which would target the bare path
+	// and miss the subdir).
+	listCmd := exec.Command(ledger, "article", "list")
+	listCmd.Env = append(os.Environ(), "SOCIAL_LEDGER_DIR="+dataDir)
 	listOut, err := listCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ledger list: %v\n%s", err, listOut)
@@ -214,6 +226,9 @@ func TestFetchAutoDetectEnabled(t *testing.T) {
 	cmd.Env = append(clean,
 		"SOCIAL_LEDGER_BIN="+ledger,
 		"SOCIAL_LEDGER_DIR="+dataDir,
+		// Same reason as TestFetchWithLedger — skip any local
+		// daemon that would write to a different data dir.
+		"SOCIAL_LEDGER_DAEMON_DISABLE=1",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -222,7 +237,9 @@ func TestFetchAutoDetectEnabled(t *testing.T) {
 	if !strings.Contains(string(out), "The Integration Test Article") {
 		t.Errorf("expected article title in output, got:\n%s", out)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "ledger.db")); err != nil {
+	// Env-driven path applies projects/<NAME>/ subdir.
+	projDir := filepath.Join(dataDir, "projects", "social_fetch")
+	if _, err := os.Stat(filepath.Join(projDir, "ledger.db")); err != nil {
 		t.Fatalf("ledger.db should be created via auto-detect, got: %v", err)
 	}
 }
@@ -291,5 +308,113 @@ func TestFetchRedirectStampsRequestURL(t *testing.T) {
 	}
 	if !strings.Contains(body, `"request_url": "`+rawURL+`"`) {
 		t.Errorf("expected request_url=%q in output, got:\n%s", rawURL, body)
+	}
+}
+
+// TestInfluencerCRUD walks the full influencer lifecycle through
+// the real social-ledger binary in subprocess (daemon-disabled)
+// mode. Pins three things at once:
+//
+//   - The ledger.Get / ledger.Ingest subprocess fallback paths
+//     find the same SQLite file (via env propagation, NOT --data-dir
+//     forwarding — the latter would bypass project subdir
+//     resolution).
+//   - `article list --format json` round-trips through SQLite and
+//     comes back with socials populated (the in-memory shape that
+//     mergeForAdd writes is not what we read here; this proves the
+//     post-persist shape works too).
+//   - Subscribe / Unsubscribe / Remove all hit the right rows.
+//
+// Daemon-disabled because the daemon path is exercised in
+// internal/ledger/daemon_test.go; this test is specifically for
+// the subprocess fallback, which is what users without a running
+// daemon hit (and what was broken before #69).
+func TestInfluencerCRUD(t *testing.T) {
+	_, ledger := buildBinaries(t)
+	dataDir := t.TempDir()
+
+	env := append(os.Environ(),
+		"SOCIAL_LEDGER_DAEMON_DISABLE=1",
+		"SOCIAL_LEDGER_DIR="+dataDir,
+		"SOCIAL_LEDGER_BIN="+ledger,
+	)
+
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command(ledger, args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return string(out)
+	}
+
+	// 1. Add — populates socials and topics.
+	out := run("influencer", "add", "Andrej Karpathy",
+		"--x", "karpathy", "--github", "karpathy",
+		"--topics", "ai,research")
+	if !strings.Contains(out, "slug=andrej-karpathy") {
+		t.Fatalf("expected slug=andrej-karpathy in add output, got:\n%s", out)
+	}
+
+	// 2. List via the JSON-format article path. This is the
+	//    subprocess fallback the influencers package uses.
+	out = run("article", "list", "--source", "influencer", "--format", "json", "-n", "10")
+	if !strings.Contains(out, `"karpathy"`) {
+		t.Errorf("expected x handle 'karpathy' in JSON output, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"ai"`) {
+		t.Errorf("expected topic 'ai' in JSON output, got:\n%s", out)
+	}
+
+	// 3. Subscribe — adds an x channel follow scoped to ai.
+	out = run("influencer", "subscribe", "Andrej Karpathy",
+		"--platform", "x", "--topics", "ai")
+	if !strings.Contains(out, "subscribed: Andrej Karpathy on x") {
+		t.Errorf("expected subscribe confirmation, got:\n%s", out)
+	}
+
+	// 4. Show should reflect the follow.
+	out = run("influencer", "show", "andrej-karpathy", "--format", "json")
+	if !strings.Contains(out, `"follows"`) || !strings.Contains(out, `"platform":"x"`) {
+		t.Errorf("expected follows[platform=x] in show output, got:\n%s", out)
+	}
+
+	// 5. Re-add with mastodon — should upsert without losing
+	//    existing socials/topics. This is the upsert invariant.
+	run("influencer", "add", "Andrej Karpathy",
+		"--social", "mastodon=@k@hachyderm.io")
+	out = run("influencer", "show", "andrej-karpathy", "--format", "json")
+	for _, want := range []string{`"x":"karpathy"`, `"github":"karpathy"`, `"mastodon":"@k@hachyderm.io"`, `"ai"`, `"research"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("after upsert, expected %q in show output, got:\n%s", want, out)
+		}
+	}
+
+	// 6. Unsubscribe — drops the x follow.
+	out = run("influencer", "unsubscribe", "andrej-karpathy", "--platform", "x")
+	if !strings.Contains(out, "unsubscribed") {
+		t.Errorf("expected unsubscribe confirmation, got:\n%s", out)
+	}
+
+	// 7. List filtered by --has — should still find the entry
+	//    via mastodon now that x's follow is gone (entry itself
+	//    still has socials).
+	out = run("influencer", "list", "--has", "mastodon")
+	if !strings.Contains(out, "Andrej Karpathy") {
+		t.Errorf("expected Andrej Karpathy in --has mastodon list, got:\n%s", out)
+	}
+
+	// 8. Remove — clean shutdown.
+	out = run("influencer", "remove", "andrej-karpathy")
+	if !strings.Contains(out, "removed") {
+		t.Errorf("expected 'removed' in remove output, got:\n%s", out)
+	}
+
+	// 9. List after remove — should be empty.
+	out = run("influencer", "list")
+	if !strings.Contains(out, "no influencers matched") {
+		t.Errorf("expected empty-list message, got:\n%s", out)
 	}
 }

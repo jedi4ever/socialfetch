@@ -148,6 +148,7 @@ func cmdList(args []string) error {
 	source := fs.String("source", "", "filter to one source")
 	sinceFlag := fs.String("since", "", "only items seen since this duration ago (e.g. 7d, 24h, 2026-04-01)")
 	limit := fs.Int("n", 50, "max items")
+	format := fs.String("format", "text", "output format: text (default) | json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -173,6 +174,19 @@ func cmdList(args []string) error {
 	items, err := s.List(opts)
 	if err != nil {
 		return err
+	}
+	if *format == "json" {
+		// JSON mode is for programmatic consumers (the influencers
+		// subprocess fallback, agents pulling structured data). One
+		// JSON array on stdout, no trailing count line, so the
+		// caller can json.Unmarshal directly without stripping.
+		// Force `[]` instead of `null` for empty results — both
+		// unmarshal to a nil slice in Go, but `[]` reads better
+		// for humans + non-Go consumers (jq, Python, etc.).
+		if items == nil {
+			items = []item.Item{}
+		}
+		return json.NewEncoder(os.Stdout).Encode(items)
 	}
 	for _, it := range items {
 		fmt.Printf("%s\t%s\t%s\n",

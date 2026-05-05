@@ -8,7 +8,10 @@ Two binaries, one toolkit:
   and exposes it as CLI output, an MCP server, or a Claude skill.
 - **`social-ledger`** — local SQLite + FTS5 store that auto-caches
   every fetch so agents can answer "have we seen this URL?" and
-  "what did we save about X?" without re-fetching.
+  "what did we save about X?" without re-fetching. Also tracks an
+  influencer directory — people / companies you flag as topic
+  authorities, with their socials and which channels you subscribe
+  to.
 
 LLMs are great at understanding text but bad at getting it. The
 social web — HackerNews threads, Reddit comments, GitHub repos,
@@ -28,7 +31,7 @@ that returns rendered HTML.
 
 > **Also great as a plain CLI.** Every agent capability is also a
 > shell command — `social-fetch search "vercel ai sdk" -p auto`,
-> `social-ledger search "harness engineering"`, `social-fetch ask
+> `social-ledger article search "harness engineering"`, `social-fetch ask
 > "what changed in Go 1.27?" -p perplexity`. Pipe into `jq`,
 > redirect into files, embed in scripts. Agents are the primary
 > audience, but humans get the same toolbox.
@@ -39,7 +42,9 @@ social-fetch search   "vercel ai sdk" -p auto -n 10 --last 7d
 social-fetch ask      "what changed in Go 1.27?" -p perplexity
 social-fetch timeline @jedi4ever -p x --last 24h
 social-fetch research "tessl harness engineering" -p anthropic
-social-ledger search  "harness engineering"
+social-ledger article search  "harness engineering"
+social-ledger influencer add "Andrej Karpathy" --x karpathy --topics ai
+social-ledger influencer list --topic ai --followed
 ```
 
 ## What it is

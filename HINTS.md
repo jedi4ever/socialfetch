@@ -187,9 +187,9 @@ Knobs:
 | `SOCIAL_LEDGER_DAEMON_DISABLE` | unset | non-empty = clients always use direct store / subprocess |
 | `SOCIAL_LEDGER_PROJECT` | `social_fetch` | per-project subdir under the data dir; `<base>/projects/<NAME>/`. Default `social_fetch` is the bucket every fetch lands in unless you set the var to switch contexts. Run separate daemons on different ports for separate projects. Pre-projects bare ledgers migrate automatically on first run. |
 
-Don't run `social-ledger ingest` (or any write subcommand) while
-the daemon is up — both processes will fight for the SQLite write
-lock. Stop the daemon first, run the CLI, restart the daemon.
+Don't run `social-ledger article add` (or any write subcommand)
+while the daemon is up — both processes will fight for the SQLite
+write lock. Stop the daemon first, run the CLI, restart the daemon.
 
 ---
 
@@ -211,6 +211,37 @@ social-fetch bookmarks profiles                           # available profiles
 Reads the local Bookmarks JSON Chrome flushes to disk — no
 extension or daemon needed. Bookmarks added moments before the
 read may not appear (Chrome flushes within a second or two).
+
+---
+
+## Influencer directory (`social-ledger influencer`)
+
+Track people / companies you treat as topic authorities — name,
+socials, topics they're known for, free-form description, plus
+which channels you actively want refreshed. Stored in the same
+ledger as articles (source=`influencer`), so FTS picks them up
+alongside fetched content.
+
+```bash
+social-ledger influencer add "Andrej Karpathy" --x karpathy --github karpathy --topics ai,research
+social-ledger influencer subscribe "Andrej Karpathy" --platform x --topics ai
+social-ledger influencer list --topic ai --followed
+social-ledger influencer show andrej-karpathy --format json
+```
+
+Re-running `add` upserts: socials merge (new platform overwrites
+same key, others kept), topics union, description replaces when
+non-empty. Single-line update for "I just learned Jane's mastodon":
+`add jane --social mastodon=@jane@hachyderm.io`.
+
+The MCP layer mirrors the CLI as
+`social_ledger_influencers_{list,get,add,remove,subscribe,unsubscribe}` —
+agents can self-curate the watchlist mid-research.
+
+Lookups are exact-slug-match. `Slugify("Andrej Karpathy")` →
+`"andrej-karpathy"`; if the agent passes `"karpathy"` instead, that
+slugifies to `"karpathy"` (different row, returns not-found). Pass
+the full display name OR the canonical slug, not a partial.
 
 ---
 

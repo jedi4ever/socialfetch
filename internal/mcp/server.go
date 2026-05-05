@@ -119,6 +119,15 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	// pipe in via the same shape.
 	addBookmarksListTool(s, cfg)
 	addBookmarksProfilesTool(s, cfg)
+	// Influencers directory — track topic authorities + which of
+	// their channels we subscribe to. First-class tool family so
+	// agents can self-curate the watchlist mid-research.
+	addInfluencersListTool(s, cfg)
+	addInfluencersGetTool(s, cfg)
+	addInfluencersAddTool(s, cfg)
+	addInfluencersRemoveTool(s, cfg)
+	addInfluencersSubscribeTool(s, cfg)
+	addInfluencersUnsubscribeTool(s, cfg)
 }
 
 // ---- hints -----------------------------------------------------------

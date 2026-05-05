@@ -171,18 +171,20 @@ func Get(ctx context.Context, urlOrKey string) (*core.Item, error) {
 		}
 	}
 
-	// Subprocess fallback. social-ledger get <url> --format json
-	// emits the item as JSON; exit-1 + "not found" stderr means
+	// Subprocess fallback. social-ledger article get <url> --format
+	// json emits the item as JSON; exit-1 + "not found" stderr means
 	// no match — we surface that as (nil, nil).
 	bin, err := binaryPath()
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"get", "--format", "json"}
-	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
-		args = append(args, "--data-dir", dir)
-	}
-	args = append(args, urlOrKey)
+	// Don't forward SOCIAL_LEDGER_DIR as --data-dir: the env var
+	// already propagates to the child via exec.Cmd's default env
+	// inheritance, and only the env-driven path applies the
+	// `projects/<NAME>/` subdir resolution. Passing --data-dir
+	// raw bypasses that subdir, so writes (env path) and reads
+	// (flag path) end up in different SQLite files.
+	args := []string{"article", "get", "--format", "json", urlOrKey}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -282,13 +284,13 @@ func Ingest(ctx context.Context, items ...core.Item) {
 		return
 	}
 
-	args := []string{"ingest"}
-	// The ledger picks up SOCIAL_LEDGER_DIR from its own env
-	// already, but be explicit with --data-dir so a misconfigured
-	// child env doesn't silently land items in the wrong store.
-	if dir := strings.TrimSpace(os.Getenv(DirEnv)); dir != "" {
-		args = append(args, "--data-dir", dir)
-	}
+	// Trust env propagation. SOCIAL_LEDGER_DIR is inherited by the
+	// child via exec.Cmd's default env, and the env path is the
+	// only one that applies the `projects/<NAME>/` subdir; passing
+	// --data-dir raw would bypass that and land items at
+	// `<base>/ledger.db` while the env-driven daemon path uses
+	// `<base>/projects/social_fetch/ledger.db`.
+	args := []string{"article", "add"}
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Stdin = &buf

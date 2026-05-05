@@ -2,15 +2,16 @@
 name: social-ledger
 description: Local content + seen-ledger for the social-fetch family. Stores every fetched URL (and any URL the agent records via Claude WebFetch / research tools) in a SQLite + FTS5 store + a markdown mirror tree. Use to answer "have we seen this URL?" / "what did we save about X?" / "store this WebFetch output for next time" — before re-fetching, before re-WebFetching, and after any external content fetch the agent wants to remember.
 allowed-tools: |
-  Bash(scripts/social-ledger seen *)
-  Bash(scripts/social-ledger get *)
-  Bash(scripts/social-ledger list)
-  Bash(scripts/social-ledger list *)
-  Bash(scripts/social-ledger search *)
-  Bash(scripts/social-ledger stats)
-  Bash(scripts/social-ledger record *)
-  Bash(scripts/social-ledger forget *)
-  Bash(scripts/social-ledger filter *)
+  Bash(scripts/social-ledger article seen *)
+  Bash(scripts/social-ledger article get *)
+  Bash(scripts/social-ledger article list)
+  Bash(scripts/social-ledger article list *)
+  Bash(scripts/social-ledger article search *)
+  Bash(scripts/social-ledger article stats)
+  Bash(scripts/social-ledger article record *)
+  Bash(scripts/social-ledger article forget *)
+  Bash(scripts/social-ledger article filter *)
+  Bash(scripts/social-ledger influencer *)
   Bash(scripts/social-ledger help *)
   Bash(scripts/social-ledger version)
 ---
@@ -39,7 +40,7 @@ records *who put each item in*. Two classes:
   `reddit`, `github`, `x`, `twitter`, `linkedin`, `youtube`,
   `bluesky`, `arxiv`, `medium`, `substack`, `rss`, `article`.
 
-- **agent-recorded** — entry was stored via `social-ledger record`,
+- **agent-recorded** — entry was stored via `social-ledger article record`,
   meaning an agent fed in content it got from somewhere else
   (Claude's WebFetch, the research tool, a `curl` one-off, hand
   paste). **Trust depends on what was fed in.** The `source`
@@ -57,14 +58,14 @@ can eyeball it.
 ## Subcommands
 
 ```
-scripts/social-ledger seen <url>...                # is URL(s) in the ledger?
-scripts/social-ledger get <url>                    # full content of one entry
-scripts/social-ledger list [flags]                 # browse newest first
-scripts/social-ledger search "<terms>"             # FTS5 over title/content
-scripts/social-ledger stats                        # counts, sizes
-scripts/social-ledger record <url> [flags]         # store URL+content (stdin)
-scripts/social-ledger forget <url>                 # drop one entry
-scripts/social-ledger filter --skip-seen           # JSONL passthrough drops seen
+scripts/social-ledger article seen <url>...                # is URL(s) in the ledger?
+scripts/social-ledger article get <url>                    # full content of one entry
+scripts/social-ledger article list [flags]                 # browse newest first
+scripts/social-ledger article search "<terms>"             # FTS5 over title/content
+scripts/social-ledger article stats                        # counts, sizes
+scripts/social-ledger article record <url> [flags]         # store URL+content (stdin)
+scripts/social-ledger article forget <url>                 # drop one entry
+scripts/social-ledger article filter --skip-seen           # JSONL passthrough drops seen
 ```
 
 `scripts/social-ledger help <subcommand>` for full flag reference.
@@ -76,7 +77,7 @@ mentions a URL or topic that might already be cached, run `seen` /
 `search` before any new fetch:
 
 ```bash
-scripts/social-ledger seen "https://news.ycombinator.com/item?id=43000000"
+scripts/social-ledger article seen "https://news.ycombinator.com/item?id=43000000"
 # seen   → use `get` to retrieve, no re-fetch
 # unseen → fall through to `social-fetch fetch` or WebFetch
 ```
@@ -84,7 +85,7 @@ scripts/social-ledger seen "https://news.ycombinator.com/item?id=43000000"
 For content-bearing queries:
 
 ```bash
-scripts/social-ledger search "harness engineering"
+scripts/social-ledger article search "harness engineering"
 # returns BM25-ranked hits across every saved item's title /
 # summary / content / author / tags
 ```
@@ -113,7 +114,7 @@ automatically. Add it after, so the next conversation finds it:
 ```bash
 # 1. fetch via Claude's WebFetch tool (output: markdown)
 # 2. record it:
-scripts/social-ledger record \
+scripts/social-ledger article record \
   --title "Page Title" \
   --source webfetch \
   "https://example.com/post" <<EOF
@@ -169,7 +170,7 @@ seen this?" queries hit cache.
 Step 1 — check if the ledger already has it:
 
 ```bash
-scripts/social-ledger seen "https://vercel.com/blog/agent-skills"
+scripts/social-ledger article seen "https://vercel.com/blog/agent-skills"
 # unseen   https://vercel.com/blog/agent-skills
 ```
 
@@ -190,7 +191,7 @@ the markdown never has to round-trip through the agent's prompt
 or the MCP JSON-escape:
 
 ```bash
-scripts/social-ledger record \
+scripts/social-ledger article record \
   --title "Agent Skills on Vercel" \
   --summary "How Vercel ships agent skills via npx skills add" \
   --source webfetch \
@@ -204,7 +205,7 @@ If the body is genuinely tiny (a one-line description, a tweet
 quote) and writing-then-reading is overkill, stdin still works:
 
 ```bash
-echo "Short body inline." | scripts/social-ledger record \
+echo "Short body inline." | scripts/social-ledger article record \
   --title "Quick Note" --source manual "https://example.com/x"
 ```
 
@@ -217,10 +218,10 @@ second `seen` returns `seen`, and `get` dumps the markdown back
 on demand:
 
 ```bash
-scripts/social-ledger seen "https://vercel.com/blog/agent-skills"
+scripts/social-ledger article seen "https://vercel.com/blog/agent-skills"
 # seen     https://vercel.com/blog/agent-skills
 
-scripts/social-ledger get "https://vercel.com/blog/agent-skills"
+scripts/social-ledger article get "https://vercel.com/blog/agent-skills"
 # # Agent Skills on Vercel
 # source: webfetch
 # url: https://vercel.com/blog/agent-skills
@@ -232,7 +233,7 @@ Subsequent conversations that ask "what did we save about Vercel
 agent skills?" will find this entry via `search`:
 
 ```bash
-scripts/social-ledger search "vercel agent skills"
+scripts/social-ledger article search "vercel agent skills"
 # webfetch    Agent Skills on Vercel    https://vercel.com/blog/agent-skills
 #   How Vercel ships agent skills via npx skills add
 ```
@@ -242,7 +243,7 @@ scripts/social-ledger search "vercel agent skills"
 ```bash
 # 1. Write tool: /tmp/<slug>.md ← WebFetch markdown
 # 2. Record:
-scripts/social-ledger record \
+scripts/social-ledger article record \
   --title "$TITLE" --source webfetch \
   --content /tmp/<slug>.md \
   "$URL"
@@ -255,17 +256,17 @@ multi-page articles this saves thousands of tokens vs. inlining.
 ## Listing + filtering
 
 ```bash
-scripts/social-ledger list                       # newest 25
-scripts/social-ledger list --source hackernews   # only HN entries
-scripts/social-ledger list --source webfetch     # only Claude-recorded
-scripts/social-ledger list --since 7d            # last week
-scripts/social-ledger list -n 100                # bigger window
+scripts/social-ledger article list                       # newest 25
+scripts/social-ledger article list --source hackernews   # only HN entries
+scripts/social-ledger article list --source webfetch     # only Claude-recorded
+scripts/social-ledger article list --since 7d            # last week
+scripts/social-ledger article list -n 100                # bigger window
 ```
 
 `stats` for an at-a-glance summary:
 
 ```bash
-scripts/social-ledger stats
+scripts/social-ledger article stats
 # → counts per source, total items, disk usage, oldest/newest
 ```
 
@@ -308,6 +309,40 @@ parse target for agent code:
   `seen` first is wasteful, just fetch.
 - Bulk delete / migration / restore — out of scope; tell the
   user to operate on the SQLite file directly.
+
+## Influencers — track topic authorities
+
+The ledger doubles as a curated directory of people / companies
+the agent should treat as authorities on specific topics. Same
+storage, different `source` tag (`influencer`).
+
+```bash
+scripts/social-ledger influencer add "Andrej Karpathy" \
+  --x karpathy --github karpathy \
+  --topics ai,research,transformers \
+  --description "Former Tesla AI / OpenAI co-founder"
+
+scripts/social-ledger influencer subscribe "Andrej Karpathy" \
+  --platform x --topics ai
+
+scripts/social-ledger influencer list --topic ai --followed
+scripts/social-ledger influencer show andrej-karpathy
+scripts/social-ledger influencer unsubscribe andrej-karpathy --platform x
+scripts/social-ledger influencer remove andrej-karpathy
+```
+
+Re-running `add` for the same name **upserts** (socials merge, new
+platform overwrites same key, others kept; topics union; description
+replaces when non-empty). So "I just learned Jane's mastodon handle"
+is one line: `add jane --social mastodon=@jane@example.com`.
+
+**MCP tools** mirror the CLI shape for agents that prefer
+structured calls over shelling out:
+`social_ledger_influencers_{list,get,add,remove,subscribe,unsubscribe}`.
+Use mid-research: when you discover a new authority worth tracking
+("the author of this Archon project ships a lot of agent content"),
+call `social_ledger_influencers_add` so the next conversation finds
+them in the directory.
 
 ## Related
 

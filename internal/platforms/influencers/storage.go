@@ -53,18 +53,19 @@ func listFromLedger(ctx context.Context, limit int) ([]core.Item, error) {
 	return listViaSubprocess(ctx, limit)
 }
 
-// listViaSubprocess runs `social-ledger list --source subscription
-// --format json -n N`, parses the JSON output. Used when the
-// daemon isn't reachable.
+// listViaSubprocess runs `social-ledger article list --source
+// influencer --format json -n N`, parses the JSON output. Used
+// when the daemon isn't reachable.
 func listViaSubprocess(ctx context.Context, limit int) ([]core.Item, error) {
 	bin, err := ledgerBinary()
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"list", "--source", Source, "--format", "json", "-n", fmt.Sprintf("%d", effectiveListLimit(limit))}
-	if dir := strings.TrimSpace(os.Getenv(ledger.DirEnv)); dir != "" {
-		args = append(args, "--data-dir", dir)
-	}
+	// SOCIAL_LEDGER_DIR propagates via env inheritance — don't
+	// forward it as --data-dir, which would bypass the project
+	// subdir resolution (see internal/ledger/ledger.go for the
+	// same fix).
+	args := []string{"article", "list", "--source", Source, "--format", "json", "-n", fmt.Sprintf("%d", effectiveListLimit(limit))}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -79,18 +80,15 @@ func listViaSubprocess(ctx context.Context, limit int) ([]core.Item, error) {
 	return items, nil
 }
 
-// removeViaSubprocess runs `social-ledger forget <url>` so the
-// subprocess fallback works without the daemon. Returns true
+// removeViaSubprocess runs `social-ledger article forget <url>` so
+// the subprocess fallback works without the daemon. Returns true
 // when the row was actually deleted.
 func removeViaSubprocess(ctx context.Context, urlStr string) (bool, error) {
 	bin, err := ledgerBinary()
 	if err != nil {
 		return false, err
 	}
-	args := []string{"forget", urlStr}
-	if dir := strings.TrimSpace(os.Getenv(ledger.DirEnv)); dir != "" {
-		args = append(args, "--data-dir", dir)
-	}
+	args := []string{"article", "forget", urlStr}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

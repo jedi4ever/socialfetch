@@ -40,24 +40,24 @@ Pure-Go SQLite (`modernc.org/sqlite`), no CGO, single static binary.
 ```bash
 # Pipe a fetch into the ledger
 social-fetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
-  | social-ledger ingest
+  | social-ledger article add
 
 # Search across what you've stored
-social-ledger search "tessl harness"
+social-ledger article search "tessl harness"
 
 # Drop already-seen items from a search before sending to an agent
 social-fetch search "go 1.27" -f jsonl \
-  | social-ledger filter --skip-seen \
+  | social-ledger article filter --skip-seen \
   | jq .
 
 # Browse recent items
-social-ledger list --source hackernews --since 7d
+social-ledger article list --source hackernews --since 7d
 
 # Print one item by URL
-social-ledger get https://news.ycombinator.com/item?id=1
+social-ledger article get https://news.ycombinator.com/item?id=1
 
 # How big is this getting?
-social-ledger stats
+social-ledger article stats
 ```
 
 ## Storage layout
@@ -85,22 +85,32 @@ frontmatter + the rendered Item content — agent-friendly for
 
 ## Subcommand reference
 
+The CLI is split entity-first: every operation on stored content
+items lives under `article`, every operation on tracked
+people/companies under `influencer`. Utility commands
+(`watch`, `mirror`, `daemon`) stay top-level.
+
 | Command | What it does |
 |---|---|
-| `ingest` | Read JSONL on stdin, upsert into store + write mirror. Stats on stderr. |
-| `filter --skip-seen` | Pass-through filter, drops items already in the ledger. JSONL in / JSONL out. |
-| `search "<query>"` | FTS5 search across title/summary/content/author/tags. BM25-ranked. |
-| `get <url-or-id>` | Print one stored item, frontmatter + content. |
-| `list [--source X] [--since 7d]` | Browse newest-first. |
-| `stats` | Counts, sizes, oldest/newest, by-source breakdown. |
-| `forget <url-or-id>` | Remove from store and mirror. |
+| `article add` | Read JSONL on stdin, upsert into store + write mirror. Stats on stderr. (Alias: `article ingest`.) |
+| `article filter --skip-seen` | Pass-through filter, drops items already in the ledger. JSONL in / JSONL out. |
+| `article search "<query>"` | FTS5 search across title/summary/content/author/tags. BM25-ranked. |
+| `article get <url-or-id>` | Print one stored item, frontmatter + content. |
+| `article list [--source X] [--since 7d]` | Browse newest-first. |
+| `article seen [<url>...]` | Check whether URL(s) are in the ledger. |
+| `article stats` | Counts, sizes, oldest/newest, by-source breakdown. |
+| `article record <url>` | Store one URL+content pair (use after Claude WebFetch / external curl). |
+| `article forget <url-or-id>` | Remove from store and mirror. |
+| `influencer <verb>` | Track people/companies + the channels you subscribe to. See `social-ledger influencer --help`. |
 | `mirror sync [--dry-run]` | Reconcile on-disk tree against the store. |
 | `mirror rebuild` | Nuke `tree/` and recreate from the store. |
+| `daemon <verb>` | Start/stop/status the ledger HTTP daemon. |
+| `watch` | Tail the audit log live. |
 | `version` / `help` | What it says on the tin. |
 
 All subcommands accept `--data-dir <path>`. **Flags must come before
 positional args** (Go's `flag` package stops at the first non-flag
-arg) — e.g. `social-ledger search --data-dir /tmp/x "tessl"`.
+arg) — e.g. `social-ledger article search --data-dir /tmp/x "tessl"`.
 
 ## Schema-drift tolerance
 

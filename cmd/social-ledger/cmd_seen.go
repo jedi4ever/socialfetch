@@ -21,9 +21,9 @@ import (
 // re-fetching content they've already pulled — same intent as
 // `filter --skip-seen` but with simpler ergonomics:
 //
-//	social-ledger seen <url1> <url2> ...
-//	social-ledger seen -i urls.txt          # one URL per line
-//	cat urls.txt | social-ledger seen       # via stdin
+//	social-ledger article seen <url1> <url2> ...
+//	social-ledger article seen -i urls.txt    # one URL per line
+//	cat urls.txt | social-ledger article seen # via stdin
 //
 // Output (default, machine-greppable):
 //

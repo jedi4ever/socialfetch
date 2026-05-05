@@ -88,8 +88,8 @@ List/show flags:
   -f, --format md|json          markdown (default) | json
 
 Storage: influencers live in the local ledger as
-source="influencer" items, so social-ledger search "topic" also
-surfaces matching authorities alongside fetched articles.
+source="influencer" items, so social-ledger article search "topic"
+also surfaces matching authorities alongside fetched articles.
 
 Examples:
   social-ledger influencer add "Cole Medin" \

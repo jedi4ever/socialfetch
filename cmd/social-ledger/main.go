@@ -3,15 +3,21 @@
 // Pipes are the contract. social-fetch produces JSONL of Items; this
 // binary ingests, indexes (SQLite + FTS5), mirrors to a markdown
 // directory tree for grep-friendly access, and exposes a few
-// stream-shaped subcommands so it composes in shell pipelines:
+// stream-shaped subcommands so it composes in shell pipelines.
 //
-//	social-fetch fetch <url> -f jsonl | social-ledger ingest
-//	social-fetch search "..."  -f jsonl | social-ledger filter --skip-seen | claude ...
-//	social-ledger search "tessl"
-//	social-ledger get <url>
-//	social-ledger list --source hackernews --since 7d
-//	social-ledger stats
-//	social-ledger forget <url>
+// CLI shape — entity-first. Operations on stored content items live
+// under `article` (article add, article get, article list, …);
+// operations on tracked people/companies live under `influencer`;
+// utility commands (`watch`, `mirror`, `daemon`) stay top-level
+// because they don't operate on a single entity type. Examples:
+//
+//	social-fetch fetch <url> -f jsonl | social-ledger article add
+//	social-fetch search "..."  -f jsonl | social-ledger article filter --skip-seen | claude ...
+//	social-ledger article search "tessl"
+//	social-ledger article get <url>
+//	social-ledger article list --source hackernews --since 7d
+//	social-ledger article stats
+//	social-ledger article forget <url>
 //	social-ledger mirror sync
 //
 // Storage default: $XDG_DATA_HOME/social-ledger (or
@@ -28,10 +34,12 @@ import (
 	"time"
 )
 
-// Version moves with the ledger binary, independent of social-fetch.
-// Bump on every user-visible change to subcommands, flags, schema,
-// or mirror layout.
-const Version = "0.1.0"
+// Version is kept in lockstep with social-fetch (and the
+// claude-desktop / claude-code / marketplace manifests). The two
+// binaries ship as a pair — ingest writes from social-fetch must
+// match the schema social-ledger reads — so bumping one bumps
+// them all. See CLAUDE.md "Versioning" for the full lockstep set.
+const Version = "0.13.0"
 
 func main() {
 	start := time.Now()
@@ -58,24 +66,8 @@ func run(args []string) error {
 		return nil
 	}
 	switch args[0] {
-	case "ingest":
-		return cmdIngest(args[1:])
-	case "filter":
-		return cmdFilter(args[1:])
-	case "search":
-		return cmdSearch(args[1:])
-	case "get":
-		return cmdGet(args[1:])
-	case "list":
-		return cmdList(args[1:])
-	case "stats":
-		return cmdStats(args[1:])
-	case "forget":
-		return cmdForget(args[1:])
-	case "seen":
-		return cmdSeen(args[1:])
-	case "record":
-		return cmdRecord(args[1:])
+	case "article":
+		return cmdArticle(args[1:])
 	case "watch":
 		return cmdWatch(args[1:])
 	case "mirror":
@@ -266,26 +258,29 @@ func printHelp(w *os.File) {
 	fmt.Fprintf(w, `social-ledger %s — content + seen-ledger for social-fetch JSONL
 
 USAGE
-  social-ledger <command> [flags] [args]
+  social-ledger <command> [subcommand] [flags] [args]
 
-COMMANDS
-  ingest                 read JSONL from stdin, store + mirror to disk
-  filter --skip-seen     pass-through filter that drops already-seen items
-  search "<query>"       FTS5 search across stored content
-  get <url>              print one stored item (markdown)
-  list                   browse items, newest first (-source, -since)
-  stats                  counts, sizes, oldest/newest
-  forget <url>           drop one item from store + mirror
-  seen [<url>...]        check whether URL(s) are in the ledger
-                         (URLs from args, -i FILE, or stdin pipe)
-  record <url>           store one URL+content pair in the ledger
-                         (content on stdin or via --content FILE;
-                         use after Claude WebFetch / external curl)
+ENTITY COMMANDS
+  article <verb>         operations on stored content items (articles,
+                         tweets, HN posts, repos, anything fetched).
+                         Verbs: add, get, list, search, seen, stats,
+                         forget, record, filter. Run
+                         'social-ledger article --help' for details.
+
+  influencer <verb>      operations on tracked people/companies +
+                         which of their channels you subscribe to.
+                         Verbs: add, remove, list, show, subscribe,
+                         unsubscribe. Run 'social-ledger influencer
+                         --help' for details.
+
+UTILITY COMMANDS
   watch                  tail the ledger audit log and pretty-print
                          events as they happen (--tail N, --since DUR,
                          --raw, --filter)
   mirror sync            reconcile on-disk tree with the store
   mirror rebuild         nuke and recreate the tree from the store
+  daemon <verb>          start/stop/status the ledger HTTP daemon
+
   version                print version
   help                   this message
 
@@ -296,14 +291,17 @@ DATA LOCATION
 
 EXAMPLES
   social-fetch fetch https://news.ycombinator.com/item?id=1 -f jsonl \
-    | social-ledger ingest
+    | social-ledger article add
 
   social-fetch search "go 1.27" -f jsonl \
-    | social-ledger filter --skip-seen \
+    | social-ledger article filter --skip-seen \
     | jq .
 
-  social-ledger search "tessl harness"
-  social-ledger list --source hackernews --since 7d
-  social-ledger stats
+  social-ledger article search "tessl harness"
+  social-ledger article list --source hackernews --since 7d
+  social-ledger article stats
+
+  social-ledger influencer add karpathy --x karpathy --topics ai,research
+  social-ledger influencer list --topic ai
 `, Version)
 }

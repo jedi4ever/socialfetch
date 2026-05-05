@@ -109,23 +109,27 @@ func runLedger(ctx context.Context, args []string, stdin string, audit *core.Aud
 // tryDaemonRoute maps known argv shapes to the daemon's HTTP API,
 // returning the bytes the caller would have gotten from the
 // subprocess. Only handles routes where the wire format is clean
-// JSON (today: `seen`, `stats`); other shapes fall through to
-// the subprocess so MCP output stays byte-identical.
+// JSON (today: `article seen`, `article stats`); other shapes fall
+// through to the subprocess so MCP output stays byte-identical.
 //
 // Returns (out, true) when the route was handled. Returns
 // (nil, false) when args don't match any known route — caller
 // then runs the subprocess path.
+//
+// Argv shape post-reorg: every article verb is invoked as
+// `["article", "<verb>", ...]`, so we match on args[1] after
+// confirming args[0] == "article".
 func tryDaemonRoute(ctx context.Context, c *ledger.DaemonClient, args []string) ([]byte, bool) {
-	if len(args) == 0 {
+	if len(args) < 2 || args[0] != "article" {
 		return nil, false
 	}
-	switch args[0] {
+	switch args[1] {
 	case "seen":
-		// argv = ["seen", "--format", "json", url1, url2, ...]
+		// argv = ["article", "seen", "--format", "json", url1, ...]
 		// CLI emits a JSON array of {url, seen, source, ...} per URL.
 		// Daemon's /seen takes one URL; we loop and assemble.
-		urls := make([]string, 0, len(args)-1)
-		for _, a := range args[1:] {
+		urls := make([]string, 0, len(args)-2)
+		for _, a := range args[2:] {
 			if a == "--format" || a == "json" {
 				continue
 			}
@@ -227,7 +231,7 @@ func addLedgerSeenTool(s *server.MCPServer, cfg Config) {
 		if len(args.URLs) == 0 {
 			return mcp.NewToolResultError("urls is required and must be non-empty"), nil
 		}
-		argv := append([]string{"seen", "--format", "json"}, args.URLs...)
+		argv := append([]string{"article", "seen", "--format", "json"}, args.URLs...)
 		out, err := runLedger(ctx, argv, "", audit)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -262,7 +266,7 @@ func addLedgerGetTool(s *server.MCPServer, cfg Config) {
 		if strings.TrimSpace(args.URL) == "" {
 			return mcp.NewToolResultError("url is required"), nil
 		}
-		out, err := runLedger(ctx, []string{"get", args.URL}, "", audit)
+		out, err := runLedger(ctx, []string{"article", "get", args.URL}, "", audit)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -362,7 +366,7 @@ func addLedgerListTool(s *server.MCPServer, cfg Config) {
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args ledgerListArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "ledger_list")
 		defer closeAudit()
-		argv := []string{"list"}
+		argv := []string{"article", "list"}
 		if args.Source != "" {
 			argv = append(argv, "--source", args.Source)
 		}
@@ -399,7 +403,7 @@ func addLedgerSearchTool(s *server.MCPServer, cfg Config) {
 		if strings.TrimSpace(args.Query) == "" {
 			return mcp.NewToolResultError("query is required"), nil
 		}
-		argv := []string{"search"}
+		argv := []string{"article", "search"}
 		if args.Limit > 0 {
 			argv = append(argv, "-n", fmt.Sprintf("%d", args.Limit))
 		}
@@ -421,7 +425,7 @@ func addLedgerStatsTool(s *server.MCPServer, cfg Config) {
 	s.AddTool(tool, func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "ledger_stats")
 		defer closeAudit()
-		out, err := runLedger(ctx, []string{"stats"}, "", audit)
+		out, err := runLedger(ctx, []string{"article", "stats"}, "", audit)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -469,7 +473,7 @@ func addLedgerRecordTool(s *server.MCPServer, cfg Config) {
 		if strings.TrimSpace(args.Content) == "" && strings.TrimSpace(args.ContentFile) == "" {
 			return mcp.NewToolResultError("either content_file (preferred) or content is required"), nil
 		}
-		argv := []string{"record"}
+		argv := []string{"article", "record"}
 		if args.Source != "" {
 			argv = append(argv, "--source", args.Source)
 		}
@@ -520,7 +524,7 @@ func addLedgerForgetTool(s *server.MCPServer, cfg Config) {
 		if strings.TrimSpace(args.URL) == "" {
 			return mcp.NewToolResultError("url is required"), nil
 		}
-		out, err := runLedger(ctx, []string{"forget", args.URL}, "", audit)
+		out, err := runLedger(ctx, []string{"article", "forget", args.URL}, "", audit)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

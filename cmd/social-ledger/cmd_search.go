@@ -16,7 +16,7 @@ import (
 // `social-fetch fetch` — the typical flow is "find candidate URLs in
 // the ledger, then fetch the full thing for citation".
 //
-// Use `social-ledger get <url>` to dump one hit in full.
+// Use `social-ledger article get <url>` to dump one hit in full.
 func cmdSearch(args []string) error {
 	fs := flag.NewFlagSet("search", flag.ContinueOnError)
 	var dataDirFlag string

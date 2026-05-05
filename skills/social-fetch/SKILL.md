@@ -36,12 +36,15 @@ allowed-tools: |
   Bash(scripts/social-fetch hints *)
   Bash(scripts/social-fetch help *)
   Bash(scripts/social-fetch version)
-  Bash(scripts/social-ledger list *)
-  Bash(scripts/social-ledger search *)
-  Bash(scripts/social-ledger get *)
-  Bash(scripts/social-ledger stats)
-  Bash(scripts/social-ledger forget *)
-  Bash(scripts/social-ledger filter *)
+  Bash(scripts/social-ledger article list *)
+  Bash(scripts/social-ledger article search *)
+  Bash(scripts/social-ledger article get *)
+  Bash(scripts/social-ledger article stats)
+  Bash(scripts/social-ledger article forget *)
+  Bash(scripts/social-ledger article filter *)
+  Bash(scripts/social-ledger article seen *)
+  Bash(scripts/social-ledger article record *)
+  Bash(scripts/social-ledger influencer *)
 ---
 
 # social-fetch skill
@@ -362,12 +365,12 @@ flips it on.
 Useful queries against the ledger from inside the skill:
 
 ```bash
-scripts/social-ledger list                         # newest first
-scripts/social-ledger list --source hackernews     # filter by source
-scripts/social-ledger search "harness engineering" # full-text search
-scripts/social-ledger get https://example.com/foo  # one item back
-scripts/social-ledger stats                        # counts + sizes
-scripts/social-ledger forget https://...           # drop one entry
+scripts/social-ledger article list                         # newest first
+scripts/social-ledger article list --source hackernews     # filter by source
+scripts/social-ledger article search "harness engineering" # full-text search
+scripts/social-ledger article get https://example.com/foo  # one item back
+scripts/social-ledger article stats                        # counts + sizes
+scripts/social-ledger article forget https://...           # drop one entry
 ```
 
 When the user asks a question that resembles "have we seen X

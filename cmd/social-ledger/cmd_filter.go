@@ -21,7 +21,7 @@ import (
 // tool without that tool needing a SQLite client:
 //
 //	social-fetch search "X" -f jsonl \
-//	  | social-ledger filter --skip-seen \
+//	  | social-ledger article filter --skip-seen \
 //	  | <consumer>
 //
 // Stats land on stderr ("of 47 items, 12 dropped as seen") so the

@@ -296,8 +296,12 @@ func Get(ctx context.Context, nameOrSlug string) (*Influencer, error) {
 // derivation rule.
 func Slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
+	// Empty / whitespace-only / non-alnum-only inputs collapse to
+	// "default" so URLs like influencer:// (bare) never reach the
+	// store. Callers that care about "did this name resolve to a
+	// real slug?" should validate the name before calling.
 	if s == "" {
-		return ""
+		return "default"
 	}
 	var b strings.Builder
 	prevDash := false
@@ -384,8 +388,18 @@ func mergeForAdd(prior *core.Item, in AddInput, slug, kind string) *core.Item {
 		socials[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
 	}
 	out.Tags = mergeTopics(priorTopics, in.Topics)
+	// Store socials as map[string]any (with string values) so the
+	// in-memory shape matches what comes back after a JSON
+	// round-trip through the ledger. itemToInfluencer reads via the
+	// `map[string]any` type assertion — keep one shape on both
+	// sides so callers don't see a phantom-empty socials map on
+	// the immediate post-write read.
+	socialsAny := make(map[string]any, len(socials))
+	for k, v := range socials {
+		socialsAny[k] = v
+	}
 	out.Extra = map[string]any{
-		"socials":    socials,
+		"socials":    socialsAny,
 		"follows":    followsToExtra(priorFollows),
 		"kind_label": out.Kind,
 	}

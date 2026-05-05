@@ -64,9 +64,9 @@ broken" before "oh right, the cache". Explicit flag = explicit
 behaviour.
 
 **Mechanism:**
-- Parent calls `social-ledger get <url> --format json` (the
-  ledger's existing `get` subcommand needs a JSON output mode added
-  — currently emits human-readable text, see
+- Parent calls `social-ledger article get <url> --format json` (the
+  ledger's existing `article get` subcommand needs a JSON output
+  mode added — currently emits human-readable text, see
   `ledge./cmd/social-ledger/cmd_misc.go:90`).
 - Unmarshal as `core.Item`, check `fetched_at` against `--max-age`
   (default 24h or per-source TTL — see below).

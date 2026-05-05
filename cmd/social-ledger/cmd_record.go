@@ -19,7 +19,7 @@ import (
 // alongside the rest". Saves the agent from constructing JSONL
 // by hand and worrying about field shapes:
 //
-//	social-ledger record <url> --title "..." [--summary "..."] \
+//	social-ledger article record <url> --title "..." [--summary "..."] \
 //	    [--source webfetch] [--author "..."] < /tmp/page.md
 //
 // Content comes from stdin as raw markdown / text. Title is
@@ -34,7 +34,7 @@ import (
 // Designed so an agent can call it as one shell line after any
 // WebFetch invocation, e.g. inside the social-ledger skill:
 //
-//	social-ledger record "$URL" --title "$TITLE" < "$CONTENT_FILE"
+//	social-ledger article record "$URL" --title "$TITLE" < "$CONTENT_FILE"
 //
 // Failure modes:
 //   - missing URL or title → exit 2 (usage)

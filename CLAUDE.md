@@ -133,9 +133,13 @@ install (`/plugin marketplace add jedi4ever/social-skills`) picks up
 the change. Bump the version in
 `extensions/claude-code/.claude-plugin/plugin.json` and
 `.claude-plugin/marketplace.json` alongside
-`cmd/social-fetch/main.go`'s `Version` and
-`extensions/claude-desktop/manifest.json` — all four version fields move
-together on every user-visible release.
+`cmd/social-fetch/main.go`'s `Version`,
+`cmd/social-ledger/main.go`'s `Version`, and
+`extensions/claude-desktop/manifest.json` — all five version fields move
+together on every user-visible release. The two binaries ship as a
+pair (social-fetch produces JSONL, social-ledger consumes it), so
+their `Version` constants stay in lockstep too — `make check`
+enforces this.
 
 **The Chrome browser-bridge extension has its own version** in
 `extensions/chrome/manifest.json` — independent of `cmd/social-fetch/main.go`'s
@@ -176,3 +180,9 @@ changes (new provider, new flag), PATCH for bug fixes only. The
 constant lives at the top of `cmd/social-fetch/main.go` next to the
 imports — easy to find when you're already editing the file for
 something else.
+
+`cmd/social-ledger/main.go` carries a matching `Version` constant
+in lockstep — bump both together. They share an ingest schema and
+ship as a pair from the same dist build, so two different version
+strings would just confuse operators. `make check`'s version
+sync rule fails if they drift.
