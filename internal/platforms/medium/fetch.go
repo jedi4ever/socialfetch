@@ -30,6 +30,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/headless"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
@@ -58,17 +59,22 @@ func (Fetcher) Match(u *url.URL) bool {
 
 // defaultChain — bridge first because Medium's paywall makes the
 // logged-in path strictly better when available; HTTP next for the
-// free-tier excerpt path; Jina last as anonymous catch-all.
+// free-tier excerpt path; headless after that as a local anonymous
+// fallback (chromedp — handles Medium's JS-rendered shell when
+// plain HTTP returns a stub); Jina last as the remote-service
+// catch-all.
 var defaultChain = []fetchchain.Method{
 	fetchchain.MethodBridge,
 	fetchchain.MethodHTTP,
+	fetchchain.MethodHeadless,
 	fetchchain.MethodJina,
 }
 
 var supportedMethods = map[fetchchain.Method]bool{
-	fetchchain.MethodBridge: true,
-	fetchchain.MethodHTTP:   true,
-	fetchchain.MethodJina:   true,
+	fetchchain.MethodBridge:   true,
+	fetchchain.MethodHTTP:     true,
+	fetchchain.MethodHeadless: true,
+	fetchchain.MethodJina:     true,
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
@@ -79,6 +85,9 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		},
 		fetchchain.MethodHTTP: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaHTTP(ctx, raw, opts)
+		},
+		fetchchain.MethodHeadless: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHeadless(ctx, raw, opts)
 		},
 		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaJina(ctx, raw, opts)
@@ -106,6 +115,26 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) 
 		return nil, err
 	}
 	return f.parseAndExtract(raw, raw, body, "http")
+}
+
+// fetchViaHeadless drives a fresh stealth Chromium and runs the
+// rendered HTML through extractHeadless — Medium-specific extractor
+// tuned for the chromedp DOM shape. The bridge-tuned MediumExtractor
+// can't find the article body in the chromedp render (the modern
+// `section.pw-post-body` wrappers don't appear there), so this path
+// uses a direct `<article>` walk plus og:tags for metadata.
+func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
+	res, err := headless.New().Fetch(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	finalURL := res.FinalURL
+	if finalURL == "" {
+		finalURL = raw
+	}
+	item := extractHeadless(res.HTML, finalURL)
+	item.Extra["engine"] = res.Engine
+	return item, nil
 }
 
 // fetchViaJina is the anonymous catch-all. Jina pre-cleans the page

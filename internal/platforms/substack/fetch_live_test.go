@@ -59,3 +59,34 @@ func TestLiveSubstackFetchMedia(t *testing.T) {
 		t.Logf("media[%d] type=%s url=%s alt=%q", i, m.Type, m.URL, m.Alt)
 	}
 }
+
+// TestLiveSubstackFetchHeadless forces the chromedp headless transport.
+// Substack's article body is server-rendered into stable selectors
+// (`div.body.markup`) that the existing SubstackExtractor matches in
+// both bridge and chromedp DOMs — so headless gets the same shape
+// the bridge does, just from a fresh anonymous browser.
+func TestLiveSubstackFetchHeadless(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_SUBSTACK", "headless")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	const postURL = "https://devinterrupted.substack.com/p/inventing-the-ralph-wiggum-loop-creator"
+	item, err := New().Fetch(ctx, postURL, core.DefaultOptions())
+	if err != nil {
+		if strings.Contains(err.Error(), "executable file not found") {
+			t.Skipf("chrome not installed: %v", err)
+		}
+		t.Fatalf("Fetch via headless: %v", err)
+	}
+	if via, _ := item.Extra["via"].(string); via != "headless" {
+		t.Errorf("Extra[via] = %q, want headless", via)
+	}
+	if strings.TrimSpace(item.Title) == "" {
+		t.Errorf("missing title")
+	}
+	if len(item.Content) < 500 {
+		t.Errorf("content too short: %d chars (substack should always render the body)", len(item.Content))
+	}
+	t.Logf("substack headless: title=%q content_chars=%d media=%d engine=%v",
+		item.Title, len(item.Content), len(item.Media), item.Extra["engine"])
+}

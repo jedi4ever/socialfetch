@@ -62,15 +62,17 @@ func (Fetcher) Match(u *url.URL) bool {
 
 // defaultChain is the order LinkedIn tries when no env override is
 // set. Bridge first because it returns the highest-fidelity result
-// (comments, media tree, full reactions). Jina is the anonymous
-// fallback — public-preview body without comments, used when the
-// bridge is down / timed out / not configured. Headless is opt-in
-// (not in the default chain) — set
-// SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,headless,jina to slot a local
-// stealth Chromium between bridge and jina, useful when LINKEDIN_LI_AT
-// is set so we get authenticated content without needing the
-// browser-bridge daemon.
-var defaultChain = []fetchchain.Method{fetchchain.MethodBridge, fetchchain.MethodJina}
+// (comments, media tree, full reactions, real session). Headless
+// next as the local anonymous fallback — chromedp drives a fresh
+// stealth Chromium that extracts title + author + body + hero image
+// from the guest-preview page (verified to match the bridge body
+// shape on real LinkedIn posts). Jina last as the remote-service
+// catch-all when neither local path is available.
+var defaultChain = []fetchchain.Method{
+	fetchchain.MethodBridge,
+	fetchchain.MethodHeadless,
+	fetchchain.MethodJina,
+}
 
 // supported lists the methods this fetcher knows how to execute.
 // Extra entries in the env var get filtered out via fetchchain.Resolve

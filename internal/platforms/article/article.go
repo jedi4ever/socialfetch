@@ -30,6 +30,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/headless"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
@@ -63,23 +64,26 @@ func New() *Fetcher {
 }
 
 // defaultChain is the order the article fetcher tries when no env
-// override is set. HTTP first because it's the cheapest path and most
-// articles aren't behind any kind of bot challenge; bridge second
-// because the user's logged-in browser handles CF challenges, UA
-// sniffing, and JS-rendered SPA shells; Jina last as the
-// service-backed catch-all (anti-bot infrastructure + clean markdown).
+// override is set. HTTP first because it's the cheapest path and
+// most articles aren't behind any kind of bot challenge; bridge
+// next because the user's logged-in Chrome handles CF / UA-sniff /
+// SPA shells; headless after that as a local anonymous fallback
+// (chromedp-driven Chrome — no daemon needed); jina last as the
+// service-backed catch-all.
 var defaultChain = []fetchchain.Method{
 	fetchchain.MethodHTTP,
 	fetchchain.MethodBridge,
+	fetchchain.MethodHeadless,
 	fetchchain.MethodJina,
 }
 
 // supportedMethods filters the env var so a typo doesn't disable the
 // fetcher (see fetchchain.Resolve).
 var supportedMethods = map[fetchchain.Method]bool{
-	fetchchain.MethodHTTP:   true,
-	fetchchain.MethodBridge: true,
-	fetchchain.MethodJina:   true,
+	fetchchain.MethodHTTP:     true,
+	fetchchain.MethodBridge:   true,
+	fetchchain.MethodHeadless: true,
+	fetchchain.MethodJina:     true,
 }
 
 func (Fetcher) Name() string { return "article" }
@@ -167,6 +171,9 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		fetchchain.MethodBridge: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaBridge(ctx, raw, opts)
 		},
+		fetchchain.MethodHeadless: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHeadless(ctx, raw, opts)
+		},
 		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaJina(ctx, raw, opts)
 		},
@@ -231,6 +238,30 @@ func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Opti
 	item.Extra["via"] = "bridge"
 	if finalURL != "" && finalURL != raw && (item.URL == "" || item.URL == raw) {
 		item.URL = finalURL
+	}
+	return item, nil
+}
+
+// fetchViaHeadless drives a fresh stealth Chromium locally and runs
+// the rendered HTML through the same parse+extract pipeline as the
+// http and bridge paths. Sits between bridge (logged-in Chrome) and
+// jina (remote service) — anonymous AND local. Useful when the site
+// is JS-rendered or behind a soft anti-bot but the user doesn't have
+// the bridge daemon running, and we'd rather not send the URL to a
+// third party.
+func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	res, err := headless.New().Fetch(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	item, err := f.parseAndExtract(raw, []byte(res.HTML), opts)
+	if err != nil {
+		return nil, err
+	}
+	item.Extra["via"] = "headless"
+	item.Extra["engine"] = res.Engine
+	if res.FinalURL != "" && res.FinalURL != raw && (item.URL == "" || item.URL == raw) {
+		item.URL = res.FinalURL
 	}
 	return item, nil
 }

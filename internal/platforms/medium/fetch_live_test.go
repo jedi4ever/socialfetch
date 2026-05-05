@@ -59,3 +59,42 @@ func TestLiveMediumFetchMedia(t *testing.T) {
 		t.Logf("media[%d] type=%s url=%s alt=%q", i, m.Type, m.URL, m.Alt)
 	}
 }
+
+// TestLiveMediumFetchHeadless forces the chromedp headless transport
+// via SOCIAL_FETCH_CHAIN_MEDIUM=headless. Verifies the per-transport
+// extractor (extractHeadless) walks the chromedp DOM and produces a
+// non-empty body.
+//
+// Medium's anti-bot occasionally degrades chromedp responses to a
+// shell with no <article> element — when that happens the extractor
+// falls through to og:description (Summary) so we still return SOME
+// body. Test tolerates the degraded case (logs a warning) but fails
+// hard on missing title (og:title is server-rendered and should
+// always be there).
+func TestLiveMediumFetchHeadless(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_MEDIUM", "headless")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	const postURL = "https://medium.com/@bergel/the-phoenix-principle-a-manifesto-for-programmers-in-the-ai-age-ca63317c5ebc"
+	item, err := New().Fetch(ctx, postURL, core.DefaultOptions())
+	if err != nil {
+		if strings.Contains(err.Error(), "executable file not found") {
+			t.Skipf("chrome not installed: %v", err)
+		}
+		t.Fatalf("Fetch via headless: %v", err)
+	}
+	if via, _ := item.Extra["via"].(string); via != "headless" {
+		t.Errorf("Extra[via] = %q, want headless", via)
+	}
+	if strings.TrimSpace(item.Title) == "" {
+		t.Errorf("missing title — og:title should always be present")
+	}
+	if len(item.Content) == 0 {
+		t.Errorf("empty content — even Summary fallback failed")
+	} else if len(item.Content) < 500 {
+		t.Logf("warning: short content (%d chars) — Medium anti-bot may have served a degraded shell; full article needs the bridge", len(item.Content))
+	}
+	t.Logf("medium headless: title=%q content_chars=%d via=%v engine=%v",
+		item.Title, len(item.Content), item.Extra["via"], item.Extra["engine"])
+}

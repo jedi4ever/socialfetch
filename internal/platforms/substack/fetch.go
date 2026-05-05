@@ -22,6 +22,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/headless"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmeta"
 )
@@ -51,13 +52,15 @@ func (Fetcher) Match(u *url.URL) bool {
 var defaultChain = []fetchchain.Method{
 	fetchchain.MethodBridge,
 	fetchchain.MethodHTTP,
+	fetchchain.MethodHeadless,
 	fetchchain.MethodJina,
 }
 
 var supportedMethods = map[fetchchain.Method]bool{
-	fetchchain.MethodBridge: true,
-	fetchchain.MethodHTTP:   true,
-	fetchchain.MethodJina:   true,
+	fetchchain.MethodBridge:   true,
+	fetchchain.MethodHTTP:     true,
+	fetchchain.MethodHeadless: true,
+	fetchchain.MethodJina:     true,
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
@@ -68,6 +71,9 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		},
 		fetchchain.MethodHTTP: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaHTTP(ctx, raw, opts)
+		},
+		fetchchain.MethodHeadless: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHeadless(ctx, raw, opts)
 		},
 		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaJina(ctx, raw, opts)
@@ -95,6 +101,24 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) 
 		return nil, err
 	}
 	return f.parseAndExtract(raw, raw, body, "http")
+}
+
+// fetchViaHeadless drives a fresh stealth Chromium locally and runs
+// the rendered HTML through SubstackExtractor — same parse pipeline
+// as bridge / http, just a different bytes source. Anonymous local
+// renderer: handy when bridge isn't running and we'd rather not
+// hit Jina (free-tier rate limits, third-party hop).
+func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
+	res, err := headless.New().Fetch(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	item, err := f.parseAndExtract(raw, res.FinalURL, []byte(res.HTML), "headless")
+	if err != nil {
+		return nil, err
+	}
+	item.Extra["engine"] = res.Engine
+	return item, nil
 }
 
 // fetchViaJina is the anonymous catch-all. Surfaces title / URL /

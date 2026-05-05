@@ -75,6 +75,16 @@ type Options struct {
 	// `li_at` session cookie). Empty = anonymous fetch.
 	Cookies []Cookie
 
+	// Settle is the time we sleep after `body` becomes ready,
+	// before reading outerHTML. Pages that hydrate via JS (Medium,
+	// most React/Next.js apps) finish DOMContentLoaded with an empty
+	// article container — the actual prose appears 1-3s later.
+	// Without a settle delay we'd see a near-empty body.
+	//
+	// Default 2s matches the Python downloader's random_delay(2, 4)
+	// floor; bump higher for slow-hydrating sites via env var.
+	Settle time.Duration
+
 	// ExecPath overrides the Chrome / Chromium binary location.
 	// Empty = chromedp auto-detects on PATH (works on macOS via
 	// Chrome.app, on Linux via /usr/bin/google-chrome or chromium).
@@ -108,6 +118,7 @@ var DefaultOptions = Options{
 	Timezone:       "America/New_York",
 	ViewportWidth:  1920,
 	ViewportHeight: 1080,
+	Settle:         2 * time.Second,
 }
 
 // stealthScript runs at every navigation before any page script —
@@ -171,6 +182,9 @@ func NewWithOptions(opts Options) *Fetcher {
 	if opts.ViewportHeight == 0 {
 		opts.ViewportHeight = DefaultOptions.ViewportHeight
 	}
+	if opts.Settle == 0 {
+		opts.Settle = DefaultOptions.Settle
+	}
 	return &Fetcher{Options: opts}
 }
 
@@ -180,6 +194,7 @@ func NewWithOptions(opts Options) *Fetcher {
 //
 //	SOCIAL_FETCH_HEADLESS_HEADLESS    true (default) | false
 //	SOCIAL_FETCH_HEADLESS_TIMEOUT     60s (default), any time.ParseDuration
+//	SOCIAL_FETCH_HEADLESS_SETTLE      2s (default) — post-navigate hydration delay
 //	SOCIAL_FETCH_HEADLESS_USER_AGENT  custom UA string
 //	SOCIAL_FETCH_HEADLESS_EXEC_PATH   path to chrome/chromium binary
 //
@@ -202,6 +217,11 @@ func OptionsFromEnv() Options {
 	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_HEADLESS_TIMEOUT")); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			opts.Timeout = d
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_HEADLESS_SETTLE")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			opts.Settle = d
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_HEADLESS_USER_AGENT")); v != "" {
@@ -260,6 +280,11 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) (*Result, error) {
 	actions = append(actions,
 		chromedp.Navigate(raw),
 		chromedp.WaitReady("body", chromedp.ByQuery),
+	)
+	if f.Options.Settle > 0 {
+		actions = append(actions, chromedp.Sleep(f.Options.Settle))
+	}
+	actions = append(actions,
 		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
 		chromedp.Location(&finalURL),
 	)

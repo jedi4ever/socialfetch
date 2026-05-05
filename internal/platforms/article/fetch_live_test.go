@@ -55,3 +55,31 @@ func TestLiveArticleFetchMediaImageRich(t *testing.T) {
 		t.Logf("media[%d] type=%s url=%s alt=%q", i, m.Type, m.URL, m.Alt)
 	}
 }
+
+// TestLiveArticleFetchHeadless forces the chromedp headless
+// transport against example.com (boring but stable) — verifies the
+// transport is wired into the article chain end-to-end. The
+// generic article extractor handles chromedp's DOM the same way it
+// handles the http path, so we just check title + "example" in the
+// body.
+func TestLiveArticleFetchHeadless(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_ARTICLE", "headless")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	item, err := New().Fetch(ctx, "https://example.com/", core.DefaultOptions())
+	if err != nil {
+		if strings.Contains(err.Error(), "executable file not found") {
+			t.Skipf("chrome not installed: %v", err)
+		}
+		t.Fatalf("Fetch via headless: %v", err)
+	}
+	if via, _ := item.Extra["via"].(string); via != "headless" {
+		t.Errorf("Extra[via] = %q, want headless", via)
+	}
+	if !strings.Contains(strings.ToLower(item.Title), "example") {
+		t.Errorf("title = %q, want it to contain 'example'", item.Title)
+	}
+	t.Logf("article headless: title=%q content_chars=%d engine=%v",
+		item.Title, len(item.Content), item.Extra["engine"])
+}
