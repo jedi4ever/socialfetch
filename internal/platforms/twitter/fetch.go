@@ -1,10 +1,20 @@
-// Package twitter fetches a single tweet using the public syndication
-// endpoint at cdn.syndication.twimg.com. No authentication needed — this
-// is the same endpoint Twitter's own embed widgets use.
+// Package twitter fetches a single tweet via a configurable fetch chain.
+// Default chain is `api,syndication,jina`:
 //
-// Note: the syndication endpoint requires a "token" query param computed
-// from the tweet ID. The algorithm is well-known and stable: take the
-// numeric ID times 4096, divide by 1e15, and strip trailing zeros.
+//   - `api`         — X v2 single-tweet endpoint. Requires
+//     X_API_KEY+X_API_SECRET. Gives long-form note_tweet
+//     content + structured replies + quoted/retweeted bodies.
+//   - `syndication` — public cdn.syndication.twimg.com endpoint.
+//     Auth-free (same path Twitter's embed widgets use)
+//     but truncates long tweets and has no replies.
+//   - `jina`        — anonymous catch-all via r.jina.ai. Body-only,
+//     used when both API and syndication fail.
+//
+// The syndication endpoint requires a "token" query param computed from
+// the tweet ID — algorithm is well-known and stable (id * 4096 / 1e15,
+// strip trailing zeros + decimal point).
+//
+// Operators override the chain via SOCIAL_FETCH_CHAIN_TWITTER.
 package twitter
 
 import (
@@ -20,6 +30,8 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 )
 
 const defaultBaseURL = "https://cdn.syndication.twimg.com"
@@ -158,6 +170,22 @@ type tweetResponse struct {
 	ReplyCount    int `json:"conversation_count"`
 }
 
+// defaultChain — API first because it's the highest-fidelity path
+// (long-form text + structured replies + quoted/retweeted bodies).
+// Syndication is the auth-free fallback. Jina catches the rest
+// (body-only, anonymous).
+var defaultChain = []fetchchain.Method{
+	fetchchain.MethodAPI,
+	fetchchain.MethodSyndication,
+	fetchchain.MethodJina,
+}
+
+var supportedMethods = map[fetchchain.Method]bool{
+	fetchchain.MethodAPI:         true,
+	fetchchain.MethodSyndication: true,
+	fetchchain.MethodJina:        true,
+}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	id, err := extractID(raw)
 	if err != nil {
@@ -165,27 +193,43 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	}
 	ctx = core.WithAudit(ctx, opts.Audit)
 
-	// Prefer the official v2 API when credentials are available — gives us
-	// note_tweet for long-form posts. Fall back to the public syndication
-	// endpoint when not.
-	if creds, ok := f.creds(); ok {
-		opts.Audit.Logf("twitter: using v2 API for %s", id)
-		if item, err := f.fetchViaAPI(ctx, id, creds, opts); err == nil {
-			return item, nil
-		} else {
-			opts.Audit.Logf("twitter: v2 API failed (%v), falling back to syndication", err)
-		}
+	chain := fetchchain.Resolve(fetchchain.FromEnv("twitter"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, _ string) (*core.Item, error) {
+			creds, ok := f.creds()
+			if !ok {
+				return nil, fmt.Errorf("v2 API requires X_API_KEY + X_API_SECRET")
+			}
+			return f.fetchViaAPI(ctx, id, creds, opts)
+		},
+		fetchchain.MethodSyndication: func(ctx context.Context, _ string) (*core.Item, error) {
+			return f.fetchViaSyndication(ctx, id)
+		},
+		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaJina(ctx, raw, id)
+		},
 	}
+	item, _, err := fetchchain.Run(ctx, "twitter", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("twitter: %w", err)
+	}
+	return item, nil
+}
 
+// fetchViaSyndication hits cdn.syndication.twimg.com — auth-free, used
+// by Twitter's own embed widgets. Returns truncated text for long
+// tweets (the note_tweet long-form body is API-only) and has no
+// reply data.
+func (f *Fetcher) fetchViaSyndication(ctx context.Context, id string) (*core.Item, error) {
 	tok := syndicationToken(id)
 	endpoint := fmt.Sprintf("%s/tweet-result?id=%s&token=%s&lang=en", f.BaseURL, id, tok)
 
 	var tw tweetResponse
 	if err := core.GetJSON(ctx, endpoint, &tw); err != nil {
-		return nil, fmt.Errorf("twitter: %w", err)
+		return nil, err
 	}
 	if tw.ID == "" {
-		return nil, fmt.Errorf("twitter: empty response for id %s", id)
+		return nil, fmt.Errorf("empty response for id %s", id)
 	}
 
 	published := parseTwitterTime(tw.Created)
@@ -208,7 +252,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		}
 	}
 
-	item := &core.Item{
+	return &core.Item{
 		Source:      "twitter",
 		Kind:        "tweet",
 		URL:         fmt.Sprintf("https://x.com/%s/status/%s", tw.User.ScreenName, tw.ID),
@@ -226,9 +270,33 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 			"reply_count":    tw.ReplyCount,
 			"favorite_count": tw.FavoriteCount,
 			"lang":           tw.Lang,
+			"via":            "syndication",
 		},
+	}, nil
+}
+
+// fetchViaJina is the body-only anonymous fallback. Routes the tweet
+// URL through r.jina.ai which renders the public preview. Loses
+// structured author / media / metrics — we keep just the URL +
+// author handle from the URL itself + the body markdown.
+func (f *Fetcher) fetchViaJina(ctx context.Context, raw, id string) (*core.Item, error) {
+	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	if err != nil {
+		return nil, err
 	}
-	return item, nil
+	return &core.Item{
+		Source:      "twitter",
+		Kind:        "tweet",
+		URL:         raw,
+		CanonicalID: id,
+		Content:     strings.TrimSpace(md),
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"requested_url": raw,
+			"via":           "jina",
+			"anonymous":     true,
+		},
+	}, nil
 }
 
 // pickVideo returns the highest-bitrate MP4 variant URL.

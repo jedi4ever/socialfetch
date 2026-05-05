@@ -1,6 +1,14 @@
-// Package arxiv fetches paper metadata + abstract from arXiv's public
-// API (https://export.arxiv.org/api/query). The endpoint speaks
-// Atom 1.0 and is unauthenticated.
+// Package arxiv fetches paper metadata + abstract via a configurable
+// fetch chain. Default chain is `api,jina`:
+//
+//   - `api`  — arXiv's public Atom API at export.arxiv.org/api/query.
+//     Highest fidelity: structured authors, categories,
+//     publication dates, plus the abstract. Body is then
+//     enriched from arxiv.org/html/<id> (post-2024 papers) or
+//     the PDF via PDFReader.
+//   - `jina` — anonymous catch-all via r.jina.ai on arxiv.org/abs/<id>.
+//     Body-only — no structured authors / categories / dates.
+//     Used when the Atom API is unreachable (rare).
 //
 // We claim:
 //
@@ -10,6 +18,8 @@
 //
 // IDs follow either the legacy hyphenated form (cs.LG/9301001) or the
 // 2007+ "YYMM.NNNN" form (2403.04132); both are accepted.
+//
+// Operators override the chain via SOCIAL_FETCH_CHAIN_ARXIV.
 package arxiv
 
 import (
@@ -23,6 +33,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 )
 
@@ -127,6 +138,16 @@ type atomLink struct {
 	Title string `xml:"title,attr"`
 }
 
+var defaultChain = []fetchchain.Method{
+	fetchchain.MethodAPI,
+	fetchchain.MethodJina,
+}
+
+var supportedMethods = map[fetchchain.Method]bool{
+	fetchchain.MethodAPI:  true,
+	fetchchain.MethodJina: true,
+}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	id, err := extractID(raw)
 	if err != nil {
@@ -134,46 +155,81 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	}
 	ctx = core.WithAudit(ctx, opts.Audit)
 
+	chain := fetchchain.Resolve(fetchchain.FromEnv("arxiv"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, _ string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, id, opts)
+		},
+		fetchchain.MethodJina: func(ctx context.Context, _ string) (*core.Item, error) {
+			return f.fetchViaJina(ctx, id)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "arxiv", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("arxiv: %w", err)
+	}
+	return item, nil
+}
+
+// fetchViaAPI queries arXiv's Atom API for structured metadata, then
+// enriches the body via the HTML render or PDF (best-effort — keeps
+// abstract-only when both enrichment paths fail).
+func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, opts core.Options) (*core.Item, error) {
 	q := url.Values{"id_list": {id}}
 	endpoint := f.BaseURL + "?" + q.Encode()
 	opts.Audit.Logf("arxiv: GET %s", endpoint)
 
 	body, err := core.GetBytes(ctx, endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("arxiv: %w", err)
+		return nil, err
 	}
 	var feed atomFeed
 	if err := xml.Unmarshal(body, &feed); err != nil {
-		return nil, fmt.Errorf("arxiv: parse atom: %w", err)
+		return nil, fmt.Errorf("parse atom: %w", err)
 	}
 	if len(feed.Entries) == 0 {
-		return nil, fmt.Errorf("arxiv: no entry returned for %q", id)
+		return nil, fmt.Errorf("no entry returned for %q", id)
 	}
 	item := entryToItem(feed.Entries[0], id)
+	item.Extra["via"] = "api"
 
-	// Try to enrich Content with the paper body. Three paths, in
-	// order: (1) arxiv.org/html/<id> if arXiv has rendered it (post-
-	// 2024 papers mostly); (2) PDF via the configured PDFReader
-	// (Jina by default); (3) keep the abstract-only Content if both
-	// fail. The abstract from the Atom API stays as Summary so the
-	// caller never loses it.
+	// Best-effort body enrichment: arxiv.org/html/<id> first (post-
+	// 2024 rendered papers), PDF via PDFReader as fallback. Failing
+	// either keeps the abstract-only Content — the caller still has
+	// title / authors / abstract from the Atom feed.
 	if f.EnrichBody {
 		if md, source, err := f.fetchBody(ctx, id, opts); err == nil && md != "" {
 			item.Content = md
-			if item.Extra == nil {
-				item.Extra = map[string]any{}
-			}
 			item.Extra["body_source"] = source
 		} else if err != nil {
-			// Body enrichment is best-effort — log but don't fail
-			// the fetch, since we already have title/authors/
-			// abstract from the Atom API which is enough for many
-			// citation flows.
 			opts.Audit.Logf("arxiv: body enrichment failed (keeping abstract-only): %v", err)
 		}
 	}
-
 	return item, nil
+}
+
+// fetchViaJina is the body-only fallback for the rare case the Atom
+// API is unreachable. Routes arxiv.org/abs/<id> through r.jina.ai
+// and returns the markdown body — no structured metadata.
+func (f *Fetcher) fetchViaJina(ctx context.Context, id string) (*core.Item, error) {
+	absURL := "https://arxiv.org/abs/" + id
+	md, err := htmlmd.NewJinaReader().Read(ctx, absURL)
+	if err != nil {
+		return nil, err
+	}
+	return &core.Item{
+		Source:      "arxiv",
+		Kind:        "paper",
+		URL:         absURL,
+		CanonicalID: id,
+		Content:     strings.TrimSpace(md),
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"requested_url": absURL,
+			"via":           "jina",
+			"anonymous":     true,
+		},
+	}, nil
 }
 
 // fetchBody pulls the full paper body, preferring arXiv's HTML
