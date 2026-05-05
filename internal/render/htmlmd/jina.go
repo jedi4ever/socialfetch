@@ -39,6 +39,14 @@ const jinaReaderBase = "https://r.jina.ai/"
 // empty env vars fall through to DefaultJinaOptions, so unsetting
 // everything reproduces the in-code defaults exactly.
 type JinaOptions struct {
+	// APIKey is the Jina paid-tier bearer token. Sent as
+	// `Authorization: Bearer <key>` when non-empty. Required for
+	// some advanced features (readerlm-v2 model, higher rate
+	// limits); the free tier works without one. Read from
+	// JINA_API_KEY env (no SOCIAL_FETCH_ prefix — matches the rest
+	// of the binary's API-key vars: X_API_KEY, OPENAI_API_KEY etc).
+	APIKey string
+
 	// Engine picks the renderer Jina uses behind the scenes. "browser"
 	// runs a real headless Chromium — slower but handles JS-rendered
 	// SPAs, paywalled previews, and Cloudflare challenges. "direct"
@@ -138,6 +146,9 @@ func NewJinaReader() *JinaReader {
 func JinaOptionsFromEnv() JinaOptions {
 	opts := DefaultJinaOptions
 
+	if v := strings.TrimSpace(os.Getenv("JINA_API_KEY")); v != "" {
+		opts.APIKey = v
+	}
 	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_JINA_ENGINE")); v != "" {
 		opts.Engine = v
 	}
@@ -196,6 +207,9 @@ func (j *JinaReader) Read(ctx context.Context, url string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", core.UserAgent)
+	if j.Options.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+j.Options.APIKey)
+	}
 	if j.Options.Engine != "" {
 		req.Header.Set("X-Engine", j.Options.Engine)
 	}
