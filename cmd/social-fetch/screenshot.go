@@ -31,6 +31,7 @@ func runScreenshot(args []string) error {
 	settle := fs.Duration("settle", 0, "JS-hydration wait after navigate (default: daemon/in-process default of 2s)")
 	viewport := fs.String("viewport", "", "viewport WxH override, e.g. `1280x720`. Only honoured on the in-process path; daemon mode uses the slot's launched viewport.")
 	timeout := fs.Duration("timeout", 0, "per-call timeout including browser launch (default 60s)")
+	maxHeight := fs.Int("max-height", 0, "crop the captured PNG to the top N pixels (0 = no crop). Useful when feeding the result into a vision tool with a per-image size cap.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -72,6 +73,20 @@ func runScreenshot(args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("screenshot: %w", err)
+	}
+
+	// Optional post-capture crop. Done in CLI / MCP layer (not the
+	// headless driver) so the cap is consistent regardless of the
+	// engine that produced the bytes. Vision tools have per-image
+	// size limits; cropping a 30 000 px tall page to 4096 keeps
+	// the PNG under those caps.
+	if *maxHeight > 0 {
+		out, _, cerr := headless.CropPNGTop(res.PNG, *maxHeight)
+		if cerr != nil {
+			fmt.Fprintf(os.Stderr, "screenshot: crop failed: %v (using uncropped image)\n", cerr)
+		} else {
+			res.PNG = out
+		}
 	}
 
 	// stdout passthrough — useful for piping into ImageMagick or

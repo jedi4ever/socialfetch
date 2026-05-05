@@ -202,6 +202,8 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 	mux.HandleFunc("/fetch", d.handleFetch)
 	mux.HandleFunc("/screenshot", d.handleScreenshot)
 	mux.HandleFunc("/status", d.handleStatus)
+	mux.HandleFunc("/health", d.handleHealth)
+	mux.HandleFunc("/monitor", d.handleMonitor)
 	mux.HandleFunc("/shutdown", d.handleShutdown)
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -573,6 +575,72 @@ func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 		History:       history,
 		UsesRemaining: uses, // deprecated mirror
 	})
+}
+
+// handleHealth is the liveness-probe twin to /status — sub-millisecond
+// 200 OK with `ok\n`, no JSON parsing required. Used by container
+// HEALTHCHECK directives so Docker can decide quickly whether the
+// pool is up.
+func (d *Daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, "ok\n")
+}
+
+// handleMonitor renders the daemon's status as a human-readable
+// text page. Snapshot equivalent of `social-fetch headless monitor`,
+// suitable for `curl … | less` operator checks inside containers
+// where parsing JSON /status by hand is awkward.
+func (d *Daemon) handleMonitor(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	d.stateMu.Lock()
+	slots := make([]slotState, 0, d.PoolSize)
+	uses := make([]int, 0, d.PoolSize)
+	inUse := 0
+	for i := 0; i < d.PoolSize; i++ {
+		s, ok := d.state.slots[i]
+		if !ok {
+			continue
+		}
+		slots = append(slots, *s)
+		uses = append(uses, s.UsesRemaining)
+		if !s.Free {
+			inUse++
+		}
+	}
+	hist := d.state.history.snapshot()
+	d.stateMu.Unlock()
+
+	up := time.Since(d.startAt).Round(time.Second)
+	fmt.Fprintln(w, "social-fetch headless daemon")
+	fmt.Fprintf(w, "  uptime         %s\n", up)
+	fmt.Fprintf(w, "  pool size      %d\n", d.PoolSize)
+	fmt.Fprintf(w, "  in use         %d\n", inUse)
+	fmt.Fprintf(w, "  recycle after  %d\n", d.RecycleAfter)
+
+	fmt.Fprintln(w, "\nslots:")
+	for _, s := range slots {
+		state := "free"
+		if !s.Free {
+			state = fmt.Sprintf("busy %s", s.CurrentURL)
+		}
+		fmt.Fprintf(w, "  [%d] uses=%d total=%d  %s\n",
+			s.ID, s.UsesRemaining, s.TotalFetches, state)
+	}
+
+	if len(hist) == 0 {
+		fmt.Fprintln(w, "\nrecent fetches: (none)")
+		return
+	}
+	fmt.Fprintln(w, "\nrecent fetches (newest first):")
+	for _, e := range hist {
+		ok := "ok"
+		if !e.OK {
+			ok = "FAIL"
+		}
+		fmt.Fprintf(w, "  %s  slot=%d  %dms  %s  %s\n",
+			e.StartAt.Format("15:04:05"), e.SlotID, e.DurMS, ok, e.URL)
+	}
 }
 
 // handleShutdown is opt-in graceful shutdown for tests / scripts.

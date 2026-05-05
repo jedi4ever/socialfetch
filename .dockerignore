@@ -1,0 +1,37 @@
+# Build context exclusions — keep what go.mod / go.sum / source needs,
+# skip everything else so `docker build` sends a small context and
+# the builder stage doesn't see stale binaries / caches.
+
+# Already-built artifacts and packaging output
+/dist
+*.zip
+*.mcpb
+
+# VCS + IDE state
+/.git
+/.gitignore
+/.idea
+/.vscode
+/.DS_Store
+**/.DS_Store
+
+# Pre-existing host binaries inside the skill bundles — the builder
+# stage produces fresh ones in the image; including these would just
+# inflate the build context.
+/skills/social-fetch/scripts/social-fetch
+/skills/social-fetch/scripts/social-ledger
+/skills/social-ledger/scripts/social-ledger
+
+# Chrome bridge extension's npm tree (only used for packaging the
+# user-facing zip, not relevant to the server container)
+/extensions/chrome/node_modules
+
+# Local dev caches that shouldn't leak into the image
+/.golangci-cache
+/coverage.out
+/tmp
+/notes.md
+
+# The Dockerfile + docker-compose themselves are needed; don't ignore
+# them. README / HINTS / SKILL.md aren't read at build time but they're
+# small + harmless to include for `docker build` discoverability.

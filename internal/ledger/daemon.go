@@ -133,6 +133,8 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", d.handleStatus)
+	mux.HandleFunc("/health", d.handleHealth)
+	mux.HandleFunc("/monitor", d.handleMonitor)
 	mux.HandleFunc("/ingest", d.handleIngest)
 	mux.HandleFunc("/forget", d.handleForget)
 	mux.HandleFunc("/search", d.handleSearch)
@@ -670,6 +672,52 @@ func validScreenshotFilename(s string) bool {
 		return false
 	}
 	return screenshotFilenameRE.MatchString(s)
+}
+
+// handleHealth is a sub-millisecond liveness probe used by
+// container HEALTHCHECK directives. No JSON parsing / no allocations
+// — just `200 OK\nok\n`. Anything more elaborate goes through
+// /status; /monitor renders the same data text-formatted.
+func (d *Daemon) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, "ok\n")
+}
+
+// handleMonitor renders the daemon's status + recent events as a
+// human-readable text page. Designed for `curl … | less` style
+// operator checks inside containers where the JSON /status output
+// is unwieldy without jq. Same data the CLI `social-ledger daemon
+// monitor` shows, but as a snapshot rather than a live tail.
+func (d *Daemon) handleMonitor(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	up := time.Since(d.startAt).Round(time.Second)
+	fmt.Fprintf(w, "social-ledger daemon\n")
+	fmt.Fprintf(w, "  db          %s\n", d.DBPath)
+	fmt.Fprintf(w, "  uptime      %s\n", up)
+	fmt.Fprintf(w, "  ingests     %d\n", d.totalIngest.Load())
+	fmt.Fprintf(w, "  queries     %d\n", d.totalQueries.Load())
+
+	if d.history == nil {
+		return
+	}
+	d.historyMu.Lock()
+	hist := d.history.snapshot()
+	d.historyMu.Unlock()
+
+	if len(hist) == 0 {
+		fmt.Fprintln(w, "\nrecent events: (none)")
+		return
+	}
+	fmt.Fprintln(w, "\nrecent events (newest first):")
+	for _, e := range hist {
+		ok := "ok"
+		if !e.OK {
+			ok = "FAIL"
+		}
+		fmt.Fprintf(w, "  %s  %-10s %-4s  %s\n",
+			e.At.Format("15:04:05"), e.Kind, ok, e.Detail)
+	}
 }
 
 func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {

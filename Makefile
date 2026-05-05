@@ -25,7 +25,8 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-fetch
         skill-build skill-install skill-clean skill-package claude-desktop-extension-package extension-validate \
         bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
         ledger-build ledger-test \
-        ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package
+        ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package \
+        docker-build docker-run docker-compose-up docker-compose-down docker-shell
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -138,6 +139,44 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 	rm -f "$$OUT"; \
 	(cd extensions/chrome && zip -qr "$$OUT" . -x "*.DS_Store" "*/.*"); \
 	echo "Packaged: dist/social-skills-chrome-extension-$$VERSION.zip"
+
+# ---- docker container -----------------------------------------------------
+# The container runs all three long-running services (headless browser
+# pool :5556, ledger daemon :5557, MCP HTTP server :5558) under a tiny
+# supervisor in docker-entrypoint.sh. See Dockerfile for the layer
+# layout; multi-stage so the runtime image doesn't carry the Go
+# toolchain.
+#
+# `docker-build` tags both <version> and `latest`. `docker-run` uses
+# `latest` and a named volume so ledger state persists across calls.
+# `docker-compose-up` is the development shorthand — use it when you
+# want to point Claude Desktop / claude.ai at the local container.
+DOCKER_IMAGE     = social-skills
+DOCKER_VERSION   = $(shell awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-fetch/main.go)
+DOCKER_LEDGER_VOL = social-skills-ledger
+
+docker-build:  ## Build the social-skills container image (multi-stage; chromedp + ledger + MCP)
+	docker build \
+	  -t $(DOCKER_IMAGE):$(DOCKER_VERSION) \
+	  -t $(DOCKER_IMAGE):latest \
+	  .
+
+docker-run:  ## Run the container with all three daemons exposed and a named volume for state
+	docker run --rm -it \
+	  --name social-skills \
+	  -p 5556:5556 -p 5557:5557 -p 5558:5558 \
+	  -v $(DOCKER_LEDGER_VOL):/data \
+	  --shm-size=1g \
+	  $(DOCKER_IMAGE):latest
+
+docker-compose-up:  ## Bring up the stack via docker compose (rebuilds image)
+	docker compose up --build
+
+docker-compose-down:  ## Stop the compose stack (preserves the named volume)
+	docker compose down
+
+docker-shell:  ## Drop into a running container's shell (assumes name=social-skills)
+	docker exec -it social-skills /bin/sh
 
 # skill-package builds a self-contained zip of the skill ready to
 # upload (skills marketplace, file share, attached to a release). The

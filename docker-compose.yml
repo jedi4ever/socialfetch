@@ -1,0 +1,72 @@
+# docker-compose for local development + Daytona deploy.
+#
+# Single service running all three daemons in one container. The
+# split-per-service form (3 containers, one per daemon) is left as
+# a future improvement — for v1 the supervisor inside the
+# container has the same observable behaviour.
+#
+# Bring up:    docker compose up --build
+# Tear down:   docker compose down            (volume preserved)
+# Wipe state:  docker compose down -v         (named volume gone)
+
+services:
+  social-skills:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: social-skills:latest
+    container_name: social-skills
+
+    ports:
+      # headless browser pool (chromedp)
+      - "5556:5556"
+      # ledger daemon (SQLite + FTS5 + screenshot serving)
+      - "5557:5557"
+      # MCP server over Streamable HTTP / SSE
+      - "5558:5558"
+
+    volumes:
+      # Persist the SQLite ledger + mirror tree + screenshots
+      # across container restarts. Named volume so docker manages
+      # the bind path; switch to a host bind mount
+      # (- ./data:/data) when you want to grep the markdown tree
+      # from the host.
+      - ledger:/data
+
+    environment:
+      # Auth on the MCP HTTP endpoint. Empty = no auth (only safe
+      # for loopback / a trusted tunnel like Daytona). Set to a
+      # long random string when binding 0.0.0.0:5558 publicly.
+      MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:-}"
+
+      # Headless pool size. 2 covers most casual use; bump to 4-6
+      # if you regularly batch-fetch.
+      SOCIAL_FETCH_HEADLESS_POOL_SIZE: "${SOCIAL_FETCH_HEADLESS_POOL_SIZE:-2}"
+
+      # Reseed each browser after this many fetches to avoid
+      # session-fingerprint accumulation. 0 disables.
+      SOCIAL_FETCH_HEADLESS_RECYCLE_AFTER: "${SOCIAL_FETCH_HEADLESS_RECYCLE_AFTER:-50}"
+
+    restart: unless-stopped
+
+    # Tighter shm than the docker default (64 MB) — chromium needs
+    # at least 512 MB to render long pages without spilling to
+    # disk. The container's --disable-dev-shm-usage flag (set by
+    # buildAllocatorOpts) softens this, but bumping is cheap.
+    shm_size: "1g"
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS http://127.0.0.1:5556/status >/dev/null
+          && curl -fsS http://127.0.0.1:5557/status >/dev/null
+          && curl -fsS http://127.0.0.1:5558/health >/dev/null
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  ledger:
+    name: social-skills-ledger

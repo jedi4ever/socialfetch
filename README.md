@@ -189,6 +189,48 @@ cd social-skills && make build       # → ./dist/social-fetch
 Requires Go 1.26+. Windows is not currently supported (the bridge
 daemon uses Unix-only syscalls — run via WSL).
 
+### Docker container (chromedp + ledger + MCP-over-SSE in one image)
+
+The repo ships a `Dockerfile` + `docker-compose.yml` that bundles
+the three long-running services into one container:
+
+| Port | Service |
+|---|---|
+| 5556 | headless browser pool (chromedp + Chromium) |
+| 5557 | ledger daemon (SQLite + FTS5 + screenshot serving) |
+| 5558 | MCP server over Streamable HTTP / SSE |
+
+```bash
+make docker-build         # build social-skills:<version> + :latest
+make docker-compose-up    # bring up the stack with named-volume persistence
+# … or:
+docker compose up --build
+```
+
+Three things to know:
+
+1. **`MCP_AUTH_TOKEN`** — set in your environment (or `.env`)
+   before exposing the container beyond loopback. The MCP HTTP
+   endpoint (5558) requires `Authorization: Bearer <token>` when
+   the env var is set; without it the endpoint is unauthenticated
+   and only safe on `127.0.0.1`.
+2. **Ledger persistence** — the named volume `social-skills-ledger`
+   stores `ledger.db`, the markdown mirror tree, and the
+   `screenshots/` directory under `/data`. `docker compose down`
+   keeps it; `docker compose down -v` wipes it.
+3. **Daytona / remote deploy** — clone the repo into the workspace,
+   `make docker-compose-up`, and point Claude Desktop / claude.ai at
+   the workspace's tunnel URL for port 5558. The headless container's
+   browser fingerprint stays anonymous; cookies are not honoured (the
+   bridge transport is the path for authenticated sites and it isn't
+   shipped inside the container — see `extensions/chrome` for the
+   host-side bridge).
+
+The bridge daemon (5555) is intentionally not in the container —
+it drives a real logged-in Chrome on the user's machine via a
+companion extension, which has no equivalent inside a
+container. Bridge-as-screenshot-source is a planned followup.
+
 ## Social platforms supported
 
 ### Fetch (URL → structured Item)
