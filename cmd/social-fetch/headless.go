@@ -40,6 +40,8 @@ func runHeadless(args []string) error {
 		return runHeadlessStop(args)
 	case "status", "ping":
 		return runHeadlessStatus(args)
+	case "monitor", "watch":
+		return runHeadlessMonitor(args)
 	}
 	if sub == "-h" || sub == "--help" {
 		printHeadlessHelp()
@@ -55,7 +57,8 @@ Usage:
   social-fetch headless [run]        run in foreground (default)
   social-fetch headless start        fork a detached daemon (writes PID file)
   social-fetch headless stop         stop the running daemon
-  social-fetch headless status       report pool state
+  social-fetch headless status       report pool state (per-slot + recent history)
+  social-fetch headless monitor      live-tail the pool: refreshes every 1s
 
 Common flags:
   --port N                           loopback port (default 5556) — shortcut
@@ -335,9 +338,190 @@ func runHeadlessStatus(args []string) error {
 		_ = json.NewEncoder(os.Stdout).Encode(st)
 		return nil
 	}
-	fmt.Printf("running — pool=%d recycle_after=%d uses_remaining=%v\n",
-		st.PoolSize, st.RecycleAfter, st.UsesRemaining)
+	renderHeadlessStatus(os.Stdout, st)
 	return nil
+}
+
+// renderHeadlessStatus formats a /status response as a human-
+// readable block. Same renderer is reused by `headless monitor`
+// so the on-screen layout doesn't drift between the two.
+func renderHeadlessStatus(w *os.File, st *headless.StatusResponse) {
+	free := st.PoolSize - st.InUse
+	fmt.Fprintf(w, "running — pool=%d free=%d in_use=%d recycle_after=%d up=%s\n",
+		st.PoolSize, free, st.InUse, st.RecycleAfter, formatDur(time.Duration(st.UpSeconds)*time.Second))
+
+	// Per-slot detail
+	for _, s := range st.Slots {
+		state := "free"
+		if !s.Free {
+			state = "BUSY"
+		}
+		line := fmt.Sprintf("  slot %d: %-4s uses_remaining=%-3d total=%-3d",
+			s.ID, state, s.UsesRemaining, s.TotalFetches)
+		if !s.Free {
+			line += fmt.Sprintf("  → %s (%s)",
+				truncateMiddle(s.CurrentURL, 60),
+				formatDur(time.Since(s.BusySince)))
+		} else if !s.LastAt.IsZero() {
+			result := "ok"
+			if !s.LastOK {
+				result = "FAIL"
+			}
+			line += fmt.Sprintf("  last: %s %s %s ago",
+				truncateMiddle(s.LastURL, 50), result,
+				formatDur(time.Since(s.LastAt)))
+		}
+		fmt.Fprintln(w, line)
+	}
+
+	// Recent history (top 5 — full ring goes via --json for tooling)
+	if len(st.History) > 0 {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "  recent fetches:")
+		max := 5
+		if len(st.History) < max {
+			max = len(st.History)
+		}
+		for i := 0; i < max; i++ {
+			e := st.History[i]
+			result := "ok"
+			if !e.OK {
+				result = "FAIL"
+			}
+			fmt.Fprintf(w, "    %s  slot=%d  %-4s  %5dms  %s\n",
+				e.StartAt.Format("15:04:05"), e.SlotID, result, e.DurMS,
+				truncateMiddle(e.URL, 60))
+		}
+	}
+}
+
+// formatDur turns a duration into a compact "1.2s" / "45ms" / "2m"
+// representation suited to a status panel — trades exact precision
+// for at-a-glance readability.
+func formatDur(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	case d < time.Hour:
+		return fmt.Sprintf("%.0fm", d.Minutes())
+	default:
+		return fmt.Sprintf("%.1fh", d.Hours())
+	}
+}
+
+// truncateMiddle shortens a URL to fit width, preserving both ends
+// so the host and the trailing slug stay legible.
+func truncateMiddle(s string, width int) string {
+	if len(s) <= width {
+		return s
+	}
+	if width < 8 {
+		return s[:width]
+	}
+	keep := (width - 1) / 2
+	return s[:keep] + "…" + s[len(s)-keep:]
+}
+
+// runHeadlessMonitor polls /status every refresh interval and
+// re-renders the status panel with ANSI cursor moves so the
+// terminal shows a live updating view rather than scrolling
+// output. Ctrl-C exits cleanly.
+func runHeadlessMonitor(args []string) error {
+	refresh := 1 * time.Second
+	overrideURL := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-h", "--help":
+			fmt.Print(`social-fetch headless monitor — live tail of the pool
+
+Usage:
+  social-fetch headless monitor [flags]
+
+Flags:
+  --refresh DUR    poll interval (default 1s, e.g. 500ms / 2s)
+  --port N         daemon port shortcut
+  --bind ADDR      daemon address (e.g. remote-host:5556)
+
+Ctrl-C to exit.
+`)
+			return nil
+		case "--refresh":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--refresh needs a value")
+			}
+			d, err := time.ParseDuration(args[i])
+			if err != nil || d <= 0 {
+				return fmt.Errorf("--refresh: invalid duration %q", args[i])
+			}
+			refresh = d
+		case "--port":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--port needs a value")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 || n > 65535 {
+				return fmt.Errorf("--port: invalid value %q", args[i])
+			}
+			overrideURL = fmt.Sprintf("http://127.0.0.1:%d", n)
+		case "--bind":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--bind needs a value")
+			}
+			overrideURL = "http://" + args[i]
+		default:
+			return fmt.Errorf("headless monitor: unknown argument %q", args[i])
+		}
+	}
+
+	c := headless.NewDaemonClient()
+	if overrideURL != "" {
+		c.BaseURL = overrideURL
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Clear screen + hide cursor for a tidier live view; restore on
+	// exit. Best-effort — doesn't matter if the terminal doesn't
+	// support these escapes.
+	fmt.Print("\x1b[?25l") // hide cursor
+	defer fmt.Print("\x1b[?25h\n")
+
+	first := true
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(ctx, 2*time.Second)
+		st, err := c.Status(probeCtx)
+		cancelProbe()
+
+		if !first {
+			// Move cursor home + clear from there to end-of-screen
+			// so subsequent renders overwrite cleanly.
+			fmt.Print("\x1b[H\x1b[J")
+		}
+		first = false
+
+		fmt.Printf("social-fetch headless monitor — %s  (refresh %s)\n\n",
+			time.Now().Format("15:04:05"), formatDur(refresh))
+		if err != nil {
+			fmt.Printf("daemon not reachable: %v\n", err)
+		} else {
+			renderHeadlessStatus(os.Stdout, st)
+		}
+
+		select {
+		case <-time.After(refresh):
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 func readHeadlessPID() (int, bool) {

@@ -106,9 +106,21 @@ func (c *DaemonClient) Fetch(ctx context.Context, url string) (*Result, error) {
 	}, nil
 }
 
+// StatusResponse is the parsed /status JSON, exported so CLI
+// commands can format it without re-decoding. Field names match
+// the JSON tags on the daemon's internal statusResponse so tests
+// and CLI use the same shape.
+type StatusResponse = statusResponse
+
+// SlotState is the per-slot snapshot exported for CLI rendering.
+type SlotState = slotState
+
+// FetchEntry is one row in the recent-fetch history.
+type FetchEntry = fetchEntry
+
 // Status hits GET /status and returns the parsed response. Used by
 // the `social-fetch headless status` CLI subcommand.
-func (c *DaemonClient) Status(ctx context.Context) (*statusResponse, error) {
+func (c *DaemonClient) Status(ctx context.Context) (*StatusResponse, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.BaseURL+"/status", nil)

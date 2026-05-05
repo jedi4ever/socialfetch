@@ -68,6 +68,86 @@ type Daemon struct {
 	pool   chan *slot
 	closed bool
 	mu     sync.Mutex
+
+	// state tracks per-slot live status (busy/free, current URL,
+	// last-fetch result) and a ring buffer of recent fetches for
+	// the monitor command. Mutex-guarded because /status reads
+	// concurrently with /fetch handlers updating.
+	state   *daemonState
+	stateMu sync.Mutex
+	startAt time.Time
+}
+
+// daemonState holds the runtime telemetry /status surfaces. Updated
+// by handleFetch around each request; read by handleStatus. Kept
+// inside the daemon (not on the slot itself) so /status can read
+// state for slots that are CURRENTLY OUT of the pool channel — the
+// slot.go field would be inaccessible without acquiring the slot.
+type daemonState struct {
+	slots   map[int]*slotState // keyed by slot.id
+	history *fetchRing
+}
+
+// slotState is the per-browser snapshot. Free=true means the slot is
+// in the pool channel and available; Free=false means a /fetch
+// handler currently owns it. CurrentURL / BusySince are populated
+// only while the slot is busy. LastFetch* persist across fetches
+// for "what did this slot do most recently" reporting.
+type slotState struct {
+	ID            int       `json:"id"`
+	Free          bool      `json:"free"`
+	UsesRemaining int       `json:"uses_remaining"`
+	TotalFetches  int       `json:"total_fetches"`
+	CurrentURL    string    `json:"current_url,omitempty"`
+	BusySince     time.Time `json:"busy_since,omitempty"`
+	LastURL       string    `json:"last_url,omitempty"`
+	LastAt        time.Time `json:"last_at,omitempty"`
+	LastOK        bool      `json:"last_ok,omitempty"`
+	LastDurMS     int64     `json:"last_dur_ms,omitempty"`
+}
+
+// fetchEntry is one row in the recent-fetches ring buffer.
+type fetchEntry struct {
+	SlotID  int       `json:"slot_id"`
+	URL     string    `json:"url"`
+	StartAt time.Time `json:"start_at"`
+	DurMS   int64     `json:"dur_ms"`
+	OK      bool      `json:"ok"`
+	Err     string    `json:"err,omitempty"`
+}
+
+// fetchRing is a fixed-size ring of recent fetches. 32 entries is
+// enough to populate a `headless monitor` view; older entries are
+// overwritten. Newest-first ordering on read so the monitor doesn't
+// have to reverse.
+type fetchRing struct {
+	entries []fetchEntry
+	cap     int
+}
+
+func newFetchRing(cap int) *fetchRing {
+	return &fetchRing{entries: make([]fetchEntry, 0, cap), cap: cap}
+}
+
+func (r *fetchRing) add(e fetchEntry) {
+	if len(r.entries) < r.cap {
+		r.entries = append(r.entries, e)
+		return
+	}
+	// Shift out oldest (entries[0]). Cheap at cap=32; a circular
+	// index would be faster but readable code wins here.
+	copy(r.entries, r.entries[1:])
+	r.entries[len(r.entries)-1] = e
+}
+
+// snapshot returns the entries in newest-first order. Callers get
+// a fresh slice — safe to release the mutex before serialising.
+func (r *fetchRing) snapshot() []fetchEntry {
+	out := make([]fetchEntry, len(r.entries))
+	for i, e := range r.entries {
+		out[len(r.entries)-1-i] = e
+	}
+	return out
 }
 
 // slot holds one browser's chromedp contexts plus a usage counter.
@@ -99,6 +179,11 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 		d.Logf = func(string, ...any) {}
 	}
 
+	d.startAt = time.Now()
+	d.state = &daemonState{
+		slots:   make(map[int]*slotState, d.PoolSize),
+		history: newFetchRing(32),
+	}
 	d.pool = make(chan *slot, d.PoolSize)
 	for i := 0; i < d.PoolSize; i++ {
 		s, err := d.newSlot(ctx, i)
@@ -106,6 +191,7 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 			d.shutdown()
 			return fmt.Errorf("init slot %d: %w", i, err)
 		}
+		d.state.slots[i] = &slotState{ID: i, Free: true, UsesRemaining: s.usesRemaining}
 		d.pool <- s
 	}
 	d.Logf("pool ready: size=%d recycle_after=%d", d.PoolSize, d.RecycleAfter)
@@ -247,11 +333,20 @@ func (d *Daemon) handleFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mark slot busy so /status / monitor can report what's running.
+	startAt := time.Now()
+	d.markBusy(s.id, req.URL, startAt)
+
 	html, finalURL, fetchErr := d.runFetch(r.Context(), s, req.URL)
+	dur := time.Since(startAt)
 
 	// Release: replace or recycle. Always returns a slot to the
 	// pool so the next request can proceed.
 	released := d.releaseSlot(s, fetchErr != nil)
+	// Update state BEFORE returning the slot — otherwise a fast
+	// follow-up /fetch could grab the slot and mark it busy
+	// while our "free" update is still racing.
+	d.markFree(released, req.URL, startAt, dur, fetchErr)
 	d.pool <- released
 
 	if fetchErr != nil {
@@ -265,6 +360,55 @@ func (d *Daemon) handleFetch(w http.ResponseWriter, r *http.Request) {
 		FinalURL: finalURL,
 		Engine:   "chromedp",
 	})
+}
+
+// markBusy records that slot id is starting a fetch of url at
+// startAt. Updates the per-slot state map; called before the
+// chromedp navigation starts.
+func (d *Daemon) markBusy(id int, url string, startAt time.Time) {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	s, ok := d.state.slots[id]
+	if !ok {
+		return
+	}
+	s.Free = false
+	s.CurrentURL = url
+	s.BusySince = startAt
+}
+
+// markFree updates the per-slot state after a fetch completes,
+// records the entry in the recent-history ring, and ticks
+// TotalFetches. Called before the slot is returned to the pool —
+// see handleFetch for the ordering rationale.
+func (d *Daemon) markFree(s *slot, url string, startAt time.Time, dur time.Duration, fetchErr error) {
+	d.stateMu.Lock()
+	defer d.stateMu.Unlock()
+	st, ok := d.state.slots[s.id]
+	if !ok {
+		return
+	}
+	st.Free = true
+	st.CurrentURL = ""
+	st.BusySince = time.Time{}
+	st.UsesRemaining = s.usesRemaining
+	st.TotalFetches++
+	st.LastURL = url
+	st.LastAt = startAt
+	st.LastDurMS = dur.Milliseconds()
+	st.LastOK = fetchErr == nil
+
+	entry := fetchEntry{
+		SlotID:  s.id,
+		URL:     url,
+		StartAt: startAt,
+		DurMS:   dur.Milliseconds(),
+		OK:      fetchErr == nil,
+	}
+	if fetchErr != nil {
+		entry.Err = fetchErr.Error()
+	}
+	d.state.history.add(entry)
 }
 
 // releaseSlot decides whether to keep the slot or recycle it.
@@ -295,6 +439,13 @@ func (d *Daemon) releaseSlot(s *slot, errored bool) *slot {
 		s.dead = true
 		return s
 	}
+	// Reset state's UsesRemaining to the fresh browser's counter so
+	// /status reflects the recycle.
+	d.stateMu.Lock()
+	if st, ok := d.state.slots[fresh.id]; ok {
+		st.UsesRemaining = fresh.usesRemaining
+	}
+	d.stateMu.Unlock()
 	return fresh
 }
 
@@ -351,50 +502,54 @@ func (d *Daemon) runFetch(reqCtx context.Context, s *slot, url string) (html, fi
 	return html, finalURL, nil
 }
 
-// statusResponse is the GET /status JSON. PoolSize gives capacity;
-// InUse is best-effort (read off the channel buffer, not snapshot-
-// consistent under load); UsesRemaining lists what each slot has
-// left before recycle.
+// statusResponse is the GET /status JSON. Summary counters plus
+// per-slot detail and a recent-fetch ring — enough for `headless
+// monitor` to render a live view of "what's the daemon doing right
+// now?" without needing a separate /events stream.
+//
+// UsesRemaining is kept for backwards compat with v1 clients; new
+// callers should read Slots[].UsesRemaining instead.
 type statusResponse struct {
-	PoolSize      int   `json:"pool_size"`
-	InUse         int   `json:"in_use"`
-	RecycleAfter  int   `json:"recycle_after"`
-	UsesRemaining []int `json:"uses_remaining"`
+	PoolSize      int          `json:"pool_size"`
+	InUse         int          `json:"in_use"`
+	RecycleAfter  int          `json:"recycle_after"`
+	UpSeconds     int64        `json:"up_seconds"`
+	Slots         []slotState  `json:"slots"`
+	History       []fetchEntry `json:"history"`
+	UsesRemaining []int        `json:"uses_remaining"` // deprecated
 }
 
 func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
-	// /status must NOT block waiting for slots — under heavy /fetch
-	// load all browsers are out of the pool channel, and a blocking
-	// drain would deadlock the probe. We do a non-blocking read of
-	// whatever's currently free and report PoolSize - free as
-	// in-use. usesRemaining is reported only for free slots since
-	// in-use slots are owned by other goroutines and we can't
-	// safely read their state.
-	snapshot := make([]*slot, 0, d.PoolSize)
-drain:
+	// All state lives in d.state (mutex-guarded) — no need to
+	// touch the pool channel for status, which means /status
+	// answers instantly even under heavy /fetch load.
+	d.stateMu.Lock()
+	slots := make([]slotState, 0, d.PoolSize)
+	uses := make([]int, 0, d.PoolSize)
+	inUse := 0
 	for i := 0; i < d.PoolSize; i++ {
-		select {
-		case s := <-d.pool:
-			snapshot = append(snapshot, s)
-		default:
-			break drain // no more free slots right now
+		s, ok := d.state.slots[i]
+		if !ok {
+			continue
+		}
+		slots = append(slots, *s)
+		uses = append(uses, s.UsesRemaining)
+		if !s.Free {
+			inUse++
 		}
 	}
-	uses := make([]int, 0, len(snapshot))
-	for _, s := range snapshot {
-		uses = append(uses, s.usesRemaining)
-	}
-	// Put the slots back BEFORE encoding the response — otherwise
-	// concurrent /fetch requests stall while we serialise JSON.
-	for _, s := range snapshot {
-		d.pool <- s
-	}
+	history := d.state.history.snapshot()
+	d.stateMu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(statusResponse{
 		PoolSize:      d.PoolSize,
-		InUse:         d.PoolSize - len(snapshot),
+		InUse:         inUse,
 		RecycleAfter:  d.RecycleAfter,
-		UsesRemaining: uses, // only the free slots
+		UpSeconds:     int64(time.Since(d.startAt).Seconds()),
+		Slots:         slots,
+		History:       history,
+		UsesRemaining: uses, // deprecated mirror
 	})
 }
 
