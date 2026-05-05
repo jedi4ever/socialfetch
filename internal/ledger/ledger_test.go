@@ -121,6 +121,12 @@ func TestIngestPipesJSONLToBinary(t *testing.T) {
 
 	t.Setenv(EnabledEnv, "1")
 	t.Setenv(BinaryEnv, bin)
+	// This test asserts the subprocess code path. If a real
+	// ledger daemon happens to be running on the dev machine,
+	// Ingest() probes it and routes there instead of the fake
+	// binary — capture stays empty and the test fails. Force
+	// the subprocess path explicitly.
+	t.Setenv("SOCIAL_LEDGER_DAEMON_DISABLE", "1")
 
 	items := []core.Item{
 		{Source: "hackernews", URL: "https://news.ycombinator.com/item?id=1", Title: "first"},
