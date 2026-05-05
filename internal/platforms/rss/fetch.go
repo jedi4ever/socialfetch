@@ -4,6 +4,9 @@
 // Match is intentionally narrow — only URLs that look like a feed (path
 // or query hints, plus a Content-Type sniff at fetch time). Generic blog
 // front-pages should fall through to the article fetcher instead.
+//
+// Single-method today (`http`); routes through fetchchain for env-var
+// consistency. SOCIAL_FETCH_CHAIN_RSS exists as a future-proof slot.
 package rss
 
 import (
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 )
 
 // Fetcher pulls a feed and converts it to a core.Item with Children.
@@ -99,16 +103,33 @@ type atomAuthor struct {
 	Name string `xml:"name"`
 }
 
-func (Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+var defaultChain = []fetchchain.Method{fetchchain.MethodHTTP}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodHTTP: true}
+
+func (f Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	ctx = core.WithAudit(ctx, opts.Audit)
-	body, err := core.GetBytes(ctx, raw)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("rss"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodHTTP: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHTTP(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "rss", raw, opts.Audit, chain, runners)
 	if err != nil {
 		return nil, fmt.Errorf("rss: %w", err)
+	}
+	return item, nil
+}
+
+func (Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
+	body, err := core.GetBytes(ctx, raw)
+	if err != nil {
+		return nil, err
 	}
 
 	feedTitle, feedLink, entries, err := parseFeed(body)
 	if err != nil {
-		return nil, fmt.Errorf("rss: %w", err)
+		return nil, err
 	}
 
 	children := make([]core.Item, 0, len(entries))

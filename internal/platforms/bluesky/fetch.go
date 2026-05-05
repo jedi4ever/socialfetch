@@ -11,6 +11,9 @@
 //  3. Build an AT URI: at://<did>/app.bsky.feed.post/<rkey>.
 //  4. Call app.bsky.feed.getPostThread with that URI and walk the
 //     reply tree into core.Comment.
+//
+// Single-method today (`api`); routes through fetchchain for env-var
+// consistency. SOCIAL_FETCH_CHAIN_BLUESKY exists as a future-proof slot.
 package bluesky
 
 import (
@@ -23,6 +26,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 )
 
 // AppViewBase is the public AppView XRPC base URL. Callable without
@@ -71,20 +75,37 @@ func (f *Fetcher) base() string {
 	return AppViewBase
 }
 
+var defaultChain = []fetchchain.Method{fetchchain.MethodAPI}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodAPI: true}
+
 // Fetch builds the post + thread.
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
-	handle, rkey, err := extractIDs(raw)
+	ctx = core.WithAudit(ctx, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("bluesky"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "bluesky", raw, opts.Audit, chain, runners)
 	if err != nil {
 		return nil, fmt.Errorf("bluesky: %w", err)
 	}
-	ctx = core.WithAudit(ctx, opts.Audit)
+	return item, nil
+}
+
+func (f *Fetcher) fetchViaAPI(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	handle, rkey, err := extractIDs(raw)
+	if err != nil {
+		return nil, err
+	}
 
 	did := handle
 	if !strings.HasPrefix(did, "did:") {
 		opts.Audit.Logf("bluesky: resolving handle %s", handle)
 		did, err = f.resolveHandle(ctx, handle)
 		if err != nil {
-			return nil, fmt.Errorf("bluesky: resolve %s: %w", handle, err)
+			return nil, fmt.Errorf("resolve %s: %w", handle, err)
 		}
 	}
 
@@ -92,10 +113,10 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	opts.Audit.Logf("bluesky: getPostThread %s", atURI)
 	thread, err := f.getPostThread(ctx, atURI, opts)
 	if err != nil {
-		return nil, fmt.Errorf("bluesky: thread: %w", err)
+		return nil, fmt.Errorf("thread: %w", err)
 	}
 	if thread == nil || thread.Post == nil {
-		return nil, fmt.Errorf("bluesky: empty thread for %s", atURI)
+		return nil, fmt.Errorf("empty thread for %s", atURI)
 	}
 
 	root := thread.Post

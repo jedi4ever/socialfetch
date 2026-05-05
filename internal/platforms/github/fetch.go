@@ -1,6 +1,9 @@
 // Package github fetches repository metadata, the README, and recent
 // releases via GitHub's public REST API. If a GITHUB_TOKEN env var is set
 // it is used for higher rate limits, but auth is not required.
+//
+// Single-method today (`api`); routes through fetchchain for env-var
+// consistency. SOCIAL_FETCH_CHAIN_GITHUB exists as a future-proof slot.
 package github
 
 import (
@@ -17,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 )
 
 const defaultBaseURL = "https://api.github.com"
@@ -101,15 +105,32 @@ type releaseInfo struct {
 	Body        string `json:"body"`
 }
 
+var defaultChain = []fetchchain.Method{fetchchain.MethodAPI}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodAPI: true}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	ctx = core.WithAudit(ctx, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("github"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "github", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("github: %w", err)
+	}
+	return item, nil
+}
+
+func (f *Fetcher) fetchViaAPI(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
 	owner, repo := splitOwnerRepo(u.Path)
 	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("github: cannot extract owner/repo from %q", raw)
+		return nil, fmt.Errorf("cannot extract owner/repo from %q", raw)
 	}
 
 	// The three GitHub endpoints are independent — repo info, README,
@@ -142,7 +163,7 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	wg.Wait()
 
 	if repoErr != nil {
-		return nil, fmt.Errorf("github: repo: %w", repoErr)
+		return nil, fmt.Errorf("repo: %w", repoErr)
 	}
 	readmeText := decodeReadme(readme)
 

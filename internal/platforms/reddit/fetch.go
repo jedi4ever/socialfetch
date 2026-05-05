@@ -1,6 +1,11 @@
 // Package reddit fetches a single Reddit post (with comment tree) using
 // Reddit's public ".json" endpoint — appending .json to any post URL
 // returns its data without auth.
+//
+// Single-method today (`api`); routes through fetchchain for env-var
+// consistency. SOCIAL_FETCH_CHAIN_REDDIT exists as a future-proof slot
+// (e.g. for adding a `jina` fallback when the .json endpoint
+// rate-limits the caller's IP).
 package reddit
 
 import (
@@ -13,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 )
 
 const defaultMaxDepth = 5
@@ -90,24 +96,41 @@ type commentData struct {
 	Replies    json.RawMessage `json:"replies"`
 }
 
+var defaultChain = []fetchchain.Method{fetchchain.MethodAPI}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodAPI: true}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	ctx = core.WithAudit(ctx, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("reddit"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "reddit", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("reddit: %w", err)
+	}
+	return item, nil
+}
+
+func (f *Fetcher) fetchViaAPI(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	jsonURL, err := jsonURLFor(raw, f.BaseURL)
 	if err != nil {
 		return nil, err
 	}
-	ctx = core.WithAudit(ctx, opts.Audit)
 
 	var listings []listing
 	if err := core.GetJSON(ctx, jsonURL, &listings); err != nil {
-		return nil, fmt.Errorf("reddit: %w", err)
+		return nil, err
 	}
 	if len(listings) < 1 || len(listings[0].Data.Children) == 0 {
-		return nil, fmt.Errorf("reddit: no post in response")
+		return nil, fmt.Errorf("no post in response")
 	}
 
 	var post postData
 	if err := json.Unmarshal(listings[0].Data.Children[0].Data, &post); err != nil {
-		return nil, fmt.Errorf("reddit: decode post: %w", err)
+		return nil, fmt.Errorf("decode post: %w", err)
 	}
 
 	var comments []core.Comment

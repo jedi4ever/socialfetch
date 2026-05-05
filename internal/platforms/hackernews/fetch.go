@@ -1,5 +1,12 @@
 // Package hackernews fetches stories and comment trees from Hacker News
 // using the public Firebase API (https://github.com/HackerNews/API).
+//
+// Single-method today: only the `api` runner exists. The fetcher still
+// routes through the shared fetchchain primitive so operators see the
+// same SOCIAL_FETCH_CHAIN_<PLATFORM> knob across every fetcher; today
+// the only valid value is `api`. The slot exists so a future second
+// method (e.g. `jina` for an air-gapped fallback when the Firebase API
+// is unreachable) lands without a breaking config change.
 package hackernews
 
 import (
@@ -13,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmd"
 )
 
@@ -92,13 +100,30 @@ type hnItem struct {
 	Dead        bool   `json:"dead"`
 }
 
+var defaultChain = []fetchchain.Method{fetchchain.MethodAPI}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodAPI: true}
+
 // Fetch returns a populated Item for the given HN URL or ID.
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	ctx = core.WithAudit(ctx, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("hackernews"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "hackernews", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("hackernews: %w", err)
+	}
+	return item, nil
+}
+
+func (f *Fetcher) fetchViaAPI(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	id, err := extractID(raw)
 	if err != nil {
 		return nil, err
 	}
-	ctx = core.WithAudit(ctx, opts.Audit)
 
 	story, err := f.fetchItem(ctx, id)
 	if err != nil {

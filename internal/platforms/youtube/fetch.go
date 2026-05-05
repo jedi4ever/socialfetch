@@ -7,6 +7,9 @@
 // preceded by the video description; timestamped segments are kept in
 // item.Extra["transcript"] for callers that want to render them
 // differently (skim/jump-to-time).
+//
+// Single-method today (`api`); routes through fetchchain for env-var
+// consistency. SOCIAL_FETCH_CHAIN_YOUTUBE exists as a future-proof slot.
 package youtube
 
 import (
@@ -22,6 +25,7 @@ import (
 	yt "github.com/kkdai/youtube/v2"
 
 	"github.com/jedi4ever/social-skills/internal/core"
+	"github.com/jedi4ever/social-skills/internal/fetchchain"
 )
 
 type Fetcher struct {
@@ -110,21 +114,38 @@ func extractIDFromURL(u *url.URL) string {
 	return ""
 }
 
+var defaultChain = []fetchchain.Method{fetchchain.MethodAPI}
+var supportedMethods = map[fetchchain.Method]bool{fetchchain.MethodAPI: true}
+
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	ctx = core.WithAudit(ctx, opts.Audit)
+	chain := fetchchain.Resolve(fetchchain.FromEnv("youtube"), defaultChain, supportedMethods)
+	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
+		fetchchain.MethodAPI: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaAPI(ctx, raw, opts)
+		},
+	}
+	item, _, err := fetchchain.Run(ctx, "youtube", raw, opts.Audit, chain, runners)
+	if err != nil {
+		return nil, fmt.Errorf("youtube: %w", err)
+	}
+	return item, nil
+}
+
+func (f *Fetcher) fetchViaAPI(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("youtube: invalid url: %w", err)
+		return nil, fmt.Errorf("invalid url: %w", err)
 	}
 	id := extractIDFromURL(u)
 	if id == "" {
-		return nil, fmt.Errorf("youtube: no video id in %q", raw)
+		return nil, fmt.Errorf("no video id in %q", raw)
 	}
-	ctx = core.WithAudit(ctx, opts.Audit)
 
 	opts.Audit.Logf("youtube: fetching metadata for %s", id)
 	video, err := f.Client.GetVideoContext(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("youtube: get video: %w", err)
+		return nil, fmt.Errorf("get video: %w", err)
 	}
 
 	transcriptText, segments := f.fetchTranscript(ctx, video, opts)
