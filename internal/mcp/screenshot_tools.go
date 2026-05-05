@@ -30,6 +30,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/jedi4ever/social-skills/internal/ledger"
 	"github.com/jedi4ever/social-skills/internal/render/headless"
 )
 
@@ -78,26 +79,77 @@ func addScreenshotTool(s *server.MCPServer, cfg Config) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		// Persist to a temp file. Same prefix convention as
-		// writeContentTemp so social_fetch_read_file can serve it.
-		path, err := writeScreenshotTemp(res.PNG)
-		if err != nil {
-			audit.Logf("screenshot %s write failed: %v", args.URL, err)
-			return mcp.NewToolResultError(fmt.Sprintf("write png: %v", err)), nil
-		}
-		audit.Logf("screenshot %s → %s (%d bytes, engine=%s)", args.URL, path, len(res.PNG), res.Engine)
-
-		return jsonResult(map[string]any{
+		env := map[string]any{
 			"url":           args.URL,
 			"final_url":     res.FinalURL,
 			"engine":        res.Engine,
 			"full_page":     fullPage,
-			"content_file":  path,
 			"content_bytes": len(res.PNG),
 			"content_type":  "image/png",
-			"read_with":     "Claude Code: Read tool (auto-renders PNG). Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
-		})
+		}
+
+		// Daemon-mode preferred path: upload to the ledger daemon
+		// so the resulting URL works across machines / containers.
+		// MCP server, headless daemon, ledger daemon may all live
+		// in different processes — only HTTP transport is
+		// guaranteed; filesystem sharing is not.
+		var content_file string
+		var content_url string
+		if !ledger.Disabled() {
+			c := ledger.NewDaemonClient()
+			if c.Reachable(ctx) {
+				up, uerr := c.UploadScreenshot(ctx, res.PNG, "")
+				if uerr == nil {
+					content_url = up.URL
+					audit.Logf("screenshot %s → %s (%d bytes, engine=%s, via daemon)", args.URL, up.URL, len(res.PNG), res.Engine)
+				} else {
+					audit.Logf("screenshot %s daemon upload failed (%v), falling back to local file", args.URL, uerr)
+				}
+			}
+		}
+
+		// Local fallback: write to a temp file. Used when the
+		// daemon is down OR when the upload failed. Agent reads
+		// via Read (Claude Code) or social_fetch_read_file
+		// (Claude Desktop). Only useful when the MCP server and
+		// the agent share a filesystem (local Claude Desktop
+		// install) — for cross-machine MCP the content_url path
+		// above is the one that works.
+		if content_url == "" {
+			path, werr := writeScreenshotTemp(res.PNG)
+			if werr != nil {
+				audit.Logf("screenshot %s write failed: %v", args.URL, werr)
+				return mcp.NewToolResultError(fmt.Sprintf("write png: %v", werr)), nil
+			}
+			content_file = path
+			audit.Logf("screenshot %s → %s (%d bytes, engine=%s, local)", args.URL, path, len(res.PNG), res.Engine)
+		}
+
+		if content_file != "" {
+			env["content_file"] = content_file
+		}
+		if content_url != "" {
+			env["content_url"] = content_url
+		}
+		env["read_with"] = readWithGuidance(content_url != "", content_file != "")
+
+		return jsonResult(env)
 	}))
+}
+
+// readWithGuidance produces the agent-facing instruction line in
+// the screenshot envelope. We branch so the agent doesn't waste
+// reasoning on a path that doesn't apply (e.g. content_file when
+// the MCP server and agent live on different machines).
+func readWithGuidance(haveURL, haveFile bool) string {
+	switch {
+	case haveURL && haveFile:
+		return "Prefer `content_url` (works cross-machine via the ledger daemon). Fall back to `content_file` when the URL is unreachable: Claude Code uses the built-in Read tool, Claude Desktop uses social_fetch_read_file."
+	case haveURL:
+		return "Fetch `content_url` — the ledger daemon serves the PNG over HTTP. Works for cross-machine and remote MCP setups."
+	default:
+		return "Read `content_file`. Claude Code: built-in Read tool (auto-renders PNG). Claude Desktop: social_fetch_read_file with this `content_file` as `path`."
+	}
 }
 
 // writeScreenshotTemp writes PNG bytes to a temp file. Mirrors

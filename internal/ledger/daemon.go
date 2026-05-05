@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -138,6 +141,7 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 	mux.HandleFunc("/list", d.handleList)
 	mux.HandleFunc("/seen", d.handleSeen)
 	mux.HandleFunc("/stats", d.handleStats)
+	mux.HandleFunc("/screenshots/", d.handleScreenshots)
 	mux.HandleFunc("/shutdown", d.handleShutdown)
 
 	srv := &http.Server{
@@ -492,6 +496,180 @@ func (d *Daemon) handleStats(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(st)
+}
+
+// handleScreenshots multiplexes GET (serve a stored PNG) and POST
+// (upload a new PNG) on /screenshots/. POST replies with the
+// filename + URL the GET path will serve from. Filenames live in
+// <data_dir>/screenshots/ — the daemon owns this directory; clients
+// (MCP server, CLI on a different host/container) only know the
+// HTTP API.
+//
+// POST shape:
+//
+//	POST /screenshots                  body: raw PNG bytes
+//	                                   query: ?name=<file>.png (optional)
+//	                                   header: Content-Type: image/png
+//	200 application/json               {"filename":"...", "url":"...", "bytes":N}
+//
+// GET shape:
+//
+//	GET /screenshots/<filename>        200 image/png | 404
+//
+// The split lets cross-container deployments work: the MCP server
+// captures via the headless daemon (one container), POSTs the PNG
+// to the ledger daemon (another container), and returns the URL
+// to the agent — no shared volume needed.
+func (d *Daemon) handleScreenshots(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		d.serveScreenshot(w, r)
+	case http.MethodPost:
+		d.uploadScreenshot(w, r)
+	default:
+		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
+	}
+}
+
+// serveScreenshot returns the bytes of a stored PNG. Path safety:
+// filenames are restricted to alphanumeric + dot + dash + underscore,
+// must end in .png, and pass through filepath.Base so any `..`
+// component is stripped before the regex check.
+func (d *Daemon) serveScreenshot(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/screenshots/")
+	// "/screenshots" with no trailing path is a usage hint, not a
+	// served file.
+	if name == "" {
+		http.Error(w, "filename required: GET /screenshots/<file>.png", http.StatusBadRequest)
+		return
+	}
+	name = filepath.Base(name)
+	if !validScreenshotFilename(name) {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+	dir := d.screenshotsDir()
+	full := filepath.Join(dir, name)
+	f, err := os.Open(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	d.totalQueries.Add(1)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(w, f)
+}
+
+// uploadScreenshot accepts PNG bytes in the request body and writes
+// them to the daemon's screenshots dir. Filename is taken from the
+// `name` query when valid, otherwise auto-generated. Replies with
+// the canonical URL the GET path will serve from.
+//
+// Caller responsibility: send actual PNG bytes. We sniff the magic
+// header to refuse obvious mismatches (HTML error page, JSON, etc.)
+// but don't fully decode — the goal is to fail fast on
+// content-type confusion, not to validate every PNG byte.
+func (d *Daemon) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
+	// Bound the upload size — typical full-page screenshot is
+	// ~50-500 KB; cap at 16 MB so a runaway client can't exhaust
+	// the daemon's memory.
+	const maxUpload = 16 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxUpload+1))
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxUpload {
+		http.Error(w, "screenshot too large (max 16 MB)", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if len(body) < 8 || string(body[:8]) != "\x89PNG\r\n\x1a\n" {
+		http.Error(w, "body is not a PNG (magic bytes mismatch)", http.StatusBadRequest)
+		return
+	}
+
+	dir := d.screenshotsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		http.Error(w, "mkdir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Honour client-supplied name if it passes validation;
+	// otherwise auto-generate via os.CreateTemp so we don't
+	// collide with existing entries.
+	requested := strings.TrimSpace(r.URL.Query().Get("name"))
+	var path string
+	if requested != "" {
+		base := filepath.Base(requested)
+		if !validScreenshotFilename(base) {
+			http.Error(w, "invalid name", http.StatusBadRequest)
+			return
+		}
+		path = filepath.Join(dir, base)
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		f, err := os.CreateTemp(dir, "social-fetch-screenshot-*.png")
+		if err != nil {
+			http.Error(w, "create: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		path = f.Name()
+		if _, err := f.Write(body); err != nil {
+			f.Close()
+			os.Remove(path)
+			http.Error(w, "write: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		f.Close()
+	}
+
+	filename := filepath.Base(path)
+	d.recordEvent("screenshot", filename, true)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"filename": filename,
+		"url":      "/screenshots/" + filename,
+		"bytes":    len(body),
+	})
+}
+
+// screenshotsDir derives the per-project screenshots dir from
+// the daemon's DBPath. <project_root>/screenshots so the GET / POST
+// handlers agree on the same location regardless of how the daemon
+// was started.
+func (d *Daemon) screenshotsDir() string {
+	return filepath.Join(filepath.Dir(d.DBPath), "screenshots")
+}
+
+// validScreenshotFilename whitelists the names handleScreenshots
+// will serve. Pattern matches what writeScreenshotPNG produces
+// (social-fetch-screenshot-<slug>-<unix>.png) plus the looser CLI
+// `-o <path>` form that callers might choose. No path components,
+// no dotfiles, no extensions other than .png.
+var screenshotFilenameRE = regexp.MustCompile(`^[a-zA-Z0-9._-]+\.png$`)
+
+func validScreenshotFilename(s string) bool {
+	if s == "" || strings.HasPrefix(s, ".") {
+		return false
+	}
+	return screenshotFilenameRE.MatchString(s)
 }
 
 func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {

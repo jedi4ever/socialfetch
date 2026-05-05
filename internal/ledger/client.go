@@ -240,6 +240,80 @@ func (c *DaemonClient) ContentURL(urlStr string) string {
 	return c.BaseURL + "/content?" + v.Encode()
 }
 
+// ScreenshotURL builds the GET URL the daemon serves a stored
+// screenshot from. Doesn't fetch — caller is responsible for
+// ensuring the file exists, typically by UploadScreenshot first.
+func (c *DaemonClient) ScreenshotURL(filename string) string {
+	return c.BaseURL + "/screenshots/" + filename
+}
+
+// UploadScreenshotResponse is the parsed POST /screenshots reply.
+type UploadScreenshotResponse struct {
+	Filename string `json:"filename"`
+	URL      string `json:"url"`   // path on the daemon (e.g. /screenshots/foo.png)
+	Bytes    int    `json:"bytes"` // size of the stored payload
+}
+
+// UploadScreenshot POSTs PNG bytes to the daemon's /screenshots
+// endpoint. Returns the canonical absolute URL the agent can fetch
+// (BaseURL + the daemon's path). When name is empty the daemon
+// auto-generates a filename; otherwise the supplied name (validated
+// server-side) is used as-is.
+//
+// Used by the MCP screenshot tool to make captures cross-container
+// readable: the chromedp / headless container hands the PNG to the
+// MCP server, which uploads here so any agent (local or remote) can
+// read the result via the daemon's GET endpoint without filesystem
+// sharing.
+func (c *DaemonClient) UploadScreenshot(ctx context.Context, png []byte, name string) (*UploadScreenshotResponse, error) {
+	path := "/screenshots"
+	if name != "" {
+		path += "?name=" + url.QueryEscape(name)
+	}
+
+	timeout := c.Timeout
+	if timeout == 0 {
+		timeout = 90 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.BaseURL+path, bytes.NewReader(png))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "image/png")
+
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: read body: %w", err)
+	}
+	if err := nonOKToError(resp.StatusCode, respBody); err != nil {
+		return nil, err
+	}
+
+	var out UploadScreenshotResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("daemon: decode: %w", err)
+	}
+	// Daemon returns a path-only URL (e.g. /screenshots/foo.png)
+	// — promote it to an absolute URL so the caller doesn't have
+	// to know c.BaseURL.
+	if strings.HasPrefix(out.URL, "/") {
+		out.URL = c.BaseURL + out.URL
+	}
+	return &out, nil
+}
+
 // ----- low-level HTTP helpers -----
 //
 // IMPORTANT: get / post read the response body fully inside the

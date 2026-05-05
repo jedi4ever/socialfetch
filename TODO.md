@@ -110,3 +110,10 @@ caching fetch ?
 sscrrenshot via brdige (logged in)
 ====
 docker container for different deamons
+====
+- single container, debian+chromium, headless + ledger daemons exposed on 0.0.0.0:5556/5557, bridge skipped, MCP-as-SSE on 5558
+  - volume mount at /data for ledger persistence
+  - Dockerfile + docker-compose.yml (compose for local dev convenience even if it's one service) + .dockerignore
+  - README section + make docker-build / make docker-run targets
+
+====
