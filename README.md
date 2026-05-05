@@ -497,6 +497,42 @@ social-fetch bridge status        # 0 connected / 1 not connected / 2 not runnin
 social-fetch bridge stop          # SIGTERM the daemon
 ```
 
+## Ledger daemon (sandboxed agents + remote use)
+
+The local SQLite ledger can run as a long-lived HTTP daemon — the
+sole owner of the database file. Useful when:
+
+- The MCP server runs in a sandbox without filesystem access to
+  the ledger DB.
+- The MCP server runs on a different machine than the ledger.
+- You want write coordination across multiple concurrent fetchers
+  (the daemon serialises so the SQLite WAL contention story stays
+  simple).
+
+```bash
+social-ledger daemon start [--port 5557] [--bind 0.0.0.0:5557]
+social-ledger daemon status     # one-shot snapshot
+social-ledger daemon stop
+```
+
+When the daemon is reachable, every caller — `social-ledger`
+subcommands, social-fetch's auto-ingest, MCP tools — routes
+through HTTP. When it's not, callers fall back to opening the
+SQLite file directly. Switch modes by starting / stopping the
+daemon; no per-call config knob.
+
+Bonus: in daemon mode, MCP's `social_fetch_fetch` returns
+`content_url` (HTTP pointer to `/content?url=…`) instead of
+`content_file` (local path), so an agent on a different machine
+or in a sandboxed env can read the body over HTTP.
+
+Env vars:
+
+| var | default | purpose |
+|---|---|---|
+| `SOCIAL_LEDGER_DAEMON_URL` | http://127.0.0.1:5557 | client lookup; set to a remote URL for cross-host use |
+| `SOCIAL_LEDGER_DAEMON_DISABLE` | unset | non-empty = clients always use direct store / subprocess |
+
 ## Headless browser pool (anonymous JS-rendered fetches)
 
 Separate from the bridge. `social-fetch headless start` daemonises

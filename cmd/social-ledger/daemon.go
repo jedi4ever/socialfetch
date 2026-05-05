@@ -40,6 +40,8 @@ func cmdDaemon(args []string) error {
 		return runDaemonStop(args)
 	case "status", "ping":
 		return runDaemonStatus(args)
+	case "monitor", "watch":
+		return runDaemonMonitor(args)
 	}
 	if sub == "-h" || sub == "--help" {
 		printDaemonHelp()
@@ -56,6 +58,7 @@ Usage:
   social-ledger daemon start         fork a detached daemon (writes PID file)
   social-ledger daemon stop          stop the running daemon
   social-ledger daemon status        report daemon health
+  social-ledger daemon monitor       live-tail recent events (refresh 1s)
 
 Common flags:
   --port N                           loopback port (default 5557) — shortcut
@@ -321,6 +324,130 @@ func runDaemonStatus(args []string) error {
 	fmt.Printf("running — db=%s up=%ds ingests=%d queries=%d\n",
 		st.DBPath, st.UpSeconds, st.Ingests, st.Queries)
 	return nil
+}
+
+// runDaemonMonitor polls /status every refresh interval and re-
+// renders a live status panel with ANSI cursor moves so the
+// terminal shows a live updating view rather than scrolling
+// output. Mirrors the headless monitor's UX.
+func runDaemonMonitor(args []string) error {
+	refresh := 1 * time.Second
+	overrideURL := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-h", "--help":
+			fmt.Print(`social-ledger daemon monitor — live tail of ledger events
+
+Usage:
+  social-ledger daemon monitor [flags]
+
+Flags:
+  --refresh DUR    poll interval (default 1s, e.g. 500ms / 2s)
+  --port N         daemon port shortcut
+  --bind ADDR      daemon address (e.g. remote-host:5557)
+
+Ctrl-C to exit.
+`)
+			return nil
+		case "--refresh":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--refresh needs a value")
+			}
+			d, err := time.ParseDuration(args[i])
+			if err != nil || d <= 0 {
+				return fmt.Errorf("--refresh: invalid duration %q", args[i])
+			}
+			refresh = d
+		case "--port":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--port needs a value")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 || n > 65535 {
+				return fmt.Errorf("--port: invalid value %q", args[i])
+			}
+			overrideURL = fmt.Sprintf("http://127.0.0.1:%d", n)
+		case "--bind":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--bind needs a value")
+			}
+			overrideURL = "http://" + args[i]
+		default:
+			return fmt.Errorf("daemon monitor: unknown argument %q", args[i])
+		}
+	}
+
+	c := ledger.NewDaemonClient()
+	if overrideURL != "" {
+		c.BaseURL = overrideURL
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Hide cursor + restore on exit. Best-effort — terminals that
+	// don't grok ANSI just see the literal escape (rare today).
+	fmt.Print("\x1b[?25l")
+	defer fmt.Print("\x1b[?25h\n")
+
+	first := true
+	for {
+		probeCtx, cancelProbe := context.WithTimeout(ctx, 2*time.Second)
+		st, err := c.Status(probeCtx)
+		cancelProbe()
+
+		if !first {
+			fmt.Print("\x1b[H\x1b[J") // home + clear
+		}
+		first = false
+
+		fmt.Printf("social-ledger daemon monitor — %s  (refresh %s)\n\n",
+			time.Now().Format("15:04:05"), refresh)
+		if err != nil {
+			fmt.Printf("daemon not reachable: %v\n", err)
+		} else {
+			renderDaemonStatus(st)
+		}
+
+		select {
+		case <-time.After(refresh):
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// renderDaemonStatus formats a status response as a human-readable
+// panel — counters at the top, recent events below.
+func renderDaemonStatus(st *ledger.StatusResponse) {
+	fmt.Printf("running — db=%s up=%ds ingests=%d queries=%d\n",
+		st.DBPath, st.UpSeconds, st.Ingests, st.Queries)
+
+	if len(st.History) == 0 {
+		fmt.Println("\n  (no events yet)")
+		return
+	}
+	fmt.Println("\n  recent events:")
+	max := 15
+	if len(st.History) < max {
+		max = len(st.History)
+	}
+	for i := 0; i < max; i++ {
+		e := st.History[i]
+		mark := "ok"
+		if !e.OK {
+			mark = "FAIL"
+		}
+		detail := e.Detail
+		if len(detail) > 70 {
+			detail = detail[:67] + "..."
+		}
+		fmt.Printf("    %s  %-6s  %-4s  %s\n",
+			e.At.Format("15:04:05"), e.Kind, mark, detail)
+	}
 }
 
 func readLedgerPID() (int, bool) {

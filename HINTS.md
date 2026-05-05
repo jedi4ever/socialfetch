@@ -155,6 +155,43 @@ and fail fast when yt-dlp isn't installed.
 
 ---
 
+## Ledger daemon — sole owner of the SQLite ledger
+
+`social-ledger daemon start` daemonises the ledger behind an HTTP
+API on port 5557. Two operating modes:
+
+- **Direct** (no daemon running): every caller — CLI, MCP,
+  social-fetch's auto-ingest — opens the SQLite file directly.
+  Today's behaviour, untouched.
+- **Daemon** (daemon running): the daemon is the sole writer.
+  All callers route through HTTP. Required for sandboxed agents
+  (no filesystem access to the SQLite file) and remote MCP servers
+  (different machine than the ledger).
+
+```bash
+social-ledger daemon start [--port 5557] [--bind 0.0.0.0:5557]
+social-ledger daemon status                # one-shot snapshot
+social-ledger daemon stop
+```
+
+When daemon is up, MCP's `social_fetch_fetch` returns
+`content_url: http://daemon/content?url=…` instead of
+`content_file: /tmp/…` — agents fetch the body over HTTP without
+needing local file access.
+
+Knobs:
+
+| var | default | purpose |
+|---|---|---|
+| `SOCIAL_LEDGER_DAEMON_URL` | http://127.0.0.1:5557 | clients look here; set to remote URL for cross-host use |
+| `SOCIAL_LEDGER_DAEMON_DISABLE` | unset | non-empty = clients always use direct store / subprocess |
+
+Don't run `social-ledger ingest` (or any write subcommand) while
+the daemon is up — both processes will fight for the SQLite write
+lock. Stop the daemon first, run the CLI, restart the daemon.
+
+---
+
 ## Headless browser pool — the local Chromium daemon
 
 `social-fetch headless start` daemonises a pool of warm headless

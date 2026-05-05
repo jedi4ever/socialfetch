@@ -20,6 +20,12 @@ allowed-tools: |
   Bash(social-fetch headless monitor)
   Bash(social-fetch headless monitor *)
   Bash(social-fetch headless run)
+  Bash(scripts/social-ledger daemon start)
+  Bash(scripts/social-ledger daemon start *)
+  Bash(scripts/social-ledger daemon stop)
+  Bash(scripts/social-ledger daemon status)
+  Bash(scripts/social-ledger daemon status *)
+  Bash(scripts/social-ledger daemon run)
   Bash(social-fetch monitor *)
   Bash(social-fetch list)
   Bash(social-fetch hints)
@@ -261,6 +267,18 @@ URLs the LinkedIn fetcher claims: `linkedin.com/posts/…`, `linkedin.com/feed/u
 Errors you may see:
 - `bridge unreachable` → start it (`bridge start`).
 - `no extension connected` → open your browser; the extension reconnects every ~6s.
+
+### Ledger daemon (sandboxed / remote MCP)
+
+`social-ledger daemon start` daemonises the SQLite ledger behind an HTTP API on port 5557. When it's running, every caller — CLI, social-fetch's auto-ingest, MCP read tools — routes through HTTP instead of opening the SQLite file directly.
+
+```
+scripts/social-ledger daemon start
+scripts/social-ledger daemon status
+scripts/social-ledger daemon stop
+```
+
+In daemon mode, `social_fetch_fetch` returns `content_url` (HTTP pointer) instead of `content_file` (local path). Agents that don't have filesystem access to the daemon's host can still read fetched bodies. For local single-machine usage, leave it off — direct file access is faster (~10ms saved per call).
 
 ### Headless browser pool (faster anonymous fetches)
 

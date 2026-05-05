@@ -46,6 +46,66 @@ type Daemon struct {
 	totalQueries atomic.Int64
 	mu           sync.Mutex
 	closed       bool
+
+	// history holds the most recent N ingest/query events for the
+	// monitor command. Mutex-guarded; small fixed-size ring.
+	history   *eventRing
+	historyMu sync.Mutex
+}
+
+// EventEntry is one row in the recent-events ring buffer surfaced
+// via /status's History field. Used by `social-ledger daemon
+// monitor` to render a live tail.
+type EventEntry struct {
+	At     time.Time `json:"at"`
+	Kind   string    `json:"kind"` // "ingest" or "query"
+	Detail string    `json:"detail,omitempty"`
+	OK     bool      `json:"ok"`
+}
+
+// eventRing is a fixed-size ring of recent daemon events (32
+// entries — same cap as the headless daemon's history). Older
+// entries are overwritten; readers get a fresh slice in newest-
+// first order.
+type eventRing struct {
+	entries []EventEntry
+	cap     int
+}
+
+func newEventRing(cap int) *eventRing {
+	return &eventRing{entries: make([]EventEntry, 0, cap), cap: cap}
+}
+
+func (r *eventRing) add(e EventEntry) {
+	if len(r.entries) < r.cap {
+		r.entries = append(r.entries, e)
+		return
+	}
+	copy(r.entries, r.entries[1:])
+	r.entries[len(r.entries)-1] = e
+}
+
+// snapshot returns the entries newest-first.
+func (r *eventRing) snapshot() []EventEntry {
+	out := make([]EventEntry, len(r.entries))
+	for i, e := range r.entries {
+		out[len(r.entries)-1-i] = e
+	}
+	return out
+}
+
+// recordEvent appends to the history ring under the mutex. Cheap
+// — one allocation per event, no locking on the hot status path
+// since /status only reads.
+func (d *Daemon) recordEvent(kind, detail string, ok bool) {
+	if d.history == nil {
+		return // pre-Run() ingest path or test setup
+	}
+	d.historyMu.Lock()
+	defer d.historyMu.Unlock()
+	d.history.add(EventEntry{
+		At: time.Now(), Kind: kind, Detail: detail, OK: ok,
+	})
 }
 
 // Run opens the SQLite store and serves the HTTP API at addr until
@@ -66,6 +126,7 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 	}
 	d.store = st
 	d.startAt = time.Now()
+	d.history = newEventRing(32)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", d.handleStatus)
@@ -158,23 +219,33 @@ type SeenResponse struct {
 
 // StatusResponse is the daemon health answer. Mirrors the shape
 // of the headless daemon's status — uptime, query counts, db
-// path so monitoring scripts know which DB is active.
+// path so monitoring scripts know which DB is active. History
+// carries the last 32 ingest/query events so the monitor command
+// can render a live tail without a separate /events stream.
 type StatusResponse struct {
-	UpSeconds int64  `json:"up_seconds"`
-	DBPath    string `json:"db_path"`
-	Ingests   int64  `json:"ingests_total"`
-	Queries   int64  `json:"queries_total"`
+	UpSeconds int64        `json:"up_seconds"`
+	DBPath    string       `json:"db_path"`
+	Ingests   int64        `json:"ingests_total"`
+	Queries   int64        `json:"queries_total"`
+	History   []EventEntry `json:"history,omitempty"`
 }
 
 // ----- handlers -----
 
 func (d *Daemon) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	var hist []EventEntry
+	if d.history != nil {
+		d.historyMu.Lock()
+		hist = d.history.snapshot()
+		d.historyMu.Unlock()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(StatusResponse{
 		UpSeconds: int64(time.Since(d.startAt).Seconds()),
 		DBPath:    d.DBPath,
 		Ingests:   d.totalIngest.Load(),
 		Queries:   d.totalQueries.Load(),
+		History:   hist,
 	})
 }
 
@@ -211,6 +282,11 @@ func (d *Daemon) handleIngest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.totalIngest.Add(int64(len(req.Items)))
+	// Record one event per item URL — easier to read in the
+	// monitor view than a single batched line.
+	for _, it := range req.Items {
+		d.recordEvent("ingest", it.URL, true)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -267,6 +343,7 @@ func (d *Daemon) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.totalQueries.Add(1)
+	d.recordEvent("query", "search "+q, true)
 	writeJSONItems(w, items)
 }
 
@@ -402,6 +479,7 @@ func (d *Daemon) handleSeen(w http.ResponseWriter, r *http.Request) {
 		resp.Source = hit.Source
 		resp.LastSeen = hit.FetchedAt.Unix()
 	}
+	d.recordEvent("query", "seen "+url, true)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }

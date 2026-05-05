@@ -259,15 +259,26 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 			}
 			return jsonResult(item)
 		}
-		return fetchEnvelope(item, hint, "fetch")
+		return fetchEnvelope(ctx, item, hint, "fetch")
 	}))
 }
 
-// fetchEnvelope renders the Item to markdown, writes it to a temp file,
-// and returns a small JSON envelope with metadata + content_file. If
-// the temp write fails (out of disk, permissions), falls back to the
-// inline shape so the caller never loses content.
-func fetchEnvelope(item *core.Item, hint, tool string) (*mcp.CallToolResult, error) {
+// fetchEnvelope renders the Item to markdown and returns a small
+// JSON envelope with metadata + a pointer to the body. The pointer
+// shape depends on whether the ledger daemon is reachable:
+//
+//   - daemon up   → content_url = http://daemon/content?url=<item.URL>.
+//     Agents fetch the body over HTTP — works for remote MCP servers
+//     and sandboxed agents that don't have filesystem access. The
+//     auto-ingest write the body to the daemon-owned SQLite has
+//     already landed (see the ledger.Ingest call above).
+//   - daemon down → content_file = /tmp/social-fetch-…/<file>.md.
+//     Today's behaviour, preserved for the local-only case.
+//
+// If the temp write fails (out of disk, permissions) AND the daemon
+// path isn't available, falls back to the inline shape so the
+// caller never loses content.
+func fetchEnvelope(ctx context.Context, item *core.Item, hint, tool string) (*mcp.CallToolResult, error) {
 	if item == nil {
 		return mcp.NewToolResultError("no item returned"), nil
 	}
@@ -276,10 +287,7 @@ func fetchEnvelope(item *core.Item, hint, tool string) (*mcp.CallToolResult, err
 		// Fallback — better to return the item inline than to error.
 		return jsonResult(item)
 	}
-	path, n, err := writeContentTemp(tool, "md", buf.String())
-	if err != nil {
-		return jsonResult(item)
-	}
+
 	env := map[string]any{
 		"source":        item.Source,
 		"kind":          item.Kind,
@@ -291,12 +299,41 @@ func fetchEnvelope(item *core.Item, hint, tool string) (*mcp.CallToolResult, err
 		"tags":          item.Tags,
 		"published":     item.Published,
 		"fetched_at":    item.FetchedAt,
-		"content_file":  path,
-		"content_bytes": n,
 		"comment_count": countComments(item.Comments),
 		"child_count":   len(item.Children),
-		"read_with":     "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`.",
 	}
+
+	// Daemon-mode envelope: prefer content_url (remote-readable)
+	// over content_file (local path only). The /content endpoint
+	// returns the body the daemon already ingested above.
+	if !ledger.Disabled() && item.URL != "" {
+		c := ledger.NewDaemonClient()
+		if c.Reachable(ctx) {
+			env["content_url"] = c.ContentURL(item.URL)
+			env["content_bytes"] = buf.Len()
+			env["read_with"] = "Daemon-mode: GET the `content_url` over HTTP to read the body. Agent fetch / Read tools that follow URLs work directly."
+			return finishFetchEnvelope(env, item, hint)
+		}
+	}
+
+	// Local mode: write the markdown body to a temp file and return
+	// a path. Today's behaviour, preserved for callers without a
+	// running daemon (single-machine MCP, no sandboxing concern).
+	path, n, err := writeContentTemp(tool, "md", buf.String())
+	if err != nil {
+		return jsonResult(item)
+	}
+	env["content_file"] = path
+	env["content_bytes"] = n
+	env["read_with"] = "Claude Code: Read tool. Claude Desktop: social_fetch_read_file with this `content_file` as `path`."
+	return finishFetchEnvelope(env, item, hint)
+}
+
+// finishFetchEnvelope adds the cross-mode fields (request_url,
+// media[], hint) that both content_file and content_url envelopes
+// carry. Factored out so the two mode-specific branches above
+// don't have to duplicate the trailer.
+func finishFetchEnvelope(env map[string]any, item *core.Item, hint string) (*mcp.CallToolResult, error) {
 	if item.RequestURL != "" && item.RequestURL != item.URL {
 		env["request_url"] = item.RequestURL
 	}
