@@ -41,6 +41,8 @@ func cmdUp(args []string) error {
 	authToken := fs.String("token", "", "MCP_AUTH_TOKEN to bake into each sandbox; empty = auto-generate one (shared across the batch)")
 	expires := fs.Int("expires", 3600, "preview URL expiration in seconds")
 	port := fs.Int("port", 5558, "port to expose via the preview URL (default 5558 = MCP HTTP)")
+	autoStop := fs.Int("auto-stop", 0, "auto-stop after N minutes of inactivity (0 = never auto-stop, runs until `social-daytona down`). Daytona's own default would be 15min which is too short for most dev sessions.")
+	autoArchive := fs.Int("auto-archive", 0, "auto-archive a stopped sandbox after N minutes (0 = use Daytona default of ~7 days)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -89,6 +91,10 @@ func cmdUp(args []string) error {
 				"social-daytona-instance": fmt.Sprintf("%d", i),
 				"social-daytona-version":  Version,
 			},
+			AutoStopInterval: intPtr(*autoStop),
+		}
+		if *autoArchive > 0 {
+			req.AutoArchiveInterval = intPtr(*autoArchive)
 		}
 		ws, err := c.CreateWorkspace(ctx, req)
 		if err != nil {
@@ -144,3 +150,8 @@ func randomHex(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// intPtr is a tiny helper for the auto-stop / auto-archive
+// fields, which need a pointer to distinguish "send 0 to mean
+// never" from "field absent, use API default."
+func intPtr(n int) *int { return &n }

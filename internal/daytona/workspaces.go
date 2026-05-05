@@ -57,6 +57,24 @@ type CreateWorkspaceRequest struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	Public bool              `json:"public,omitempty"`
 	User   string            `json:"user,omitempty"`
+
+	// AutoStopInterval is the inactivity window in minutes after
+	// which Daytona stops the sandbox to save compute cost. 0 = no
+	// auto-stop (runs until explicitly torn down). Default in the
+	// Daytona API is 15 — too short for development sessions where
+	// the operator wants the sandbox alive across pauses. Use 0
+	// for "until I tell you to stop", or e.g. 240 for "auto-stop
+	// after 4h idle".
+	//
+	// Pointer so we can distinguish "0 = explicit no auto-stop"
+	// from "field omitted entirely (use API default)".
+	AutoStopInterval *int `json:"autoStopInterval,omitempty"`
+
+	// AutoArchiveInterval is the wall-clock window in minutes
+	// after which Daytona archives a stopped sandbox (frees
+	// resources but keeps state recoverable). 0 = use API default
+	// (~7 days).
+	AutoArchiveInterval *int `json:"autoArchiveInterval,omitempty"`
 }
 
 // listWorkspaceResponse is the GET /api/workspace shape. The list
