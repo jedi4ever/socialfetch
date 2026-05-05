@@ -253,6 +253,8 @@ func run(args []string) error {
 		return runResearch(rest)
 	case "bridge":
 		return runBridge(rest)
+	case "headless":
+		return runHeadless(rest)
 	case "monitor":
 		return runMonitor(rest)
 	case "mcp":

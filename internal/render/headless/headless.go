@@ -233,17 +233,42 @@ func OptionsFromEnv() Options {
 	return opts
 }
 
-// Fetch loads the URL in a fresh stealth Chromium and returns the
-// rendered HTML + the post-redirect final URL. Every call gets a
-// brand-new browser context — no session reuse — so a previous
-// fetch's cookies / localStorage / cache can't bleed into the next.
+// Fetch loads the URL via the headless daemon when one is reachable,
+// otherwise falls back to spawning a fresh stealth Chromium in-process.
+// The daemon path is much faster (no per-call ~2s Chrome warmup),
+// the in-process path keeps single-shot CLI usage working with no
+// daemon dependency.
 //
-// Cookies in opts.Cookies are injected before navigation; cookies
-// scoped to a domain that doesn't match the requested URL stay
-// inert (Chrome's same-origin policy filters them server-side).
+// Daemon discovery is via SOCIAL_FETCH_HEADLESS_DAEMON_URL (default
+// http://127.0.0.1:5556 — what `social-fetch headless start` listens
+// on). Probe is capped at 250 ms so the overhead on every fetch is
+// bounded regardless of daemon state.
+//
+// In-process path: every call gets a brand-new browser context — no
+// session reuse — so a previous fetch's cookies / localStorage /
+// cache can't bleed into the next. Cookies in opts.Cookies are
+// injected before navigation; cookies scoped to a domain that
+// doesn't match the requested URL stay inert (Chrome's same-origin
+// policy filters them server-side).
+//
+// Cookies are NOT honoured in daemon mode today — the daemon is
+// anonymous-only. Callers that need cookie injection must use
+// NewWithOptions(Options{Cookies: ...}) which always takes the
+// in-process path (the daemon probe is skipped when cookies are set).
 func (f *Fetcher) Fetch(ctx context.Context, raw string) (*Result, error) {
 	if raw == "" {
 		return nil, errors.New("headless: empty URL")
+	}
+
+	// Daemon-mode fast path: skip when the call needs cookies (the
+	// daemon doesn't accept them) or when the operator explicitly
+	// disabled it via env. Otherwise probe for the daemon and use
+	// it transparently.
+	if len(f.Options.Cookies) == 0 && os.Getenv("SOCIAL_FETCH_HEADLESS_DAEMON_DISABLE") == "" {
+		client := NewDaemonClient()
+		if client.Reachable(ctx) {
+			return client.Fetch(ctx, raw)
+		}
 	}
 
 	allocOpts := buildAllocatorOpts(f.Options)
