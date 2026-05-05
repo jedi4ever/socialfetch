@@ -32,7 +32,7 @@ import (
 // Bump together — see cmd/social-fetch/main.go for the canonical
 // versioning rule + the make-check rule that enforces all five
 // version fields agree before a commit lands.
-const Version = "0.13.12"
+const Version = "0.13.13"
 
 func main() {
 	// Pull DAYTONA_API_KEY / ORG_ID / API_URL out of any .env in

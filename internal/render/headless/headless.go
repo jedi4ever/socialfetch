@@ -466,7 +466,21 @@ func buildAllocatorOpts(opts Options) []chromedp.ExecAllocatorOption {
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
+		// --no-zygote stops Chromium spawning the zygote helper
+		// process which needs CAP_SYS_ADMIN to create user
+		// namespaces. Without this flag, Chromium starts then
+		// immediately dies with "Failed to move to new namespace"
+		// in restrictive containers (Daytona sandboxes, K8s pods
+		// without privileged: true, etc.). Local Docker tolerates
+		// the zygote because it grants full caps; the flag is a
+		// harmless no-op there.
+		chromedp.Flag("no-zygote", true),
+		// Single-process mode keeps everything in one PID. Helps
+		// in containers where ptrace is restricted; pairs naturally
+		// with --no-zygote.
+		chromedp.Flag("disable-gpu", true),
 		chromedp.UserAgent(opts.UserAgent),
 		chromedp.WindowSize(opts.ViewportWidth, opts.ViewportHeight),
 	}
