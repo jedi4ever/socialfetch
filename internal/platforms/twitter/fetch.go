@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	stdhtml "html"
 	"math"
 	"net/http"
 	"net/url"
@@ -31,8 +32,11 @@ import (
 
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/headless"
 	"github.com/jedi4ever/social-skills/internal/render/htmlmd"
 )
+
+var stdHTMLUnescape = stdhtml.UnescapeString
 
 const defaultBaseURL = "https://cdn.syndication.twimg.com"
 
@@ -184,6 +188,7 @@ var supportedMethods = map[fetchchain.Method]bool{
 	fetchchain.MethodAPI:         true,
 	fetchchain.MethodSyndication: true,
 	fetchchain.MethodJina:        true,
+	fetchchain.MethodHeadless:    true,
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
@@ -207,6 +212,9 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		},
 		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaJina(ctx, raw, id)
+		},
+		fetchchain.MethodHeadless: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHeadless(ctx, raw, id)
 		},
 	}
 	item, _, err := fetchchain.Run(ctx, "twitter", raw, opts.Audit, chain, runners)
@@ -273,6 +281,75 @@ func (f *Fetcher) fetchViaSyndication(ctx context.Context, id string) (*core.Ite
 			"via":            "syndication",
 		},
 	}, nil
+}
+
+// fetchViaHeadless drives a fresh stealth Chromium against the
+// tweet URL. X serves an aggressive login wall to anonymous
+// visitors — what we get back is mostly nav + sign-up CTAs unless
+// the tweet happens to be in a public-readable shape that day.
+//
+// Not in the default chain because X's anti-bot makes this path
+// unreliable: the api+syndication paths give cleaner structured
+// data when they work, and headless rarely beats them. Available
+// for operators who set SOCIAL_FETCH_CHAIN_TWITTER=headless,jina
+// explicitly when neither api nor syndication are an option.
+func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw, id string) (*core.Item, error) {
+	res, err := headless.New().Fetch(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	// X's anonymous page wraps the tweet body in a meta og:title and
+	// og:description that are server-rendered — same shape Jina
+	// scrapes. We don't run the full HTML through htmlmd.Convert
+	// because the page is 90% chrome; instead we extract from
+	// og: tags directly.
+	title := metaContent(res.HTML, "og:title")
+	body := metaContent(res.HTML, "og:description")
+	return &core.Item{
+		Source:      "twitter",
+		Kind:        "tweet",
+		URL:         raw,
+		CanonicalID: id,
+		Title:       firstLine(title, 80),
+		Content:     strings.TrimSpace(body),
+		FetchedAt:   time.Now().UTC(),
+		Extra: map[string]any{
+			"requested_url": raw,
+			"via":           "headless",
+			"engine":        res.Engine,
+			"anonymous":     true,
+		},
+	}, nil
+}
+
+// metaContent pulls the `content` attribute of the first `<meta>`
+// whose name or property matches key. Tiny regex-based extractor —
+// X's og:title / og:description are server-rendered so we don't
+// need to walk the full DOM. The pattern accepts attributes in
+// either order (property-then-content, content-then-property) and
+// either single or double quotes.
+func metaContent(html, key string) string {
+	patterns := []string{
+		`<meta[^>]+property=["']` + regexp.QuoteMeta(key) + `["'][^>]+content=["']([^"']*)["']`,
+		`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']` + regexp.QuoteMeta(key) + `["']`,
+		`<meta[^>]+name=["']` + regexp.QuoteMeta(key) + `["'][^>]+content=["']([^"']*)["']`,
+	}
+	for _, p := range patterns {
+		re := regexp.MustCompile(p)
+		if m := re.FindStringSubmatch(html); len(m) >= 2 {
+			return htmlUnescape(m[1])
+		}
+	}
+	return ""
+}
+
+// htmlUnescape decodes the &amp; / &quot; / &#39; entities meta
+// tag values are commonly written with. golang.org/x/net/html has
+// an UnescapeString helper but we already import the lighter html
+// package elsewhere in this file via tweetIDRE — keep it stdlib by
+// using the standard library's html package directly.
+func htmlUnescape(s string) string {
+	return stdHTMLUnescape(s)
 }
 
 // fetchViaJina is the body-only anonymous fallback. Routes the tweet
