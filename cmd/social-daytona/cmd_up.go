@@ -76,11 +76,11 @@ func cmdUp(args []string) error {
 	results := make([]result, *n)
 	for i := 0; i < *n; i++ {
 		req := daytona.CreateWorkspaceRequest{
-			Snapshot: *snapshot,
-			CPU:      *cpu,
-			Memory:   *memory,
-			Disk:     *disk,
-			Target:   *target,
+			Image:  *snapshot, // API field is `image`, not `snapshot`
+			CPU:    *cpu,
+			Memory: *memory,
+			Disk:   *disk,
+			Target: *target,
 			Env: map[string]string{
 				"MCP_AUTH_TOKEN": token,
 			},

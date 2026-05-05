@@ -7,6 +7,7 @@ package daytona
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 )
 
@@ -33,21 +34,29 @@ type Workspace struct {
 	CreatedAt      string            `json:"createdAt,omitempty"`
 }
 
-// CreateWorkspaceRequest is the body for POST /api/workspace. Only
-// the fields we actually pass; the API has more knobs (gpu, network
-// allow-list, auto-archive, …) that we can add when we need them.
+// CreateWorkspaceRequest is the body for POST /api/workspace.
+//
+// Important: the field that drives "which snapshot/image to launch
+// from" is `image` (not `snapshot`). The API silently falls back
+// to its built-in default sandbox image when `image` is missing
+// or unknown — there's no error, no warning, just a sandbox with
+// the wrong contents. Painful to diagnose; we always send `image`.
+//
+// Only the knobs we actually use are modelled; the API has more
+// (gpu, network allow-list, auto-archive, …) that we can add when
+// they come up.
 type CreateWorkspaceRequest struct {
-	Snapshot string            `json:"snapshot"`
-	Name     string            `json:"name,omitempty"`
-	Class    string            `json:"class,omitempty"` // small | medium | large
-	Target   string            `json:"target,omitempty"`
-	CPU      int               `json:"cpu,omitempty"`
-	Memory   int               `json:"memory,omitempty"`
-	Disk     int               `json:"disk,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
-	Public   bool              `json:"public,omitempty"`
-	User     string            `json:"user,omitempty"`
+	Image  string            `json:"image"`
+	Name   string            `json:"name,omitempty"`
+	Class  string            `json:"class,omitempty"` // small | medium | large
+	Target string            `json:"target,omitempty"`
+	CPU    int               `json:"cpu,omitempty"`
+	Memory int               `json:"memory,omitempty"`
+	Disk   int               `json:"disk,omitempty"`
+	Env    map[string]string `json:"env,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
+	Public bool              `json:"public,omitempty"`
+	User   string            `json:"user,omitempty"`
 }
 
 // listWorkspaceResponse is the GET /api/workspace shape. The list
@@ -84,30 +93,31 @@ func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 
 // PreviewURL is the response shape for the preview-url endpoint —
 // signed tunnel URL the agent uses to reach a port inside a
-// sandbox. The signature embeds an expiration so URLs auto-expire
-// (default 1h server-side; configurable via expires query param).
+// sandbox. The URL embeds the sandbox id + port; Token is a
+// short-lived bearer the URL itself accepts (Daytona signs the
+// proxy URL host-side; the agent doesn't need to add auth headers).
 type PreviewURL struct {
-	URL       string `json:"url"`
-	ExpiresAt string `json:"expiresAt,omitempty"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
-// GetPreviewURL fetches a signed URL for a sandbox's port. Returns
-// the parsed shape; caller hands `.URL` to the agent / operator.
+// GetPreviewURL fetches a signed URL for a sandbox's port. Endpoint
+// shape verified against api v0.172: GET
+// /workspace/<id>/ports/<port>/preview-url returns {url, token}.
+// The port lives as a path segment, not a query parameter.
 //
-// Endpoint shape (unconfirmed against newer API versions; will
-// adjust if 404). The Daytona CLI command equivalent is:
-//
-//	daytona preview-url <id> --port 5558 --expires 3600
+// expiresSec is unused today — Daytona's signed URLs are sized
+// server-side via account policy, not per-call. Kept in the
+// signature for forward-compat.
 func (c *Client) GetPreviewURL(ctx context.Context, sandboxID string, port int, expiresSec int) (*PreviewURL, error) {
-	q := url.Values{}
-	if port > 0 {
-		q.Set("port", itoa(port))
+	if port <= 0 {
+		return nil, fmt.Errorf("port must be > 0")
 	}
-	if expiresSec > 0 {
-		q.Set("expires", itoa(expiresSec))
-	}
+	path := "/workspace/" + url.PathEscape(sandboxID) +
+		"/ports/" + itoa(port) +
+		"/preview-url"
 	var out PreviewURL
-	if err := c.getJSON(ctx, "/workspace/"+url.PathEscape(sandboxID)+"/preview-url", q, &out); err != nil {
+	if err := c.getJSON(ctx, path, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

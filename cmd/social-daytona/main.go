@@ -24,6 +24,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/jedi4ever/social-skills/internal/util/dotenv"
 )
 
 // Version is held in lockstep with social-fetch / social-ledger.
@@ -33,6 +35,13 @@ import (
 const Version = "0.13.12"
 
 func main() {
+	// Pull DAYTONA_API_KEY / ORG_ID / API_URL out of any .env in
+	// the cwd or the repo root before any subcommand runs. Same
+	// shared resolver social-fetch / social-ledger use, so a
+	// single .env serves all three binaries — operators don't
+	// have to remember which tool needs `set -a; source .env`.
+	dotenv.LoadAuto()
+
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "social-daytona:", err)
 		os.Exit(1)
