@@ -98,20 +98,19 @@ func (c *DaemonClient) Status(ctx context.Context) (*StatusResponse, error) {
 // what happened — same shape store.Ingest returns per item but
 // summed for the whole batch.
 func (c *DaemonClient) Ingest(ctx context.Context, items []item.Item) (*IngestResponse, error) {
-	body, err := json.Marshal(IngestRequest{Items: items})
+	reqBody, err := json.Marshal(IngestRequest{Items: items})
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.post(ctx, "/ingest", body)
+	respBody, status, err := c.post(ctx, "/ingest", reqBody)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, respBody); err != nil {
 		return nil, err
 	}
 	var out IngestResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(respBody, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -133,19 +132,18 @@ func (c *DaemonClient) Search(ctx context.Context, q string, limit int) ([]item.
 func (c *DaemonClient) Get(ctx context.Context, urlStr string) (*item.Item, error) {
 	v := url.Values{}
 	v.Set("url", urlStr)
-	resp, err := c.get(ctx, "/get?"+v.Encode())
+	body, status, err := c.get(ctx, "/get?"+v.Encode())
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
+	if status == http.StatusNotFound {
 		return nil, nil
 	}
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, body); err != nil {
 		return nil, err
 	}
 	var it item.Item
-	if err := json.NewDecoder(resp.Body).Decode(&it); err != nil {
+	if err := json.Unmarshal(body, &it); err != nil {
 		return nil, err
 	}
 	return &it, nil
@@ -171,16 +169,15 @@ func (c *DaemonClient) List(ctx context.Context, opts store.ListOpts) ([]item.It
 func (c *DaemonClient) Seen(ctx context.Context, urlStr string) (*SeenResponse, error) {
 	v := url.Values{}
 	v.Set("url", urlStr)
-	resp, err := c.get(ctx, "/seen?"+v.Encode())
+	body, status, err := c.get(ctx, "/seen?"+v.Encode())
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, body); err != nil {
 		return nil, err
 	}
 	var s SeenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+	if err := json.Unmarshal(body, &s); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -188,16 +185,15 @@ func (c *DaemonClient) Seen(ctx context.Context, urlStr string) (*SeenResponse, 
 
 // Stats hits GET /stats and returns the parsed response.
 func (c *DaemonClient) Stats(ctx context.Context) (*store.Stats, error) {
-	resp, err := c.get(ctx, "/stats")
+	body, status, err := c.get(ctx, "/stats")
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, body); err != nil {
 		return nil, err
 	}
 	var s store.Stats
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+	if err := json.Unmarshal(body, &s); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -217,17 +213,16 @@ func (c *DaemonClient) Forget(ctx context.Context, urlOrKey string) (bool, error
 	} else {
 		req.Key = urlOrKey
 	}
-	body, _ := json.Marshal(req)
-	resp, err := c.post(ctx, "/forget", body)
+	reqBody, _ := json.Marshal(req)
+	respBody, status, err := c.post(ctx, "/forget", reqBody)
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, respBody); err != nil {
 		return false, err
 	}
 	var out ForgetResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(respBody, &out); err != nil {
 		return false, err
 	}
 	return out.Deleted, nil
@@ -246,8 +241,20 @@ func (c *DaemonClient) ContentURL(urlStr string) string {
 }
 
 // ----- low-level HTTP helpers -----
+//
+// IMPORTANT: get / post read the response body fully inside the
+// helper before returning. The earlier shape — returning a
+// *http.Response that the caller streamed via json.NewDecoder —
+// had a latent race: the helper used context.WithTimeout +
+// `defer cancel()`, so the context was cancelled the moment the
+// helper returned, and any reads from resp.Body after that
+// point died with `context canceled`. For small responses that
+// fit in the kernel's TCP receive buffer the read succeeded
+// without re-checking the ctx; for larger responses (e.g. 14
+// influencer rows ~ 30 KB) the read failed mid-stream. Buffering
+// internally removes the foot-gun entirely.
 
-func (c *DaemonClient) get(ctx context.Context, path string) (*http.Response, error) {
+func (c *DaemonClient) get(ctx context.Context, path string) (body []byte, status int, err error) {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
@@ -256,24 +263,42 @@ func (c *DaemonClient) get(ctx context.Context, path string) (*http.Response, er
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return c.client(timeout).Do(req)
+	resp, err := c.client(timeout).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return body, resp.StatusCode, nil
 }
 
-func (c *DaemonClient) post(ctx context.Context, path string, body []byte) (*http.Response, error) {
+func (c *DaemonClient) post(ctx context.Context, path string, reqBody []byte) (body []byte, status int, err error) {
 	timeout := c.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.BaseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.BaseURL+path, bytes.NewReader(reqBody))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.client(timeout).Do(req)
+	resp, err := c.client(timeout).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return body, resp.StatusCode, nil
 }
 
 func (c *DaemonClient) client(timeout time.Duration) *http.Client {
@@ -284,16 +309,15 @@ func (c *DaemonClient) client(timeout time.Duration) *http.Client {
 }
 
 func (c *DaemonClient) getItems(ctx context.Context, path string) ([]item.Item, error) {
-	resp, err := c.get(ctx, path)
+	body, status, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if err := nonOKToError(resp); err != nil {
+	if err := nonOKToError(status, body); err != nil {
 		return nil, err
 	}
 	var items []item.Item
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+	if err := json.Unmarshal(body, &items); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -302,14 +326,21 @@ func (c *DaemonClient) getItems(ctx context.Context, path string) ([]item.Item, 
 // nonOKToError converts non-2xx responses into errors that
 // surface the body — the daemon writes plain-text errors via
 // http.Error so curl/log debugging stays readable.
-func nonOKToError(resp *http.Response) error {
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+//
+// Takes (status, body) rather than *http.Response so callers can
+// pre-read the body and let the underlying connection /
+// timeout-context close before this runs (see the IMPORTANT
+// note above the get/post helpers for why).
+func nonOKToError(status int, body []byte) error {
+	if status >= 200 && status < 300 {
 		return nil
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if len(body) > 1024 {
+		body = body[:1024]
+	}
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
-		msg = http.StatusText(resp.StatusCode)
+		msg = http.StatusText(status)
 	}
-	return errors.New("ledger daemon: HTTP " + strconv.Itoa(resp.StatusCode) + ": " + msg)
+	return errors.New("ledger daemon: HTTP " + strconv.Itoa(status) + ": " + msg)
 }
