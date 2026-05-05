@@ -239,26 +239,62 @@ func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Opti
 // r.jina.ai which has its own anti-CF + headless-browser
 // infrastructure and returns clean markdown. We don't run it through
 // htmlmeta because Jina has already stripped the structural HTML —
-// no og: tags / JSON-LD / canonical link survives, so the resulting
-// Item is body-only with empty Author / Published / Tags / Media.
+// no og: tags / JSON-LD / canonical link survives. But Jina's own
+// envelope (JSON mode) or preamble (markdown mode) does carry
+// title + canonical URL + published time, surfaced via ReadFull().
 func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
 	_ = opts // audit goes through ctx via core.WithAudit
-	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	res, err := htmlmd.NewJinaReader().ReadFull(ctx, raw)
 	if err != nil {
 		return nil, err
+	}
+	finalURL := raw
+	if res.URL != "" {
+		finalURL = res.URL
+	}
+	var published *time.Time
+	if t := parseJinaTime(res.PublishedTime); t != nil {
+		published = t
 	}
 	return &core.Item{
 		Source:      "article",
 		Kind:        "article",
-		URL:         raw,
-		CanonicalID: raw,
-		Content:     strings.TrimSpace(md),
+		URL:         finalURL,
+		CanonicalID: finalURL,
+		Title:       res.Title,
+		Summary:     res.Description,
+		Published:   published,
+		Content:     strings.TrimSpace(res.Content),
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": raw,
 			"via":           "jina",
 		},
 	}, nil
+}
+
+// parseJinaTime parses Jina's PublishedTime field. Best-effort —
+// Jina populates it from og:article:published_time / JSON-LD when
+// it can find one; the format is usually RFC3339 but we accept a
+// few common variants and return nil rather than failing on
+// anything we don't recognise.
+func parseJinaTime(s string) *time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z",
+		"2006-01-02",
+		time.RFC1123,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			u := t.UTC()
+			return &u
+		}
+	}
+	return nil
 }
 
 // parseAndExtract is the shared "bytes → Item" tail used by both the

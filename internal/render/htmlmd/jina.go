@@ -197,14 +197,46 @@ func NewJinaReaderWithOptions(opts JinaOptions) *JinaReader {
 	}
 }
 
-// Read fetches the URL through Jina and returns the markdown body.
-// Whether the wire response is JSON or markdown is controlled by
-// j.Options.Format; the return type stays markdown either way so
-// callers don't have to branch on format.
+// JinaResult is the structured output of a Jina fetch — the same
+// shape regardless of whether the wire format was JSON (envelope
+// fields read directly) or markdown (preamble parsed out of the
+// `Title: ...` / `URL Source: ...` / `Markdown Content:` header
+// Jina prepends). Platform fetchers should use ReadFull() and
+// consume these fields rather than re-parsing the body.
+//
+// Empty-string fields mean "Jina didn't surface this for this URL"
+// — most public pages have Title + URL; PublishedTime and
+// Description are sparser. Content is always populated on success.
+type JinaResult struct {
+	Title         string
+	Description   string
+	URL           string // canonical URL Jina resolved (post-redirect)
+	Content       string // markdown body
+	PublishedTime string // ISO8601 when present
+}
+
+// Read is the legacy single-string entry point. Delegates to
+// ReadFull and returns just the body — callers that need the
+// structured fields (title, url, etc.) should use ReadFull
+// directly.
 func (j *JinaReader) Read(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.BaseURL+url, nil)
+	res, err := j.ReadFull(ctx, url)
 	if err != nil {
 		return "", err
+	}
+	return res.Content, nil
+}
+
+// ReadFull fetches the URL through Jina and returns the structured
+// result. The returned shape is identical for JSON-mode and
+// markdown-mode wire formats — the wire parsing differs (json
+// envelope vs. preamble-line parsing) but callers see the same
+// JinaResult either way. Switch SOCIAL_FETCH_JINA_FORMAT freely
+// without touching caller code.
+func (j *JinaReader) ReadFull(ctx context.Context, url string) (*JinaResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.BaseURL+url, nil)
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("User-Agent", core.UserAgent)
 	if j.Options.APIKey != "" {
@@ -228,33 +260,127 @@ func (j *JinaReader) Read(ctx context.Context, url string) (string, error) {
 
 	resp, err := j.Client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("jina reader: %w", err)
+		return nil, fmt.Errorf("jina reader: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("jina reader: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
+		return nil, fmt.Errorf("jina reader: HTTP %d: %s", resp.StatusCode, core.HTTPErrorBody(resp))
 	}
 
 	if j.Options.Format == JinaFormatJSON {
 		var env jinaEnvelope
 		if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-			return "", fmt.Errorf("jina reader: decode json: %w", err)
+			return nil, fmt.Errorf("jina reader: decode json: %w", err)
 		}
-		return env.Data.Content, nil
+		return &JinaResult{
+			Title:         strings.TrimSpace(env.Data.Title),
+			Description:   strings.TrimSpace(env.Data.Description),
+			URL:           strings.TrimSpace(env.Data.URL),
+			Content:       stripFences(env.Data.Content),
+			PublishedTime: strings.TrimSpace(env.Data.PublishedTime),
+		}, nil
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("jina reader: read: %w", err)
+		return nil, fmt.Errorf("jina reader: read: %w", err)
 	}
-	return string(body), nil
+	return parseJinaMarkdown(string(body)), nil
+}
+
+// parseJinaMarkdown reads the preamble Jina prepends in markdown
+// mode:
+//
+//	Title: <Page title>
+//	URL Source: <canonical URL>
+//	Published Time: <ISO8601>           (optional)
+//	Markdown Content:
+//	<body…>
+//
+// Lines before "Markdown Content:" are header k/v pairs, each on
+// its own line. Lines after are the body. Anything that doesn't
+// match the preamble shape (e.g. test fixtures, future format
+// drift) falls through to "everything is body" rather than
+// erroring — same fail-soft policy as JSON-mode missing fields.
+func parseJinaMarkdown(body string) *JinaResult {
+	res := &JinaResult{}
+	bodyStartIdx := -1
+
+	lines := strings.Split(body, "\n")
+	for i, ln := range lines {
+		switch {
+		case strings.HasPrefix(ln, "Title:"):
+			res.Title = strings.TrimSpace(strings.TrimPrefix(ln, "Title:"))
+		case strings.HasPrefix(ln, "URL Source:"):
+			res.URL = strings.TrimSpace(strings.TrimPrefix(ln, "URL Source:"))
+		case strings.HasPrefix(ln, "Published Time:"):
+			res.PublishedTime = strings.TrimSpace(strings.TrimPrefix(ln, "Published Time:"))
+		case strings.HasPrefix(ln, "Description:"):
+			res.Description = strings.TrimSpace(strings.TrimPrefix(ln, "Description:"))
+		case strings.HasPrefix(ln, "Markdown Content:"):
+			bodyStartIdx = i + 1
+		}
+		// Stop scanning the preamble at the first "## " header or
+		// the body marker — header lines only live at the very top.
+		if bodyStartIdx >= 0 {
+			break
+		}
+	}
+
+	if bodyStartIdx >= 0 && bodyStartIdx < len(lines) {
+		res.Content = stripFences(strings.TrimSpace(strings.Join(lines[bodyStartIdx:], "\n")))
+	} else {
+		// No "Markdown Content:" preamble — the body IS the whole
+		// response. Common for fixtures and for ReaderLM-v2 output
+		// which sometimes returns just the markdown without the
+		// header block.
+		res.Content = stripFences(strings.TrimSpace(body))
+	}
+	return res
+}
+
+// stripFences peels off a wrapping ```markdown … ``` fence that
+// readerlm-v2 sometimes adds around its whole output. The fences
+// are LLM artefact, not real markdown structure — leaving them in
+// breaks downstream rendering and double-encodes when the body is
+// itself displayed as markdown.
+//
+// Conservative: only strips when the body STARTS with ``` and ENDS
+// with ``` (with optional trailing whitespace). Doesn't touch
+// inline code fences in the middle of a real document.
+func stripFences(s string) string {
+	t := strings.TrimSpace(s)
+	if !strings.HasPrefix(t, "```") {
+		return s
+	}
+	// First line is the opening fence (```markdown / ``` / ```md).
+	nl := strings.IndexByte(t, '\n')
+	if nl < 0 {
+		return s
+	}
+	openLine := strings.TrimSpace(t[:nl])
+	// Accept ``` alone or ```<lang> for any single-token lang.
+	if openLine != "```" && !strings.HasPrefix(openLine, "```") {
+		return s
+	}
+	rest := t[nl+1:]
+	// Strip the closing fence — last occurrence of ``` on its own
+	// line.
+	if idx := strings.LastIndex(rest, "```"); idx >= 0 {
+		// Make sure what follows the closing ``` is just whitespace
+		// (avoid eating a real mid-body fence).
+		tail := strings.TrimSpace(rest[idx+3:])
+		if tail == "" {
+			return strings.TrimSpace(rest[:idx])
+		}
+	}
+	return s
 }
 
 // jinaEnvelope models the slice of Jina's JSON response we use.
-// Jina returns a `{code, status, data:{...}}` wrapper; we read the
-// markdown body from data.content. The other data fields (title,
-// description, url, publishedTime, images, links) stay accessible
-// to a future ReadFull() that returns the whole struct.
+// Jina returns a `{code, status, data:{...}}` wrapper; ReadFull
+// projects it into JinaResult so JSON-mode and markdown-mode
+// callers see the same struct.
 type jinaEnvelope struct {
 	Code   int `json:"code"`
 	Status int `json:"status"`

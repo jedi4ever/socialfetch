@@ -109,21 +109,26 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) 
 }
 
 // fetchViaJina is the anonymous catch-all. Jina pre-cleans the page
-// to markdown so we skip the htmlmeta+extractor pipeline and return
-// a body-only Item — losing structured Author / Published / Tags /
-// Media metadata in exchange for getting *something* when the local
-// methods fail.
+// to markdown — we surface the title / canonical URL / published
+// time it extracts but skip our htmlmeta+extractor pipeline (the
+// structural HTML signals are already gone by the time Jina returns).
 func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
-	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	res, err := htmlmd.NewJinaReader().ReadFull(ctx, raw)
 	if err != nil {
 		return nil, err
+	}
+	finalURL := raw
+	if res.URL != "" {
+		finalURL = res.URL
 	}
 	return &core.Item{
 		Source:      "medium",
 		Kind:        "article",
-		URL:         raw,
-		CanonicalID: raw,
-		Content:     strings.TrimSpace(md),
+		URL:         finalURL,
+		CanonicalID: finalURL,
+		Title:       res.Title,
+		Summary:     res.Description,
+		Content:     strings.TrimSpace(res.Content),
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": raw,

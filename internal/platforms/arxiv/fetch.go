@@ -210,19 +210,27 @@ func (f *Fetcher) fetchViaAPI(ctx context.Context, id string, opts core.Options)
 
 // fetchViaJina is the body-only fallback for the rare case the Atom
 // API is unreachable. Routes arxiv.org/abs/<id> through r.jina.ai
-// and returns the markdown body — no structured metadata.
+// and surfaces title / canonical URL / published time from Jina's
+// envelope.
 func (f *Fetcher) fetchViaJina(ctx context.Context, id string) (*core.Item, error) {
 	absURL := "https://arxiv.org/abs/" + id
-	md, err := htmlmd.NewJinaReader().Read(ctx, absURL)
+	res, err := htmlmd.NewJinaReader().ReadFull(ctx, absURL)
 	if err != nil {
 		return nil, err
+	}
+	finalURL := absURL
+	if res.URL != "" {
+		finalURL = res.URL
 	}
 	return &core.Item{
 		Source:      "arxiv",
 		Kind:        "paper",
-		URL:         absURL,
+		URL:         finalURL,
 		CanonicalID: id,
-		Content:     strings.TrimSpace(md),
+		Title:       res.Title,
+		Summary:     res.Description,
+		Published:   parseTime(res.PublishedTime),
+		Content:     strings.TrimSpace(res.Content),
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": absURL,

@@ -277,10 +277,11 @@ func (f *Fetcher) fetchViaSyndication(ctx context.Context, id string) (*core.Ite
 
 // fetchViaJina is the body-only anonymous fallback. Routes the tweet
 // URL through r.jina.ai which renders the public preview. Loses
-// structured author / media / metrics — we keep just the URL +
-// author handle from the URL itself + the body markdown.
+// structured media / metrics, but Jina's envelope title contains
+// the tweet's first line + author handle ("Lou on X: '<text>' / X")
+// which we surface as Title.
 func (f *Fetcher) fetchViaJina(ctx context.Context, raw, id string) (*core.Item, error) {
-	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	res, err := htmlmd.NewJinaReader().ReadFull(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +290,8 @@ func (f *Fetcher) fetchViaJina(ctx context.Context, raw, id string) (*core.Item,
 		Kind:        "tweet",
 		URL:         raw,
 		CanonicalID: id,
-		Content:     strings.TrimSpace(md),
+		Title:       res.Title,
+		Content:     strings.TrimSpace(res.Content),
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": raw,

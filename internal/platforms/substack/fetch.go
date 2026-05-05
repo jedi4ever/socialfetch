@@ -97,20 +97,26 @@ func (f *Fetcher) fetchViaHTTP(ctx context.Context, raw string, _ core.Options) 
 	return f.parseAndExtract(raw, raw, body, "http")
 }
 
-// fetchViaJina is the anonymous catch-all. See medium/fetch.go for
-// the full rationale — Jina returns body-only markdown so the
-// resulting Item has no structured Author/Published/Tags/Media.
+// fetchViaJina is the anonymous catch-all. Surfaces title / URL /
+// description from Jina's envelope; the body itself comes back as
+// pre-cleaned markdown.
 func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, _ core.Options) (*core.Item, error) {
-	md, err := htmlmd.NewJinaReader().Read(ctx, raw)
+	res, err := htmlmd.NewJinaReader().ReadFull(ctx, raw)
 	if err != nil {
 		return nil, err
+	}
+	finalURL := raw
+	if res.URL != "" {
+		finalURL = res.URL
 	}
 	return &core.Item{
 		Source:      "substack",
 		Kind:        "article",
-		URL:         raw,
-		CanonicalID: raw,
-		Content:     strings.TrimSpace(md),
+		URL:         finalURL,
+		CanonicalID: finalURL,
+		Title:       res.Title,
+		Summary:     res.Description,
+		Content:     strings.TrimSpace(res.Content),
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"requested_url": raw,

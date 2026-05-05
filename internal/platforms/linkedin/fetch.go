@@ -165,18 +165,28 @@ func (f *Fetcher) fetchViaBridge(ctx context.Context, raw string, opts core.Opti
 // Comments get a single audit-log line so an agent reading the trace
 // knows why they're empty (it's the platform, not a bug).
 func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
-	md, err := renderhtmlmd.NewJinaReader().Read(ctx, raw)
+	res, err := renderhtmlmd.NewJinaReader().ReadFull(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(md) == "" {
+	if res == nil || strings.TrimSpace(res.Content) == "" {
 		return nil, fmt.Errorf("empty markdown from Jina for %s", raw)
 	}
 
-	title, author, body := parseJinaLinkedInOutput(md)
+	// LinkedIn's page title reads "<headline> | <Author Name> posted
+	// on the topic | LinkedIn" — pull the author from it, then trim
+	// the chrome off the title so the visible field is the post's
+	// first words rather than the LinkedIn boilerplate suffix.
+	title := res.Title
+	author := parseAuthorFromTitle(title)
+	if author != "" {
+		if i := strings.Index(title, " | "); i > 0 {
+			title = strings.TrimSpace(title[:i])
+		}
+	}
 
 	if opts.Audit != nil {
-		opts.Audit.Logf("linkedin: jina path returned %d chars (no comments — anonymous mode)", len(body))
+		opts.Audit.Logf("linkedin: jina path returned %d chars (no comments — anonymous mode)", len(res.Content))
 	}
 
 	return &core.Item{
@@ -186,7 +196,7 @@ func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, opts core.Option
 		CanonicalID: canonicalID(raw),
 		Title:       title,
 		Author:      author,
-		Content:     body,
+		Content:     res.Content,
 		FetchedAt:   time.Now().UTC(),
 		Extra: map[string]any{
 			"via":           "jina",
@@ -194,45 +204,6 @@ func (f *Fetcher) fetchViaJina(ctx context.Context, raw string, opts core.Option
 			"anonymous":     true,
 		},
 	}, nil
-}
-
-// parseJinaLinkedInOutput pulls out title / author / body from the
-// markdown Jina returns for a LinkedIn URL. Jina's output starts
-// with `Title: <Page title>` then a `URL Source:` line, then
-// `Markdown Content:` and the body. LinkedIn page titles read
-// "<Post title or first words> | <Author Name> posted on the topic
-// | LinkedIn", so author comes out of the title.
-//
-// All extraction is best-effort: missing fields stay empty rather
-// than failing the fetch.
-func parseJinaLinkedInOutput(md string) (title, author, body string) {
-	lines := strings.SplitN(md, "\n", 50)
-	bodyStart := 0
-	for i, ln := range lines {
-		switch {
-		case strings.HasPrefix(ln, "Title: "):
-			title = strings.TrimSpace(strings.TrimPrefix(ln, "Title: "))
-		case strings.HasPrefix(ln, "Markdown Content:"):
-			bodyStart = i + 1
-		}
-	}
-	// Author parsing: "Foo bar | Cole Medin posted on the topic | LinkedIn"
-	if title != "" {
-		if author = parseAuthorFromTitle(title); author != "" {
-			// Strip the "| Author Name posted... | LinkedIn"
-			// suffix from the title so the visible Title field
-			// is the post's first words rather than chrome.
-			if i := strings.Index(title, " | "); i > 0 {
-				title = strings.TrimSpace(title[:i])
-			}
-		}
-	}
-	if bodyStart > 0 && bodyStart < len(lines) {
-		body = strings.TrimSpace(strings.Join(lines[bodyStart:], "\n"))
-	} else {
-		body = strings.TrimSpace(md)
-	}
-	return title, author, body
 }
 
 // parseAuthorFromTitle extracts the author name from Jina's
