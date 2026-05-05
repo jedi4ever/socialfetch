@@ -28,6 +28,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/bridge"
 	"github.com/jedi4ever/social-skills/internal/core"
 	"github.com/jedi4ever/social-skills/internal/fetchchain"
+	"github.com/jedi4ever/social-skills/internal/render/headless"
 	renderhtmlmd "github.com/jedi4ever/social-skills/internal/render/htmlmd"
 	"github.com/jedi4ever/social-skills/internal/util/htmlmd"
 )
@@ -63,15 +64,21 @@ func (Fetcher) Match(u *url.URL) bool {
 // set. Bridge first because it returns the highest-fidelity result
 // (comments, media tree, full reactions). Jina is the anonymous
 // fallback — public-preview body without comments, used when the
-// bridge is down / timed out / not configured.
+// bridge is down / timed out / not configured. Headless is opt-in
+// (not in the default chain) — set
+// SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,headless,jina to slot a local
+// stealth Chromium between bridge and jina, useful when LINKEDIN_LI_AT
+// is set so we get authenticated content without needing the
+// browser-bridge daemon.
 var defaultChain = []fetchchain.Method{fetchchain.MethodBridge, fetchchain.MethodJina}
 
 // supported lists the methods this fetcher knows how to execute.
 // Extra entries in the env var get filtered out via fetchchain.Resolve
 // so an operator's typo doesn't accidentally disable the fetcher.
 var supported = map[fetchchain.Method]bool{
-	fetchchain.MethodBridge: true,
-	fetchchain.MethodJina:   true,
+	fetchchain.MethodBridge:   true,
+	fetchchain.MethodJina:     true,
+	fetchchain.MethodHeadless: true,
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
@@ -83,11 +90,55 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 		fetchchain.MethodJina: func(ctx context.Context, raw string) (*core.Item, error) {
 			return f.fetchViaJina(ctx, raw, opts)
 		},
+		fetchchain.MethodHeadless: func(ctx context.Context, raw string) (*core.Item, error) {
+			return f.fetchViaHeadless(ctx, raw, opts)
+		},
 	}
 	item, _, err := fetchchain.Run(ctx, "linkedin", raw, opts.Audit, chain, runners)
 	if err != nil {
 		return nil, err
 	}
+	return item, nil
+}
+
+// fetchViaHeadless drives a fresh stealth Chromium via chromedp and
+// runs the resulting HTML through the same cleanHTML + media +
+// author extractors as the bridge path. Always anonymous — fetches
+// the public guest-preview page LinkedIn serves without auth, which
+// already contains the full post body, author, and reaction count
+// (just not the comment thread).
+//
+// Trade-offs vs the other methods:
+//
+//   - vs bridge: no daemon / no extension needed, but spawns a
+//     fresh browser per call (~2s warmup) and can't see comments
+//     (auth-walled).
+//   - vs jina: local rather than remote (no third-party hop,
+//     no rate limit, no JINA_API_KEY needed for paid features),
+//     but ~30 MB more memory per fetch and requires Chrome
+//     installed on the host.
+func (f *Fetcher) fetchViaHeadless(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	res, err := headless.New().Fetch(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	finalURL := res.FinalURL
+	if finalURL == "" {
+		finalURL = raw
+	}
+
+	// Anonymous-preview HTML has a different DOM tree than the
+	// bridge's logged-in output — cleanHTML/trimBoilerplate are
+	// tuned for the latter and return empty here. extractHeadless
+	// is the matching extractor: walks LD+JSON + og:tags + DOM
+	// fallbacks for the guest-preview shape.
+	item := extractHeadless(res.HTML, finalURL)
+	item.Extra["engine"] = res.Engine
+
+	if opts.Audit != nil {
+		opts.Audit.Logf("linkedin: headless path returned %d chars (engine=%s, anonymous — no comments)", len(item.Content), res.Engine)
+	}
+
 	return item, nil
 }
 

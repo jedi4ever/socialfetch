@@ -40,6 +40,13 @@ const (
 	MethodJina        Method = "jina"
 	MethodAPI         Method = "api"
 	MethodSyndication Method = "syndication"
+	// MethodHeadless drives a fresh headless browser locally
+	// (chromedp under the hood today; engine-neutral name so a
+	// future playwright-go alternative can drop in without
+	// changing the chain method). Anonymous-but-local middle
+	// ground between bridge (logged-in Chrome) and jina (remote
+	// service).
+	MethodHeadless Method = "headless"
 )
 
 // Runner is the per-method handler. Returns whatever the platform
