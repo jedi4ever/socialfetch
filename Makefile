@@ -3,6 +3,7 @@
 
 BIN                     := ./dist/social-fetch
 LEDGER_CMD_BIN          := ./dist/social-ledger
+DAYTONA_CMD_BIN         := ./dist/social-daytona
 SKILL_BIN               := ./skills/social-fetch/scripts/social-fetch
 SKILL_LEDGER_BIN        := ./skills/social-fetch/scripts/social-ledger
 LEDGER_SKILL_DIR        := ./skills/social-ledger
@@ -59,6 +60,7 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	@mkdir -p dist $(dir $(SKILL_BIN))
 	go build $(GO_BUILD_FLAGS) -o $(BIN) ./cmd/social-fetch
 	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/social-ledger
+	go build $(GO_BUILD_FLAGS) -o $(DAYTONA_CMD_BIN) ./cmd/social-daytona
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
@@ -341,17 +343,19 @@ check:  ## Run the same checks CI runs (gofmt + vet + test + plugin SKILL.md syn
 	@set -e; \
 	bin_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-fetch/main.go); \
 	ledger_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-ledger/main.go); \
+	daytona_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-daytona/main.go); \
 	desktop_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' extensions/claude-desktop/manifest.json); \
 	plugin_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' extensions/claude-code/.claude-plugin/plugin.json); \
 	market_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' .claude-plugin/marketplace.json); \
 	mismatch=""; \
 	[ -n "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-fetch/main.go: Version constant missing\n"; \
 	[ "$$ledger_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-ledger/main.go: $$ledger_ver (want $$bin_ver)\n"; \
+	[ "$$daytona_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-daytona/main.go: $$daytona_ver (want $$bin_ver)\n"; \
 	[ "$$desktop_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - extensions/claude-desktop/manifest.json: $$desktop_ver (want $$bin_ver)\n"; \
 	[ "$$plugin_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - extensions/claude-code/.claude-plugin/plugin.json: $$plugin_ver (want $$bin_ver)\n"; \
 	[ "$$market_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - .claude-plugin/marketplace.json: $$market_ver (want $$bin_ver)\n"; \
 	if [ -n "$$mismatch" ]; then \
-		echo "::error::version lockstep violation — these five must all match $$bin_ver:"; \
+		echo "::error::version lockstep violation — these six must all match $$bin_ver:"; \
 		printf "$$mismatch"; \
 		echo "  see CLAUDE.md \"Versioning\" — bump all together"; \
 		exit 1; \

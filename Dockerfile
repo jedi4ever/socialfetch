@@ -11,7 +11,8 @@
 # fonts.
 
 # === Stage 1: build the binaries ===========================================
-FROM golang:1.23-bookworm AS builder
+# go.mod requires 1.26+; bump in lockstep when the module's `go` line moves.
+FROM golang:1.26-bookworm AS builder
 
 WORKDIR /src
 
