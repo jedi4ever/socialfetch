@@ -36,7 +36,8 @@ BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 TAVILY_TOPIC=news                    # switch Tavily to news topic for stricter recency
 YOUTUBE_TRANSCRIPT_PROVIDER=auto     # auto | ytdlp | innertube | kkdai
 HTML2MD_PROVIDER=kaufmann            # kaufmann (default) | builtin (legacy hand-roll)
-HTML2MD_READER=local                 # local (default) | jina (route article fetches via r.jina.ai)
+SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge,jina  # article fetch chain (per-platform vars exist for every fetcher)
+HTML2MD_READER=local                 # DEPRECATED: use SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge instead
 ```
 
 ---
@@ -239,23 +240,30 @@ per-host extractors use to turn HTML into clean markdown.
 
 Unknown values fall back to `kaufmann`.
 
-## HTML→Markdown reader — `HTML2MD_READER`
+## Per-platform fetch chain — `SOCIAL_FETCH_CHAIN_<PLATFORM>`
 
-Service-backed reader that replaces the local fetch+parse+convert
-pipeline for the generic article fetcher. When set, the article
-fetcher (`social-fetch fetch <any-url>` for non-host-specific URLs)
-sends the URL to the chosen service and uses its returned markdown
-verbatim.
+Every fetcher exposes a chain of methods (`bridge`, `http`, `jina`,
+`api`, `syndication`) that can be reordered or restricted via a
+per-platform env var. See README ("Per-platform fetch chain") for
+the full table of defaults and examples; common cases:
 
-| value | behavior |
-|---|---|
-| `local` (default) | use the local fetch + extractor + Converter chain (no service call) |
-| `jina` | route fetches through `r.jina.ai/<url>` — sidesteps Cloudflare challenges and JS-rendered SPAs; no key needed for free tier |
+```bash
+SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge   # prefer Jina globally for article fetches
+SOCIAL_FETCH_CHAIN_LINKEDIN=jina              # always-anonymous LinkedIn (skip the bridge)
+SOCIAL_FETCH_CHAIN_TWITTER=syndication,jina   # bypass v2 even when keys are set
+SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge        # air-gapped: never use Jina
+```
 
-Per-host fetchers (medium, substack, hackernews, reddit, github,
-twitter, linkedin, youtube, bluesky, arxiv, rss) ignore this — they
-still use their own fetch paths, since they depend on parsed DOM /
-API responses that a markdown stream can't replace.
+Set `JINA_API_KEY` if any chain includes `jina` and you want
+higher rate limits than the free tier.
+
+### Deprecated: `HTML2MD_READER`
+
+Predecessor to the chain mechanism. `HTML2MD_READER=jina` is
+equivalent to `SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge` today
+and still works for one release; the article fetcher emits a
+deprecation line in the audit log when it's set. Migrate your env
+to the new var when convenient.
 
 ## YouTube transcript provider switch — `YOUTUBE_TRANSCRIPT_PROVIDER`
 

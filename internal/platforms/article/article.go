@@ -131,10 +131,15 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*co
 	// HTML2MD_READER=jina opts into a service-backed fetch path that
 	// runs the URL through r.jina.ai for cleaning. Pre-empts the
 	// chain — operators who set this want Jina unconditionally, not
-	// "Jina if the local methods fail". Will be folded into
-	// SOCIAL_FETCH_CHAIN_ARTICLE in a follow-up release; kept for
-	// backwards compat for now.
+	// "Jina if the local methods fail".
+	//
+	// Deprecated env var (kept for one release). Operators should
+	// migrate to SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge — same
+	// effect, fits the per-platform chain model. We surface a
+	// deprecation line in the audit log every time HTML2MD_READER is
+	// honoured so it's noisy enough to migrate.
 	if reader := htmlmd.DefaultReader(); reader != nil {
+		opts.Audit.Logf("article: HTML2MD_READER=jina is deprecated; use SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge instead (same behaviour, will be removed in a future release)")
 		opts.Audit.Logf("article: routing via service-backed reader (HTML2MD_READER)")
 		md, err := reader.Read(ctx, raw)
 		if err != nil {

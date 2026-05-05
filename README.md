@@ -351,7 +351,7 @@ tool to get the body inline instead.
 The `_fetch` envelope adds a **`hint`** field when extraction looks
 suspiciously thin (small body from an `article`-source page —
 typically a JS-rendered SPA), nudging the agent to retry via the
-browser bridge or `HTML2MD_READER=jina`.
+browser bridge or `SOCIAL_FETCH_CHAIN_ARTICLE=jina`.
 
 The `_ledger_get` envelope adds a **`provenance`** field —
 `auto-fetched` when the entry came in via `social_fetch_*` (we
@@ -416,22 +416,45 @@ two knobs control how the page becomes markdown the agent can read:
 | `kaufmann` (default) | library-backed converter — handles tables, code blocks, nested lists, and inline formatting that the older converter would flatten. |
 | `builtin` | legacy hand-rolled walker — kept as a fallback for the rare case where `kaufmann` mis-renders something. |
 
-### Reader (`HTML2MD_READER`)
+### Per-platform fetch chain (`SOCIAL_FETCH_CHAIN_<PLATFORM>`)
 
-Where the HTML comes from in the first place:
+Every fetcher walks a configurable chain of methods (`bridge`,
+`http`, `jina`, `api`, `syndication`). Default chains preserve
+today's behaviour; operators override per-platform via the env
+var.
 
-| value | how |
-|---|---|
-| `local` (default) | direct HTTP `GET` from your machine — fastest, full control over headers/cookies. |
-| `jina` | routes the fetch through [`r.jina.ai`](https://jina.ai/reader) — Jina's Reader proxy renders the page (JS executes, Cloudflare challenges resolve) and returns clean markdown. Use when a site is otherwise unreachable to a plain HTTP client. |
+| platform | default chain | env var |
+|---|---|---|
+| article (catch-all) | `http,bridge,jina` | `SOCIAL_FETCH_CHAIN_ARTICLE` |
+| linkedin | `bridge,jina` | `SOCIAL_FETCH_CHAIN_LINKEDIN` |
+| medium | `bridge,http,jina` | `SOCIAL_FETCH_CHAIN_MEDIUM` |
+| substack | `bridge,http,jina` | `SOCIAL_FETCH_CHAIN_SUBSTACK` |
+| twitter | `api,syndication,jina` | `SOCIAL_FETCH_CHAIN_TWITTER` |
+| arxiv | `api,jina` | `SOCIAL_FETCH_CHAIN_ARXIV` |
+| hackernews / reddit / github / youtube / bluesky / rss | single-method (`api` or `http`) | `SOCIAL_FETCH_CHAIN_<NAME>` |
 
-Set `JINA_API_KEY` if you want higher rate limits than the free
-tier — the free tier works without a key but caps aggressively.
+Examples:
 
-The `article` fetcher also auto-detects Cloudflare bot challenges
-on a `local` fetch and falls back to Jina Reader on its own (no
-config required) — `HTML2MD_READER=jina` only forces Jina for
-*every* generic article fetch.
+```bash
+# air-gapped — never reach for Jina
+SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge
+
+# always anonymous LinkedIn (skip the bridge)
+SOCIAL_FETCH_CHAIN_LINKEDIN=jina
+
+# bypass Twitter v2 even when keys are set
+SOCIAL_FETCH_CHAIN_TWITTER=syndication,jina
+```
+
+Set `JINA_API_KEY` if any chain includes `jina` and you want
+higher rate limits than the free tier.
+
+#### Deprecated: `HTML2MD_READER=jina`
+
+Pre-dates the per-platform chain. Equivalent today:
+`SOCIAL_FETCH_CHAIN_ARTICLE=jina,http,bridge`. Still honoured for
+one release with a deprecation line in the audit log; will be
+removed after.
 
 ## Browser bridge (LinkedIn, Medium / Substack paywalls)
 
