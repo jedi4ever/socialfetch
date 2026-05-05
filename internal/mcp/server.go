@@ -128,6 +128,10 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addInfluencersRemoveTool(s, cfg)
 	addInfluencersSubscribeTool(s, cfg)
 	addInfluencersUnsubscribeTool(s, cfg)
+	// Visual capture — full-page PNG via the same headless daemon
+	// pool that powers social_fetch_fetch. Output is a temp-file
+	// path, same shape as fetch's content_file envelope.
+	addScreenshotTool(s, cfg)
 }
 
 // ---- hints -----------------------------------------------------------

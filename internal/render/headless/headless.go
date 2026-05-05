@@ -331,6 +331,129 @@ func (f *Fetcher) Fetch(ctx context.Context, raw string) (*Result, error) {
 	return &Result{HTML: html, FinalURL: finalURL, Engine: "chromedp"}, nil
 }
 
+// ScreenshotOptions tunes a single Screenshot call. Zero values fall
+// back to the in-package defaults — full-page true, default viewport
+// from Fetcher.Options, no per-call settle override.
+type ScreenshotOptions struct {
+	// FullPage captures the entire scrollable page (chromedp's
+	// FullScreenshot). When false, captures the viewport only
+	// (chromedp.CaptureScreenshot). patai's url downloader defaults
+	// to full-page; we mirror that.
+	FullPage bool
+	// Settle overrides Fetcher.Options.Settle for this call. Zero =
+	// use the fetcher's configured settle.
+	Settle time.Duration
+	// ViewportWidth / ViewportHeight override the fetcher's viewport
+	// for this call (in-process path only — the daemon's viewport is
+	// fixed at slot-launch time). Zero = use fetcher's viewport.
+	ViewportWidth  int
+	ViewportHeight int
+}
+
+// ScreenshotResult is the return shape from a Screenshot call. PNG is
+// the encoded image bytes; FinalURL is the post-redirect URL the
+// browser landed on; Engine names the path that produced the image
+// ("chromedp" for in-process, "chromedp+daemon" via daemon).
+type ScreenshotResult struct {
+	PNG      []byte
+	FinalURL string
+	Engine   string
+}
+
+// Screenshot navigates to raw and captures a PNG. Same daemon-vs-
+// in-process probe as Fetch — uses the warm browser pool when one is
+// reachable, falls back to a fresh in-process Chromium otherwise. The
+// daemon path skips when ViewportWidth/Height overrides are set
+// (daemon viewport is per-slot, not per-call).
+func (f *Fetcher) Screenshot(ctx context.Context, raw string, opts ScreenshotOptions) (*ScreenshotResult, error) {
+	if raw == "" {
+		return nil, errors.New("headless: empty URL")
+	}
+
+	// Daemon-mode fast path: same conditions as Fetch, plus skip
+	// when the caller wants a custom viewport (the daemon can't
+	// reconfigure browsers per-call).
+	canUseDaemon := len(f.Options.Cookies) == 0 &&
+		os.Getenv("SOCIAL_FETCH_HEADLESS_DAEMON_DISABLE") == "" &&
+		opts.ViewportWidth == 0 && opts.ViewportHeight == 0
+	if canUseDaemon {
+		client := NewDaemonClient()
+		if client.Reachable(ctx) {
+			settle := opts.Settle
+			if settle == 0 && f.Options.Settle != DefaultOptions.Settle {
+				settle = f.Options.Settle
+			}
+			return client.Screenshot(ctx, raw, settle, opts.FullPage)
+		}
+	}
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, buildAllocatorOpts(f.optionsForViewport(opts))...)
+	defer cancelAlloc()
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	timedCtx, cancelTimeout := context.WithTimeout(browserCtx, f.Options.Timeout)
+	defer cancelTimeout()
+
+	settle := opts.Settle
+	if settle == 0 {
+		settle = f.Options.Settle
+	}
+
+	var (
+		png      []byte
+		finalURL string
+	)
+	actions := []chromedp.Action{
+		network.Enable(),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(stealthScript).Do(ctx)
+			return err
+		}),
+	}
+	if cookies := relevantCookies(raw, f.Options.Cookies); len(cookies) > 0 {
+		actions = append(actions, setCookiesAction(cookies))
+	}
+	actions = append(actions,
+		chromedp.Navigate(raw),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+	)
+	if settle > 0 {
+		actions = append(actions, chromedp.Sleep(settle))
+	}
+	if opts.FullPage {
+		// Quality arg is JPEG-only; FullScreenshot uses PNG. 100 is
+		// the conventional pass-through.
+		actions = append(actions, chromedp.FullScreenshot(&png, 100))
+	} else {
+		actions = append(actions, chromedp.CaptureScreenshot(&png))
+	}
+	actions = append(actions, chromedp.Location(&finalURL))
+
+	if err := chromedp.Run(timedCtx, actions...); err != nil {
+		return nil, fmt.Errorf("headless screenshot: %w", err)
+	}
+	if finalURL == "" {
+		finalURL = raw
+	}
+	return &ScreenshotResult{PNG: png, FinalURL: finalURL, Engine: "chromedp"}, nil
+}
+
+// optionsForViewport returns Options with ViewportWidth/Height
+// overridden by ScreenshotOptions when those are non-zero. Used by
+// in-process Screenshot to honour per-call viewport requests without
+// mutating the Fetcher's Options.
+func (f *Fetcher) optionsForViewport(s ScreenshotOptions) Options {
+	o := f.Options
+	if s.ViewportWidth > 0 {
+		o.ViewportWidth = s.ViewportWidth
+	}
+	if s.ViewportHeight > 0 {
+		o.ViewportHeight = s.ViewportHeight
+	}
+	return o
+}
+
 // buildAllocatorOpts assembles the chromedp.ExecAllocator options
 // from a Headless Options struct. Args mirror the Python code's
 // browser launch: disable-blink-features=AutomationControlled +

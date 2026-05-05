@@ -75,13 +75,10 @@
 - a little ask for help app 
 - progress reporting build download ?
 
-
 =====
 sync to read / wrtite / bookmarks / folder 
 tagged manual / aibookmarked
 offer ledger etc.. as seperate mcps/skills ?
-=====
-ifluencers - subscriptions
 =====
 - Subscription-aware search: social-fetch search --by Karpathy
      resolves to that person's tracked socials and queries each.
@@ -107,9 +104,8 @@ ifluencers - subscriptions
 
 ====
 - export list influencers ...
-- screenshots optie
 - ask questions before adding influencers or others review
 ====
 caching fetch ?
 ====
-scrrenshot command for fast review?
+sscrrenshot via brdige (logged in)

@@ -118,6 +118,72 @@ func (c *DaemonClient) FetchWithSettle(ctx context.Context, url string, settle t
 	}, nil
 }
 
+// Screenshot POSTs to the daemon's /screenshot endpoint and returns
+// the PNG bytes wrapped in a ScreenshotResult. settle of 0 falls back
+// to the daemon's configured default; fullPage=true matches the
+// in-process default.
+func (c *DaemonClient) Screenshot(ctx context.Context, url string, settle time.Duration, fullPage bool) (*ScreenshotResult, error) {
+	body, err := json.Marshal(screenshotRequest{URL: url})
+	if err != nil {
+		return nil, err
+	}
+
+	timeout := c.Timeout
+	if timeout == 0 {
+		timeout = 90 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	endpoint := c.BaseURL + "/screenshot"
+	q := []string{}
+	if !fullPage {
+		q = append(q, "full_page=0")
+	}
+	if settle > 0 {
+		q = append(q, "settle="+settle.String())
+	}
+	if len(q) > 0 {
+		endpoint += "?" + strings.Join(q, "&")
+	}
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: timeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("daemon: read body: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Body is plain-text on error (http.Error from the daemon).
+		msg := strings.TrimSpace(string(respBody))
+		if len(msg) > 1024 {
+			msg = msg[:1024]
+		}
+		return nil, fmt.Errorf("daemon: HTTP %d: %s", resp.StatusCode, msg)
+	}
+	finalURL := resp.Header.Get("X-Final-URL")
+	if finalURL == "" {
+		finalURL = url
+	}
+	return &ScreenshotResult{
+		PNG:      respBody,
+		FinalURL: finalURL,
+		Engine:   "chromedp+daemon",
+	}, nil
+}
+
 // StatusResponse is the parsed /status JSON, exported so CLI
 // commands can format it without re-decoding. Field names match
 // the JSON tags on the daemon's internal statusResponse so tests

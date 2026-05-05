@@ -200,6 +200,7 @@ func (d *Daemon) Run(ctx context.Context, addr string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/fetch", d.handleFetch)
+	mux.HandleFunc("/screenshot", d.handleScreenshot)
 	mux.HandleFunc("/status", d.handleStatus)
 	mux.HandleFunc("/shutdown", d.handleShutdown)
 
@@ -588,6 +589,135 @@ func (d *Daemon) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
 		d.shutdown()
 	}()
+}
+
+// screenshotRequest mirrors fetchRequest: URL in via JSON body. Settle
+// + full_page come in as query params so the same handler shape works
+// for both endpoints. Could be in the body — kept on the URL for
+// parity with `?settle=` already used on /fetch.
+type screenshotRequest struct {
+	URL string `json:"url"`
+}
+
+// handleScreenshot is the /screenshot HTTP handler. Acquires a slot
+// from the pool, navigates, captures via chromedp.FullScreenshot or
+// chromedp.CaptureScreenshot, and returns the PNG bytes with
+// Content-Type image/png. Same slot lifecycle as handleFetch — busy
+// markers, recycle on error, history ring updated.
+//
+// Query params: ?full_page=1 (default true) toggles full-page vs
+// viewport-only. ?settle=2s overrides the daemon's default settle
+// for this call.
+func (d *Daemon) handleScreenshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+	if err != nil {
+		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req screenshotRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "decode body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" {
+		http.Error(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	fullPage := true
+	if v := strings.TrimSpace(r.URL.Query().Get("full_page")); v != "" {
+		switch strings.ToLower(v) {
+		case "0", "false", "no", "off":
+			fullPage = false
+		}
+	}
+	settleOverride := time.Duration(0)
+	if v := strings.TrimSpace(r.URL.Query().Get("settle")); v != "" {
+		if d2, err := time.ParseDuration(v); err == nil && d2 > 0 {
+			settleOverride = d2
+		}
+	}
+
+	var s *slot
+	select {
+	case s = <-d.pool:
+	case <-r.Context().Done():
+		http.Error(w, "client cancelled", http.StatusRequestTimeout)
+		return
+	}
+
+	startAt := time.Now()
+	d.markBusy(s.id, req.URL, startAt)
+
+	png, finalURL, fetchErr := d.runScreenshot(r.Context(), s, req.URL, settleOverride, fullPage)
+	dur := time.Since(startAt)
+
+	released := d.releaseSlot(s, fetchErr != nil)
+	d.markFree(released, req.URL, startAt, dur, fetchErr)
+	d.pool <- released
+
+	if fetchErr != nil {
+		d.Logf("slot %d: screenshot %s failed: %v", s.id, req.URL, fetchErr)
+		http.Error(w, fetchErr.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("X-Final-URL", finalURL)
+	_, _ = w.Write(png)
+}
+
+// runScreenshot captures a PNG inside an existing warm browser slot.
+// Same shape as runFetch — fresh tab via chromedp.NewContext on the
+// slot's browser context, navigate, settle, capture, return.
+func (d *Daemon) runScreenshot(reqCtx context.Context, s *slot, url string, settleOverride time.Duration, fullPage bool) (png []byte, finalURL string, err error) {
+	tabCtx, cancelTab := chromedp.NewContext(s.browserCtx)
+	defer cancelTab()
+
+	timeout := d.FetcherOptions.Timeout
+	if timeout == 0 {
+		timeout = DefaultOptions.Timeout
+	}
+	timedCtx, cancelTimeout := context.WithTimeout(tabCtx, timeout)
+	defer cancelTimeout()
+
+	actions := []chromedp.Action{
+		network.Enable(),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, e := page.AddScriptToEvaluateOnNewDocument(stealthScript).Do(ctx)
+			return e
+		}),
+		chromedp.Navigate(url),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+	}
+	settle := settleOverride
+	if settle == 0 {
+		settle = d.FetcherOptions.Settle
+	}
+	if settle == 0 {
+		settle = DefaultOptions.Settle
+	}
+	if settle > 0 {
+		actions = append(actions, chromedp.Sleep(settle))
+	}
+	if fullPage {
+		actions = append(actions, chromedp.FullScreenshot(&png, 100))
+	} else {
+		actions = append(actions, chromedp.CaptureScreenshot(&png))
+	}
+	actions = append(actions, chromedp.Location(&finalURL))
+
+	_ = reqCtx
+	if err = chromedp.Run(timedCtx, actions...); err != nil {
+		return nil, "", err
+	}
+	if finalURL == "" {
+		finalURL = url
+	}
+	return png, finalURL, nil
 }
 
 // shutdown drains the pool and tears down every slot's browser.
