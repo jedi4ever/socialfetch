@@ -143,6 +143,48 @@ func TestLiveLinkedInFetchQuotedRepost(t *testing.T) {
 	t.Logf("linkedin reshare body=%d chars, embedded marker found", len(item.Content))
 }
 
+// TestLiveLinkedInJinaFallback forces the Jina branch of the chain via
+// SOCIAL_FETCH_CHAIN_LINKEDIN=jina and asserts the fetch returns a
+// non-empty body even though the bridge is bypassed entirely. This is
+// the test that protects the anonymous-fallback story: if Jina ever
+// stops working for LinkedIn (rate-limited / blocked / shape change)
+// the live suite turns red and we know to update the chain default.
+//
+// Bridge state is irrelevant here — the chain is configured to skip
+// bridge entirely, so the test passes whether the daemon is up or down.
+//
+// Run with: go test -tags=live -run TestLiveLinkedInJinaFallback
+//
+//	./internal/platforms/linkedin/...
+func TestLiveLinkedInJinaFallback(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_LINKEDIN", "jina")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	// Cole Medin's Archon post — same URL the media test uses, so
+	// drift in availability is centralised.
+	const postURL = "https://www.linkedin.com/posts/cole-medin-727752184_archon-just-crossed-20000-github-stars-share-7454993154392502272-RSYe/"
+	item, err := New().Fetch(ctx, postURL, core.DefaultOptions())
+	if err != nil {
+		t.Fatalf("Fetch via jina: %v", err)
+	}
+	if strings.TrimSpace(item.Content) == "" {
+		t.Fatalf("jina path returned empty body")
+	}
+	if via, _ := item.Extra["via"].(string); via != "jina" {
+		t.Errorf("Extra[via] = %q, want %q", via, "jina")
+	}
+	// Comments are not available on the anonymous path — assert that
+	// the contract holds rather than silently letting a future change
+	// surface partial / broken comment data.
+	if len(item.Comments) != 0 {
+		t.Errorf("expected zero comments on jina path, got %d", len(item.Comments))
+	}
+	t.Logf("linkedin jina-fallback: title=%q author=%q content=%d chars",
+		item.Title, item.Author, len(item.Content))
+}
+
 // isBridgeEnvErr reports whether err looks like a missing-bridge or
 // missing-extension condition — both of which are environment problems
 // rather than code regressions, so we should skip rather than fail.

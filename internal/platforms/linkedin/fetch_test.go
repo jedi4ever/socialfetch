@@ -146,7 +146,11 @@ func TestExtractCommentsAuthor(t *testing.T) {
 }
 
 // 503 from the bridge surfaces a useful "extension not connected" error.
+// Forces bridge-only chain so the assertion runs against the bridge
+// runner's error, not the chain's aggregated message after a Jina
+// fallback.
 func TestFetchBridgeNotConnected(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_LINKEDIN", "bridge")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no extension", http.StatusServiceUnavailable)
 	}))
@@ -162,8 +166,10 @@ func TestFetchBridgeNotConnected(t *testing.T) {
 	}
 }
 
-// status:"error" from the extension is surfaced cleanly.
+// status:"error" from the extension is surfaced cleanly. Bridge-only
+// chain (see TestFetchBridgeNotConnected for rationale).
 func TestFetchExtensionError(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_LINKEDIN", "bridge")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"status":"error","error":"timeout navigating"}`)
 	}))

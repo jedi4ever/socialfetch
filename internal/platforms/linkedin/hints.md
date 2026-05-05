@@ -1,12 +1,48 @@
 # LinkedIn — quirks & gotchas
 
-## Requires the **local browser bridge** + a logged-in session
+## Default fetch chain — bridge first, Jina as anonymous fallback
 
-LinkedIn has no anonymous read path. social-fetch routes every
+`social-fetch fetch <linkedin-url>` walks `bridge,jina` in order.
+The bridge gives the richest result (full body + comments + media
+tree, via your logged-in session); Jina is an anonymous fallback
+that handles the bridge-down / bridge-timeout case.
+
+Override the order per call via the `SOCIAL_FETCH_CHAIN_LINKEDIN`
+env var:
+
+```bash
+# default — same as unset
+SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,jina
+
+# bridge-only legacy behaviour (no anonymous fallback)
+SOCIAL_FETCH_CHAIN_LINKEDIN=bridge
+
+# always anonymous — never touch the bridge
+SOCIAL_FETCH_CHAIN_LINKEDIN=jina
+```
+
+What you get back depends on which method actually produced the
+result (`Extra["via"]` names it):
+
+| Field    | bridge          | jina                                     |
+|----------|-----------------|------------------------------------------|
+| body     | full            | full (LinkedIn's guest-preview prose)    |
+| author   | parsed from DOM | parsed from `Name | LinkedIn` title      |
+| comments | full thread     | always empty (auth-walled)               |
+| media    | structured      | inline `![](url)` only, no `Media[]`     |
+
+If you specifically need comments or the structured media tree,
+you must use the bridge — `SOCIAL_FETCH_CHAIN_LINKEDIN=jina`
+will silently come back with `comment_count: 0`.
+
+## Bridge requires a logged-in browser session
+
+LinkedIn has no public read API. The bridge method routes every
 LinkedIn request — fetch, search, timeline — through the local
 browser-bridge extension, which uses **your own logged-in browser
 session** to load pages. Without the bridge running and connected,
-all LinkedIn calls fail with `bridge unreachable`.
+the bridge step in the chain fails with `bridge unreachable` and
+the chain falls through to the next method (Jina by default).
 
 Setup:
 1. Load `extensions/chrome/` in `chrome://extensions/` (Developer
@@ -45,7 +81,9 @@ shortest dataset and the most rate-limit-friendly.
 - Article: `https://www.linkedin.com/pulse/<slug>` — handled by the
   article fetcher, not the LinkedIn fetcher.
 
-## No API token shape — bridge is the auth
+## No API token shape — bridge is the auth (Jina is anonymous)
 
 There's no `LINKEDIN_API_KEY` to set. LinkedIn's official Marketing
-API is for ads accounts, not content access. The bridge IS the auth.
+API is for ads accounts, not content access. The bridge IS the auth
+for the bridge method; Jina is fully anonymous (no key needed) but
+sees only the guest-preview shape of each post.

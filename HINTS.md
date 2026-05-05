@@ -100,11 +100,16 @@ toggle for new Custom Search Engines in 2024 — new CSEs are
 restricted to listed sites only; prefer `serpapi` / `brave` /
 `tavily` for general web search.
 
-**LinkedIn — no anonymous read path.**
-Every LinkedIn fetch / timeline / search goes through the bridge.
-Always run `social-fetch bridge status` before fetching authenticated
-URLs. Exit codes: `0` connected / `1` not connected / `2` bridge
-not running.
+**LinkedIn — bridge-first, Jina anonymous fallback.**
+Default chain is `SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,jina`. Bridge
+gives full body + comments + media tree via your logged-in session;
+when the bridge is unreachable / timed out, Jina serves the
+guest-preview body anonymously (no comments, inline images only).
+Set `SOCIAL_FETCH_CHAIN_LINKEDIN=bridge` for legacy strict-bridge
+behaviour, or `SOCIAL_FETCH_CHAIN_LINKEDIN=jina` to skip the bridge
+entirely. Run `social-fetch bridge status` before authenticated
+fetches to know if the chain will hit Jina (exit codes: `0`
+connected / `1` not connected / `2` bridge not running).
 
 **LinkedIn search — use sparingly.**
 LinkedIn aggressively rate-limits and occasionally temp-bans
