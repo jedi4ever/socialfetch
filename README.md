@@ -418,29 +418,52 @@ two knobs control how the page becomes markdown the agent can read:
 
 ### Per-platform fetch chain (`SOCIAL_FETCH_CHAIN_<PLATFORM>`)
 
-Every fetcher walks a configurable chain of methods (`bridge`,
-`http`, `jina`, `api`, `syndication`). Default chains preserve
-today's behaviour; operators override per-platform via the env
-var.
+Every fetcher walks a configurable chain of transport methods
+(`bridge`, `http`, `headless`, `jina`, `api`, `syndication`).
+Operators override per-platform via the env var; defaults live in
+the platform Go code (`internal/platforms/*/fetch.go`'s
+`defaultChain` var) so they don't drift.
+
+The table below mirrors the code at the time of writing — **if
+they ever disagree, the code wins**. Run `social-fetch hints
+<platform>` for the canonical per-platform recipe (when to
+override, transport-specific quirks).
 
 | platform | default chain | env var |
 |---|---|---|
-| article (catch-all) | `http,bridge,jina` | `SOCIAL_FETCH_CHAIN_ARTICLE` |
-| linkedin | `bridge,jina` | `SOCIAL_FETCH_CHAIN_LINKEDIN` |
-| medium | `bridge,http,jina` | `SOCIAL_FETCH_CHAIN_MEDIUM` |
-| substack | `bridge,http,jina` | `SOCIAL_FETCH_CHAIN_SUBSTACK` |
+| article (catch-all) | `headless,http,bridge,jina` | `SOCIAL_FETCH_CHAIN_ARTICLE` |
+| linkedin | `headless,bridge,jina` | `SOCIAL_FETCH_CHAIN_LINKEDIN` |
+| medium | `bridge,http,headless,jina` | `SOCIAL_FETCH_CHAIN_MEDIUM` |
+| substack | `bridge,http,headless,jina` | `SOCIAL_FETCH_CHAIN_SUBSTACK` |
 | twitter | `api,syndication,jina` | `SOCIAL_FETCH_CHAIN_TWITTER` |
 | arxiv | `api,jina` | `SOCIAL_FETCH_CHAIN_ARXIV` |
 | hackernews / reddit / github / youtube / bluesky / rss | single-method (`api` or `http`) | `SOCIAL_FETCH_CHAIN_<NAME>` |
+
+Transport quick-reference:
+
+- **`bridge`** — your real, logged-in Chrome via the
+  social-fetch extension. Required for auth-walled content
+  (LinkedIn comments, Medium / Substack member-only posts).
+  Needs `social-fetch bridge start` + extension loaded.
+- **`headless`** — local stealth Chromium via chromedp. Anonymous
+  but JS-rendering. Faster with the daemon (see "Headless browser
+  pool" below); falls back to per-call spawn when daemon's down.
+- **`http`** — plain HTTP GET. Fastest, no JS. Some sites
+  return a JS shell to non-browsers — those need `headless`.
+- **`jina`** — `r.jina.ai/<url>` remote service. Anti-CF +
+  headless rendering on Jina's infrastructure. Free tier has
+  rate limits; set `JINA_API_KEY` for paid.
+- **`api`** / **`syndication`** — platform's structured API
+  (Twitter v2, HN Algolia, etc.) where applicable.
 
 Examples:
 
 ```bash
 # air-gapped — never reach for Jina
-SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge
+SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge,headless
 
 # always anonymous LinkedIn (skip the bridge)
-SOCIAL_FETCH_CHAIN_LINKEDIN=jina
+SOCIAL_FETCH_CHAIN_LINKEDIN=headless,jina
 
 # bypass Twitter v2 even when keys are set
 SOCIAL_FETCH_CHAIN_TWITTER=syndication,jina
@@ -473,6 +496,27 @@ social-fetch bridge start         # daemonize on :5555
 social-fetch bridge status        # 0 connected / 1 not connected / 2 not running
 social-fetch bridge stop          # SIGTERM the daemon
 ```
+
+## Headless browser pool (anonymous JS-rendered fetches)
+
+Separate from the bridge. `social-fetch headless start` daemonises
+a pool of warm Chromium browsers via chromedp — anonymous (no
+session reuse, never touches your real Chrome profile), fast
+(~3s warm-tab vs ~5-6s cold-spawn), used by article / LinkedIn /
+Medium / Substack chains when `headless` is in the chain.
+
+```bash
+social-fetch headless start [--pool 2] [--recycle 50]
+social-fetch headless status     # one-shot pool snapshot
+social-fetch headless monitor    # live-tailing TUI view (Ctrl-C exits)
+social-fetch headless stop
+```
+
+When the daemon's down, the headless transport falls back to
+per-call spawn — fetches still work, just slower. Default chains
+already include `headless`; for the article fetcher it's the
+preferred path. See `social-fetch headless --help` for full flag
+list and the env vars (`SOCIAL_FETCH_HEADLESS_*`).
 
 > **Permissions model — narrow by default, broad on opt-in.**
 >

@@ -64,16 +64,23 @@ func New() *Fetcher {
 }
 
 // defaultChain is the order the article fetcher tries when no env
-// override is set. HTTP first because it's the cheapest path and
-// most articles aren't behind any kind of bot challenge; bridge
-// next because the user's logged-in Chrome handles CF / UA-sniff /
-// SPA shells; headless after that as a local anonymous fallback
-// (chromedp-driven Chrome — no daemon needed); jina last as the
-// service-backed catch-all.
+// override is set. Headless first: when the `social-fetch headless
+// start` daemon is running, fetches go through a warm browser pool
+// (~3s end-to-end) and JS-rendered SPAs / soft bot challenges
+// resolve cleanly; when the daemon is NOT running, the headless
+// transport falls back to in-process Chromium (~5-6s including
+// cold start). HTTP is the cheap fallback for plain static pages
+// when headless is unavailable; bridge handles the auth-required
+// case (CF challenges with the user's session); jina is the
+// remote-service catch-all.
+//
+// Operators who want the old "fast HTTP first, headless only as
+// fallback" shape can set
+// SOCIAL_FETCH_CHAIN_ARTICLE=http,bridge,headless,jina.
 var defaultChain = []fetchchain.Method{
+	fetchchain.MethodHeadless,
 	fetchchain.MethodHTTP,
 	fetchchain.MethodBridge,
-	fetchchain.MethodHeadless,
 	fetchchain.MethodJina,
 }
 

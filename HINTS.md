@@ -100,16 +100,13 @@ toggle for new Custom Search Engines in 2024 — new CSEs are
 restricted to listed sites only; prefer `serpapi` / `brave` /
 `tavily` for general web search.
 
-**LinkedIn — bridge-first, Jina anonymous fallback.**
-Default chain is `SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,jina`. Bridge
-gives full body + comments + media tree via your logged-in session;
-when the bridge is unreachable / timed out, Jina serves the
-guest-preview body anonymously (no comments, inline images only).
-Set `SOCIAL_FETCH_CHAIN_LINKEDIN=bridge` for legacy strict-bridge
-behaviour, or `SOCIAL_FETCH_CHAIN_LINKEDIN=jina` to skip the bridge
-entirely. Run `social-fetch bridge status` before authenticated
-fetches to know if the chain will hit Jina (exit codes: `0`
-connected / `1` not connected / `2` bridge not running).
+**Per-platform fetch chains live in the code, not in this doc.**
+Each `internal/platforms/<name>/fetch.go` declares its own
+`defaultChain` var; override per-call via `SOCIAL_FETCH_CHAIN_<NAME>`.
+Run `social-fetch hints <name>` for the per-platform recipe (when
+to override, what trade-offs apply, transport-specific quirks).
+Don't rely on a static table here — it'd drift the moment a chain
+default changes.
 
 **LinkedIn search — use sparingly.**
 LinkedIn aggressively rate-limits and occasionally temp-bans
@@ -155,6 +152,42 @@ in Chrome while running social-fetch.
 Default routing is `auto`: yt-dlp → innertube → kkdai (first success wins).
 Set `YOUTUBE_TRANSCRIPT_PROVIDER=ytdlp` if you want to skip the others
 and fail fast when yt-dlp isn't installed.
+
+---
+
+## Headless browser pool — the local Chromium daemon
+
+`social-fetch headless start` daemonises a pool of warm headless
+Chromium browsers. Article / LinkedIn / Medium / Substack chains
+include `headless` (chromedp under the hood) and route through the
+daemon transparently when it's running — fetches drop from
+~5-6s cold-spawn to ~3s warm-tab.
+
+```bash
+social-fetch headless start [--pool 2] [--recycle 50] [--port 5556]
+social-fetch headless status                  # one-shot pool snapshot
+social-fetch headless monitor                 # live-tailing TUI view
+social-fetch headless stop
+```
+
+Knobs (env, with `--flag` equivalents on `start`):
+
+| var | default | purpose |
+|---|---|---|
+| `SOCIAL_FETCH_HEADLESS_POOL_SIZE` | 2 | warm browsers (more = parallel batches) |
+| `SOCIAL_FETCH_HEADLESS_RECYCLE_AFTER` | 50 | kill+respawn each browser after N fetches (anti-bot identity rotation; 0 disables) |
+| `SOCIAL_FETCH_HEADLESS_DAEMON_URL` | http://127.0.0.1:5556 | clients look here; set to point at a remote daemon |
+| `SOCIAL_FETCH_HEADLESS_DAEMON_DISABLE` | unset | non-empty = clients always use in-process spawn |
+| `SOCIAL_FETCH_HEADLESS_USER_AGENT` | real-Chrome | UA the spawned browsers advertise |
+| `SOCIAL_FETCH_HEADLESS_TIMEOUT` | 60s | per-fetch deadline including launch |
+| `SOCIAL_FETCH_HEADLESS_SETTLE` | 2s | post-navigate sleep for JS hydration |
+
+When daemon's down, the headless transport falls back to in-process
+spawn so fetches still work — they just pay ~2s cold-start each.
+
+Cookies are NOT honoured in daemon mode (anonymous-only). For
+authenticated content (LinkedIn comments, Medium / Substack
+member-only posts) use the bridge transport.
 
 ---
 

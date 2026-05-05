@@ -24,7 +24,9 @@ import (
 	"strings"
 
 	"github.com/jedi4ever/social-skills/internal/platforms/linkedin"
+	"github.com/jedi4ever/social-skills/internal/platforms/medium"
 	"github.com/jedi4ever/social-skills/internal/platforms/reddit"
+	"github.com/jedi4ever/social-skills/internal/platforms/substack"
 	"github.com/jedi4ever/social-skills/internal/platforms/twitter"
 )
 
@@ -36,6 +38,8 @@ var platformHints = map[string]string{
 	"x":        twitter.Hints,
 	"twitter":  twitter.Hints,
 	"linkedin": linkedin.Hints,
+	"medium":   medium.Hints,
+	"substack": substack.Hints,
 	"reddit":   reddit.Hints,
 }
 

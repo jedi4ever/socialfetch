@@ -37,7 +37,11 @@ func TestMatch(t *testing.T) {
 
 // Happy path: the fetcher posts navigate first, then get_html, and
 // converts the returned HTML into a core.Item with author/canonical id.
+// Pinned to bridge-only chain because the default now puts headless
+// first — without the pin, headless tries to drive a real Chromium
+// against the test URL and the mock bridge server never gets hit.
 func TestFetchHappyPath(t *testing.T) {
+	t.Setenv("SOCIAL_FETCH_CHAIN_LINKEDIN", "bridge")
 	var commands []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var got map[string]any
@@ -182,5 +186,61 @@ func TestFetchExtensionError(t *testing.T) {
 		core.DefaultOptions())
 	if err == nil || !strings.Contains(err.Error(), "timeout navigating") {
 		t.Errorf("expected extension error, got %v", err)
+	}
+}
+
+// TestStripTracking covers the query-and-fragment scrubber that runs
+// at the top of Fetch. LinkedIn share URLs come back with utm_*,
+// trackingId, rcm, and similar tracking params that pollute Item.URL
+// + ledger dedup; stripTracking removes them while passing through
+// already-clean URLs unchanged.
+func TestStripTracking(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			"clean URL passes through unchanged",
+			"https://www.linkedin.com/posts/jane_some-slug-7000000000000000000",
+			"https://www.linkedin.com/posts/jane_some-slug-7000000000000000000",
+		},
+		{
+			"single utm param stripped",
+			"https://www.linkedin.com/posts/jane_some-slug-7000000000000000000?utm_source=share",
+			"https://www.linkedin.com/posts/jane_some-slug-7000000000000000000",
+		},
+		{
+			"multiple tracking params stripped",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000?utm_source=share&utm_medium=member_desktop&trackingId=abc%3D",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000",
+		},
+		{
+			"fragment stripped",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000#comment-1",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000",
+		},
+		{
+			"query AND fragment stripped",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000?utm_source=x#frag",
+			"https://www.linkedin.com/posts/foo-activity-7000000000000000000",
+		},
+		{
+			"malformed URL passes through (fail-soft)",
+			"://not-a-url",
+			"://not-a-url",
+		},
+		{
+			"trailing slash + query: query goes, slash stays",
+			"https://www.linkedin.com/in/janedoe/?trackingId=foo",
+			"https://www.linkedin.com/in/janedoe/",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stripTracking(c.in); got != c.want {
+				t.Errorf("stripTracking(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
 	}
 }

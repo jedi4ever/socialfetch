@@ -12,6 +12,14 @@ allowed-tools: |
   Bash(scripts/social-fetch bridge status)
   Bash(scripts/social-fetch bridge status *)
   Bash(scripts/social-fetch bridge run)
+  Bash(scripts/social-fetch headless start)
+  Bash(scripts/social-fetch headless start *)
+  Bash(scripts/social-fetch headless stop)
+  Bash(scripts/social-fetch headless status)
+  Bash(scripts/social-fetch headless status *)
+  Bash(scripts/social-fetch headless monitor)
+  Bash(scripts/social-fetch headless monitor *)
+  Bash(scripts/social-fetch headless run)
   Bash(scripts/social-fetch monitor *)
   Bash(scripts/social-fetch list)
   Bash(scripts/social-fetch hints)
@@ -201,17 +209,25 @@ scripts/social-fetch ask "what's the weather in NYC" -p perplexity,anthropic,duc
 scripts/social-fetch list
 ```
 
-## Browser bridge (LinkedIn / Medium / Substack)
+## Transports — bridge / headless / http / jina
 
-Three sources route through the local browser-extension bridge so the user's logged-in session is reused — that bypasses paywalls and member-only content.
+The fetcher walks a **chain of transports** per platform; each fetched item carries `Extra.via` naming which one produced the body. Defaults live in the platform Go code; override per call via `SOCIAL_FETCH_CHAIN_<NAME>`. Run `scripts/social-fetch hints <platform>` for the per-platform recipe.
 
-| source | bridge required? | fallback |
+| transport | what it does | when needed |
 | -- | -- | -- |
-| **LinkedIn** | yes (no anonymous read path) | none — errors out |
-| **Medium** | optional (paywall-aware via bridge) | direct HTTP for public excerpts |
-| **Substack** | optional (paywall-aware via bridge) | direct HTTP for public excerpts |
+| **`bridge`** | drives your real, logged-in Chrome via the extension | auth-walled content (LinkedIn comments, Medium / Substack member-only posts) |
+| **`headless`** | local stealth Chromium via chromedp; anonymous, JS-rendering | JS-rendered SPAs, soft anti-bot — also the article fetcher's preferred path |
+| **`http`** | plain HTTP GET | static pages where JS isn't needed |
+| **`jina`** | remote `r.jina.ai` service | last-resort catch-all when local methods fail |
 
-Each fetched item carries `Extra.via = "bridge"` or `"http"` so you can tell which path produced the content.
+Defaults (mirrored from code — `social-fetch hints <platform>` is canonical):
+
+| platform | default chain |
+| -- | -- |
+| article | `headless,http,bridge,jina` |
+| linkedin | `headless,bridge,jina` (bridge for comments) |
+| medium / substack | `bridge,http,headless,jina` (bridge for paywall) |
+| twitter | `api,syndication,jina` |
 
 ### LinkedIn requires the bridge
 
@@ -245,6 +261,21 @@ URLs the LinkedIn fetcher claims: `linkedin.com/posts/…`, `linkedin.com/feed/u
 Errors you may see:
 - `bridge unreachable` → start it (`bridge start`).
 - `no extension connected` → open your browser; the extension reconnects every ~6s.
+
+### Headless browser pool (faster anonymous fetches)
+
+Separate from the bridge. `headless start` daemonises a pool of warm headless Chromium browsers. Article / LinkedIn / Medium / Substack chains include `headless`; with the daemon running fetches drop from ~5–6s (cold spawn) to ~3s (warm tab). Anonymous-only — no session reuse, never touches the user's real Chrome profile.
+
+```
+scripts/social-fetch headless start                  # default pool=2 recycle=50
+scripts/social-fetch headless status                 # one-shot pool snapshot
+scripts/social-fetch headless monitor                # live-tailing TUI view
+scripts/social-fetch headless stop
+```
+
+When the daemon's down, headless transparently falls back to per-call spawn — fetches still work, just slower. Run `scripts/social-fetch headless --help` for tuning flags (`--pool N`, `--recycle N`, `--port N`).
+
+**When to start it:** before any batch fetch with `-j > 1`, before research loops, when fetching JS-rendered articles where `http` returns a thin shell.
 
 ## YouTube
 

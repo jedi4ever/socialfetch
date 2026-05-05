@@ -61,16 +61,19 @@ func (Fetcher) Match(u *url.URL) bool {
 }
 
 // defaultChain is the order LinkedIn tries when no env override is
-// set. Bridge first because it returns the highest-fidelity result
-// (comments, media tree, full reactions, real session). Headless
-// next as the local anonymous fallback — chromedp drives a fresh
-// stealth Chromium that extracts title + author + body + hero image
-// from the guest-preview page (verified to match the bridge body
-// shape on real LinkedIn posts). Jina last as the remote-service
-// catch-all when neither local path is available.
+// set. Headless first: the chromedp-driven anonymous extractor
+// returns *cleaner* metadata than the bridge (real og:title +
+// og:description + author from LD+JSON, vs the bridge's chrome-y
+// "(7) Post | LinkedIn" page title), gets the same body, and
+// works without a daemon + extension setup. Operators who need
+// the comment thread set
+// SOCIAL_FETCH_CHAIN_LINKEDIN=bridge,headless,jina — bridge stays
+// in the chain as the auth-capable fallback for those callers.
+// Jina last as the remote-service catch-all when neither local
+// path is available.
 var defaultChain = []fetchchain.Method{
-	fetchchain.MethodBridge,
 	fetchchain.MethodHeadless,
+	fetchchain.MethodBridge,
 	fetchchain.MethodJina,
 }
 
@@ -84,6 +87,12 @@ var supported = map[fetchchain.Method]bool{
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, raw string, opts core.Options) (*core.Item, error) {
+	if cleaned := stripTracking(raw); cleaned != raw {
+		if opts.Audit != nil {
+			opts.Audit.Logf("linkedin: stripped tracking params from URL")
+		}
+		raw = cleaned
+	}
 	chain := fetchchain.Resolve(fetchchain.FromEnv("linkedin"), defaultChain, supported)
 	runners := map[fetchchain.Method]fetchchain.Runner[*core.Item]{
 		fetchchain.MethodBridge: func(ctx context.Context, raw string) (*core.Item, error) {
@@ -286,6 +295,29 @@ func parseAuthorFromTitle(title string) string {
 		}
 	}
 	return ""
+}
+
+// stripTracking removes the query string and fragment from a LinkedIn
+// URL. LinkedIn appends utm_*/trackingId/rcm/etc. when posts are
+// shared through the UI; the post ID lives in the URL path
+// (`activity-12345`) so the query is universally tracking, never
+// functional. Stripping it before dispatch keeps Item.URL stable
+// across re-shares and ledger dedup honest (so the same post fetched
+// via two different shares hashes to one ledger row).
+//
+// Fail-soft: malformed URLs pass through unchanged — the chain will
+// surface its own parse error if the URL is genuinely broken.
+func stripTracking(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if u.RawQuery == "" && u.Fragment == "" {
+		return raw
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // canonicalID pulls the activity / ugcPost numeric id out of a LinkedIn
