@@ -35,3 +35,6 @@ coverage.out
 # same gitignored treatment as scripts/social-fetch.
 skills/social-fetch/scripts/social-ledger
 skills/social-ledger/scripts/social-ledger
+/social-daytona
+/social-fetch
+/social-ledger
