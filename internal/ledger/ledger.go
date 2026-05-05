@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,6 +147,39 @@ func Ingest(ctx context.Context, items ...core.Item) {
 			audit.Logf("ledger: read-only mode active, skipping ingest of %d item(s)", len(items))
 		}
 		return
+	}
+
+	// Daemon-mode fast path: when the ledger daemon is up and
+	// not explicitly disabled, route the ingest over HTTP so the
+	// SQLite file is owned by exactly one process. Falls back to
+	// today's subprocess path on probe miss — same behaviour as
+	// the headless transport.
+	if !Disabled() {
+		client := NewDaemonClient()
+		if client.Reachable(ctx) {
+			body, _ := json.Marshal(map[string]any{"items": items})
+			ingestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			req, _ := http.NewRequestWithContext(ingestCtx, http.MethodPost, client.BaseURL+"/ingest", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.client(30 * time.Second).Do(req)
+			if err != nil {
+				if audit != nil {
+					audit.Logf("ledger: daemon ingest failed (%v), falling back to subprocess", err)
+				}
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					if audit != nil {
+						audit.Logf("ledger: ingested %d item(s) via daemon", len(items))
+					}
+					return
+				}
+				if audit != nil {
+					audit.Logf("ledger: daemon ingest HTTP %d, falling back to subprocess", resp.StatusCode)
+				}
+			}
+		}
 	}
 
 	bin, err := binaryPath()

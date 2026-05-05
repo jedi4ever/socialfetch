@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -47,6 +48,24 @@ import (
 // `social-fetch monitor` shows ledger MCP traffic alongside
 // CLI / fetch / etc. invocations.
 func runLedger(ctx context.Context, args []string, stdin string, audit *core.AuditLogger) ([]byte, error) {
+	// Daemon-mode fast path: when the ledger daemon is up and not
+	// explicitly disabled, route the call over HTTP so the MCP
+	// server doesn't need filesystem access to the SQLite file
+	// (relevant for remote MCP servers and sandboxed agents).
+	// Only the read-side commands have HTTP routes today;
+	// everything else falls through to the subprocess path.
+	if !ledger.Disabled() && len(args) > 0 {
+		c := ledger.NewDaemonClient()
+		if c.Reachable(ctx) {
+			if out, handled := tryDaemonRoute(ctx, c, args); handled {
+				if audit != nil {
+					audit.Logf("ledger %s (via daemon)", strings.Join(args, " "))
+				}
+				return out, nil
+			}
+		}
+	}
+
 	if !ledger.Enabled() {
 		return nil, fmt.Errorf("ledger not available — install social-ledger and ensure it's on PATH (or set SOCIAL_LEDGER_BIN); or set SOCIAL_LEDGER=auto if you've explicitly disabled it via SOCIAL_LEDGER=0")
 	}
@@ -85,6 +104,86 @@ func runLedger(ctx context.Context, args []string, stdin string, audit *core.Aud
 		return nil, fmt.Errorf("social-ledger %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.Bytes(), nil
+}
+
+// tryDaemonRoute maps known argv shapes to the daemon's HTTP API,
+// returning the bytes the caller would have gotten from the
+// subprocess. Only handles routes where the wire format is clean
+// JSON (today: `seen`, `stats`); other shapes fall through to
+// the subprocess so MCP output stays byte-identical.
+//
+// Returns (out, true) when the route was handled. Returns
+// (nil, false) when args don't match any known route — caller
+// then runs the subprocess path.
+func tryDaemonRoute(ctx context.Context, c *ledger.DaemonClient, args []string) ([]byte, bool) {
+	if len(args) == 0 {
+		return nil, false
+	}
+	switch args[0] {
+	case "seen":
+		// argv = ["seen", "--format", "json", url1, url2, ...]
+		// CLI emits a JSON array of {url, seen, source, ...} per URL.
+		// Daemon's /seen takes one URL; we loop and assemble.
+		urls := make([]string, 0, len(args)-1)
+		for _, a := range args[1:] {
+			if a == "--format" || a == "json" {
+				continue
+			}
+			urls = append(urls, a)
+		}
+		if len(urls) == 0 {
+			return nil, false
+		}
+		results := make([]map[string]any, 0, len(urls))
+		for _, u := range urls {
+			s, err := c.Seen(ctx, u)
+			if err != nil {
+				return nil, false // fall back to subprocess
+			}
+			row := map[string]any{
+				"url":  u,
+				"seen": s.Seen,
+			}
+			if s.Seen {
+				if s.Key != "" {
+					row["key"] = s.Key
+				}
+				if s.Source != "" {
+					row["source"] = s.Source
+				}
+				if s.LastSeen > 0 {
+					row["fetched_at"] = time.Unix(s.LastSeen, 0).UTC().Format(time.RFC3339)
+				}
+			}
+			results = append(results, row)
+		}
+		out, err := json.Marshal(results)
+		if err != nil {
+			return nil, false
+		}
+		return out, true
+
+	case "stats":
+		// CLI emits text; daemon emits JSON. Format the JSON into
+		// the same human-readable shape so MCP output stays stable.
+		st, err := c.Stats(ctx)
+		if err != nil {
+			return nil, false
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Total: %d\n", st.Total)
+		fmt.Fprintf(&b, "Disk:  %.1f MB\n", float64(st.BytesOnDisk)/(1024*1024))
+		fmt.Fprintf(&b, "Oldest: %s\n", st.OldestSeen.Format(time.RFC3339))
+		fmt.Fprintf(&b, "Newest: %s\n", st.NewestSeen.Format(time.RFC3339))
+		if len(st.BySource) > 0 {
+			fmt.Fprintln(&b, "By source:")
+			for src, n := range st.BySource {
+				fmt.Fprintf(&b, "  %-15s %d\n", src, n)
+			}
+		}
+		return []byte(b.String()), true
+	}
+	return nil, false
 }
 
 // ledgerBinaryPath is the same lookup the Ingest path uses,

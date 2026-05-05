@@ -24,10 +24,12 @@ import (
 const DefaultDaemonPort = 5556
 
 // DefaultPoolSize is how many warm browsers the daemon keeps ready
-// when no env override is set. Two strikes a balance: parallel batch
-// fetches don't fully serialise, but we don't burn 200+ MB of RAM on
-// a quiet machine.
-const DefaultPoolSize = 2
+// when no env override is set. Four matches `social-fetch fetch -j`'s
+// default parallelism so a typical batch fetch (or 4 concurrent MCP
+// tool calls) doesn't queue. Memory cost is ~120-160 MB total at
+// rest; small enough on any modern machine, large enough that batch
+// fetches don't serialise.
+const DefaultPoolSize = 4
 
 // DefaultRecycleAfter is how many fetches a single browser handles
 // before the daemon kills + respawns it. Identity rotation matters
