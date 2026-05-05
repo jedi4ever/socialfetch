@@ -15,6 +15,7 @@ package mcp
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ type bookmarksListArgs struct {
 	URLContains    string `json:"url_contains,omitempty"`
 	TitleContains  string `json:"title_contains,omitempty"`
 	FolderContains string `json:"folder_contains,omitempty"`
+	Folder         string `json:"folder,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
 }
 
@@ -49,6 +51,7 @@ func addBookmarksListTool(s *server.MCPServer, cfg Config) {
 		mcp.WithString("url_contains", mcp.Description("Case-insensitive substring match on URL.")),
 		mcp.WithString("title_contains", mcp.Description("Case-insensitive substring match on title.")),
 		mcp.WithString("folder_contains", mcp.Description("Case-insensitive substring match on folder path (e.g. 'AI' matches 'bookmark_bar/Reading list/AI').")),
+		mcp.WithString("folder", mcp.Description("Exact folder path with subtree match. Returns bookmarks whose folder equals this OR is nested under it (e.g. 'Bookmarks bar/AI' returns AI/, AI/papers/, AI/agents/). Case-insensitive. Falls back to $SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER when unset (older $SOCIAL_FETCH_BOOKMARKS_FOLDER works as an alias).")),
 		mcp.WithNumber("limit", mcp.Description("Cap output at N rows (default 100; 0 = no cap).")),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(_ context.Context, _ mcp.CallToolRequest, args bookmarksListArgs) (*mcp.CallToolResult, error) {
@@ -64,8 +67,25 @@ func addBookmarksListTool(s *server.MCPServer, cfg Config) {
 			return mcp.NewToolResultError("until: " + err.Error()), nil
 		}
 
+		// Env-var defaults — operator can scope every tool call to
+		// one folder/profile by setting the env once. Explicit args
+		// always win. Two env names accepted for the folder scope:
+		// the new SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER reads better
+		// ("this is the root of the scope"), the older
+		// SOCIAL_FETCH_BOOKMARKS_FOLDER stays as an alias.
+		profile := args.Profile
+		if profile == "" {
+			profile = strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_PROFILE"))
+		}
+		folder := args.Folder
+		if folder == "" {
+			folder = strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER"))
+		}
+		if folder == "" {
+			folder = strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_FOLDER"))
+		}
 		l := &bookmarks.Lister{
-			Profile:     args.Profile,
+			Profile:     profile,
 			AllProfiles: args.AllProfiles,
 		}
 		got, err := l.List(bookmarks.FilterOpts{
@@ -74,6 +94,7 @@ func addBookmarksListTool(s *server.MCPServer, cfg Config) {
 			URLContains:    args.URLContains,
 			TitleContains:  args.TitleContains,
 			FolderContains: args.FolderContains,
+			Folder:         folder,
 		})
 		if err != nil {
 			audit.Logf("bookmarks_list FAILED: %v", err)

@@ -547,7 +547,9 @@ aware, no extension or daemon needed.
 
 ```bash
 social-fetch bookmarks list --since 2026-04-01      # added since April
-social-fetch bookmarks list --folder-contains AI    # by folder name
+social-fetch bookmarks list --folder-contains AI    # fuzzy match on folder name
+social-fetch bookmarks list --folder "Bookmarks bar/AI"   # exact subtree
+# Or set $SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER once and skip --folder.
 social-fetch bookmarks list --all-profiles -f json  # JSON, every profile
 social-fetch bookmarks profiles                     # which profiles exist
 ```

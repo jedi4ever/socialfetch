@@ -284,12 +284,18 @@ Reads Chrome's local Bookmarks JSON and lists matching entries. Date-range filte
 ```
 social-fetch bookmarks list                                # newest 100, default profile
 social-fetch bookmarks list --since 2026-04-01             # bookmarked since April
-social-fetch bookmarks list --folder-contains AI -n 20     # narrowed by folder
+social-fetch bookmarks list --folder-contains AI -n 20     # fuzzy folder match
+social-fetch bookmarks list --folder "Bookmarks bar/AI"    # exact subtree (AI/, AI/papers/, …)
 social-fetch bookmarks list --all-profiles -f json         # every profile, JSON
 social-fetch bookmarks profiles                            # which profiles exist
 ```
 
 `--platform chrome` is the default. Future platforms (Twitter bookmarks, Reddit saved posts — server-side, account-scoped) will plug in as additional values.
+
+**Scope every call to one folder via env var**: set
+`SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER="Bookmarks bar/AI"` once and the
+agent's `bookmarks list` calls (CLI + MCP) only see bookmarks under
+that folder + every nested subfolder. Override per-call with `--folder`.
 
 ### Ledger daemon (sandboxed / remote MCP)
 

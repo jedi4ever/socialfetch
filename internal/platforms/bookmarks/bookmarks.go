@@ -75,6 +75,23 @@ type FilterOpts struct {
 	URLContains    string // case-insensitive substring match on URL
 	TitleContains  string // case-insensitive substring match on Title
 	FolderContains string // case-insensitive substring match on Folder
+
+	// Folder is an exact-path scope: returns bookmarks whose
+	// Folder equals this value OR is rooted at it (i.e. starts
+	// with `<Folder>/`). Use to scope to one folder including
+	// every nested subfolder, e.g. Folder="Bookmarks bar/AI"
+	// returns AI/, AI/papers/, AI/agents/, etc. — but NOT a
+	// random "AI" folder elsewhere in the tree.
+	//
+	// Folder paths are case-sensitive on input (Chrome's stored
+	// folder names are case-preserving) but matched
+	// case-insensitively to keep the CLI ergonomic — operators
+	// don't need to remember whether they capitalised "AI" or
+	// "ai" when they created the folder.
+	//
+	// Combine with FolderContains for "everything in AI matching
+	// 'arxiv' anywhere in the path" — both filters AND together.
+	Folder string
 }
 
 // chromeUserDataRoot returns the platform-specific path to
@@ -223,6 +240,16 @@ func (f FilterOpts) matches(b Bookmark) bool {
 	}
 	if f.FolderContains != "" && !strings.Contains(strings.ToLower(b.Folder), strings.ToLower(f.FolderContains)) {
 		return false
+	}
+	if f.Folder != "" {
+		want := strings.ToLower(strings.Trim(f.Folder, "/"))
+		got := strings.ToLower(b.Folder)
+		// Match exact folder OR any nested subfolder. Trailing
+		// slash on `want` is stripped above so `--folder AI/` and
+		// `--folder AI` both behave the same.
+		if got != want && !strings.HasPrefix(got, want+"/") {
+			return false
+		}
 	}
 	return true
 }

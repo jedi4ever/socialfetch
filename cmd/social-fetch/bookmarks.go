@@ -44,8 +44,8 @@ func printBookmarksHelp() {
 	fmt.Print(`social-fetch bookmarks — list bookmarks from local browser stores
 
 Usage:
-  social-fetch bookmarks list [flags]      list matching bookmarks (default)
-  social-fetch bookmarks profiles          list available profiles for the platform
+  social-fetch bookmarks list [flags]          list matching bookmarks (default)
+  social-fetch bookmarks profiles              list available profiles
 
 Flags:
   --platform NAME       browser/platform to read from (default: chrome)
@@ -60,14 +60,29 @@ Flags:
   --url-contains S      filter on URL substring (case-insensitive)
   --title-contains S    filter on title substring (case-insensitive)
   --folder-contains S   filter on folder path substring (case-insensitive)
+  --folder PATH         scope to one folder + every nested subfolder, e.g.
+                        --folder "Bookmarks bar/AI" returns AI/, AI/papers/,
+                        AI/agents/, etc. Case-insensitive match. Combine
+                        with --folder-contains for further narrowing.
   -n, --limit N         cap output at N rows (0 = no cap)
   -f, --format FMT      markdown (default) | json
   -h, --help            show this help
 
+Environment:
+  SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER  default value for --folder. Set once
+                                       to scope every bookmarks call (CLI +
+                                       MCP) to one folder + its subtree.
+                                       Explicit --folder overrides.
+                                       (Older name SOCIAL_FETCH_BOOKMARKS_FOLDER
+                                       still works as an alias.)
+  SOCIAL_FETCH_BOOKMARKS_PROFILE      default value for --profile.
+
 Examples:
   social-fetch bookmarks list                          # newest 100 from default profile
   social-fetch bookmarks list --since 2026-04-01       # added in April 2026 onward
-  social-fetch bookmarks list --folder-contains AI     # everything tagged in an "AI" folder
+  social-fetch bookmarks list --folder-contains AI     # any folder path containing "AI"
+  social-fetch bookmarks list --folder "Bookmarks bar/Reading list/AI"
+                                                       # exact AI subtree
   social-fetch bookmarks list --all-profiles -f json   # every profile, JSON for piping
   social-fetch bookmarks profiles                      # which profiles are available
 `)
@@ -84,12 +99,31 @@ type bookmarksFlags struct {
 	urlContains    string
 	titleContains  string
 	folderContains string
+	folder         string // exact path + subtree (FilterOpts.Folder)
 	limit          int
 	format         string
 }
 
 func parseBookmarksFlags(args []string) (bookmarksFlags, error) {
 	f := bookmarksFlags{platform: "chrome", format: "markdown", limit: 100}
+	// Pre-populate from env so explicit flags can still override
+	// later in the parse. Same pattern as other env-driven defaults
+	// in this binary (SOCIAL_LEDGER_DIR, etc.).
+	//
+	// SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER is the "scope to this
+	// folder + every subfolder under it" hint — set once and every
+	// `bookmarks list` call (CLI + MCP) starts from there. The
+	// older SOCIAL_FETCH_BOOKMARKS_FOLDER name still works as an
+	// alias since it shipped briefly in v0.13.3-pre builds; remove
+	// when no one's using it.
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER")); v != "" {
+		f.folder = v
+	} else if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_FOLDER")); v != "" {
+		f.folder = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SOCIAL_FETCH_BOOKMARKS_PROFILE")); v != "" {
+		f.profile = v
+	}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-h", "--help":
@@ -145,6 +179,12 @@ func parseBookmarksFlags(args []string) (bookmarksFlags, error) {
 				return f, fmt.Errorf("--folder-contains needs a value")
 			}
 			f.folderContains = args[i]
+		case "--folder":
+			i++
+			if i >= len(args) {
+				return f, fmt.Errorf("--folder needs a value")
+			}
+			f.folder = args[i]
 		case "-n", "--limit":
 			i++
 			if i >= len(args) {
@@ -201,6 +241,7 @@ func runBookmarksList(args []string) error {
 		URLContains:    flags.urlContains,
 		TitleContains:  flags.titleContains,
 		FolderContains: flags.folderContains,
+		Folder:         flags.folder,
 	})
 	if err != nil {
 		return err

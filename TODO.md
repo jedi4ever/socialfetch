@@ -101,7 +101,6 @@ offer ledger etc.. as seperate mcps/skills ?
 =======
 - SOcial reviews / web app / agent controlled / kanban review voard for content?
 - MCP questions ? add / no
-
 ====
 - export list influencers ...
 - ask questions before adding influencers or others review
@@ -109,3 +108,5 @@ offer ledger etc.. as seperate mcps/skills ?
 caching fetch ?
 ====
 sscrrenshot via brdige (logged in)
+====
+docker container for different deamons

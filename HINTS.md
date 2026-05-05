@@ -203,7 +203,8 @@ values.
 
 ```bash
 social-fetch bookmarks list --since 2026-04-01            # added in April
-social-fetch bookmarks list --folder-contains AI -n 20    # narrowed
+social-fetch bookmarks list --folder-contains AI -n 20    # fuzzy match on folder name
+social-fetch bookmarks list --folder "Bookmarks bar/AI"   # exact subtree (AI/, AI/papers/, …)
 social-fetch bookmarks list --all-profiles -f json        # every profile
 social-fetch bookmarks profiles                           # available profiles
 ```
@@ -211,6 +212,13 @@ social-fetch bookmarks profiles                           # available profiles
 Reads the local Bookmarks JSON Chrome flushes to disk — no
 extension or daemon needed. Bookmarks added moments before the
 read may not appear (Chrome flushes within a second or two).
+
+**Scope every call to one folder**: set
+`SOCIAL_FETCH_BOOKMARKS_ROOT_FOLDER="Bookmarks bar/AI"` and every
+`bookmarks list` (CLI + MCP) only returns bookmarks under that
+folder + its subfolders. The same env-var path the agent uses for
+single-task scoping ("for this conversation, only look at AI
+bookmarks").
 
 ---
 
