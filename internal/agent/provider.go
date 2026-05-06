@@ -97,6 +97,17 @@ type Session struct {
 	// Labels carries provider-specific metadata. The substrate's
 	// "ours vs theirs" filter label is in here too.
 	Labels map[string]string
+
+	// ArtifactsURL is where the operator-side artifacts client
+	// can reach the in-container `social-agent artifacts serve`
+	// HTTP server. Substrate-specific resolution: local docker
+	// uses `http://127.0.0.1:<host-port>` (read back via
+	// `docker port <id> 5563`); daytona will use the sandbox's
+	// preview URL. Empty when the provider didn't publish the
+	// port (e.g. older sessions created before this field
+	// existed) — `social-agent pull <id>` errors with a clear
+	// message in that case.
+	ArtifactsURL string
 }
 
 // UpOpts shapes the session-creation request. All fields are
@@ -139,6 +150,13 @@ type UpOpts struct {
 	// canonical creds path. Ignored when the harness's
 	// EnvFromHost already returned an API-key env var.
 	CredentialsBlob string
+
+	// OutputDir, when set, asks Provider.Run to pull /artifacts
+	// from the session into this host directory after Exec
+	// completes and before Down. Empty = skip the pull. Ignored
+	// by Up (it's a one-shot-Run concern; the equivalent for
+	// persistent sessions is `social-agent pull <id>` on demand).
+	OutputDir string
 }
 
 // ExecOpts wires stdin/stdout/stderr from the caller through to

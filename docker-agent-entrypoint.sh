@@ -42,6 +42,16 @@ if [ -n "${CLAUDE_OAUTH_CREDENTIALS:-}" ]; then
   chmod 0600 "$HOME/.claude/.credentials.json"
 fi
 
+# ----- artifacts server -----
+# Start the artifacts HTTP server in the background. Stays up for
+# the container's lifetime so the operator can pull mid-prompt
+# (long-running sessions) or post-run (one-shot). Output to a log
+# file so it doesn't muddy claude's stdout in `run` mode.
+mkdir -p /artifacts
+nohup social-agent artifacts serve --root /artifacts --bind 0.0.0.0:5563 \
+    > /tmp/artifacts-server.log 2>&1 < /dev/null &
+disown
+
 # ----- mode dispatch -----
 mode="${1:-sleep}"
 shift || true

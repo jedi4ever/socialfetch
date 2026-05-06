@@ -12,12 +12,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/jedi4ever/social-skills/internal/agent"
+	"github.com/jedi4ever/social-skills/internal/agent/artifacts"
 	"github.com/jedi4ever/social-skills/internal/agent/harness"
 )
 
@@ -29,6 +32,13 @@ const LabelKey = "social-agent"
 // DefaultImage is the image:tag launched when UpOpts.Image is
 // empty. Matches the tag `make agent-build-<arch>` produces.
 const DefaultImage = "social-skills-agent:latest"
+
+// ArtifactsContainerPort is the port the in-container
+// `social-agent artifacts serve` listens on. Hard-coded matching
+// the entrypoint script + Dockerfile.agent EXPOSE line. The host
+// side is whatever `-p 127.0.0.1:0:5563` resolved to — read back
+// via `docker port` after Up.
+const ArtifactsContainerPort = 5563
 
 // Provider is the docker substrate. Stateless beyond the docker
 // daemon itself — every method shells out per-call.
@@ -78,10 +88,23 @@ func (p *Provider) Up(ctx context.Context, opts agent.UpOpts) (*agent.Session, e
 	// so env values like SOCIAL_FETCH_HEADLESS_DAEMON_URL=
 	// http://host.docker.internal:5560 work the same on every host.
 	args := []string{"run", "-d",
-		"--add-host", "host.docker.internal:host-gateway",
+		// -p 127.0.0.1:0:5563 — let docker pick a free host port
+		// (the :0:) bound only on loopback (the 127.0.0.1:). Read
+		// back via `docker port` after run completes.
+		"-p", fmt.Sprintf("127.0.0.1:0:%d", ArtifactsContainerPort),
 		"--label", LabelKey + "=true",
 		"--label", LabelKey + "-harness=" + hName,
 		"--label", LabelKey + "-image=" + image,
+	}
+	// Linux + a few other non-Desktop dockers need explicit
+	// --add-host for host.docker.internal to resolve. macOS
+	// Docker Desktop already auto-injects the right routing
+	// hostname; adding our own override there points the name at
+	// the bridge gateway (172.17.0.1) which is NOT reachable from
+	// outside the VM. Skip the flag on darwin so Docker Desktop's
+	// default reachable-host wiring stays intact.
+	if runtime.GOOS != "darwin" {
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
 	}
 	if opts.Name != "" {
 		args = append(args, "--name", opts.Name)
@@ -134,6 +157,19 @@ func (p *Provider) Up(ctx context.Context, opts agent.UpOpts) (*agent.Session, e
 	}
 	cid = strings.TrimSpace(cid)
 
+	// Resolve the host-side port for the artifacts server. Best-
+	// effort: a missing or unparseable mapping leaves ArtifactsURL
+	// empty, and `social-agent pull` surfaces a clear error rather
+	// than a confusing dial-tcp failure.
+	artifactsURL, _ := p.resolveArtifactsURL(ctx, cid)
+	// Wait for the artifacts server to be reachable before
+	// returning the session. The server starts in the background
+	// from the entrypoint; without this wait, a fast follow-up
+	// `pull` races the bind() and gets connection-refused.
+	if artifactsURL != "" {
+		_ = waitArtifactsReady(ctx, artifactsURL, 5*time.Second)
+	}
+
 	return &agent.Session{
 		ID:       cid,
 		Provider: p.Name(),
@@ -148,7 +184,45 @@ func (p *Provider) Up(ctx context.Context, opts agent.UpOpts) (*agent.Session, e
 			LabelKey + "-image":   image,
 			LabelKey + "-workdir": opts.Workdir,
 		},
+		ArtifactsURL: artifactsURL,
 	}, nil
+}
+
+// resolveArtifactsURL asks docker which host port maps to the
+// container's ArtifactsContainerPort, returning a URL the
+// operator's machine can reach. `docker port` output looks like:
+//
+//	5563/tcp -> 127.0.0.1:54321
+//	5563/tcp -> [::1]:54321
+//
+// We only care about the IPv4 line (matches what -p 127.0.0.1:0:N
+// publishes). Returns an error when no mapping is found — the
+// caller logs but doesn't fail the Up because the session itself
+// is fine, only the artifacts pull is broken.
+func (p *Provider) resolveArtifactsURL(ctx context.Context, cid string) (string, error) {
+	out, err := dockerOutput(ctx, []string{"port", cid, fmt.Sprintf("%d", ArtifactsContainerPort)})
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		// Format: "5563/tcp -> 127.0.0.1:54321". Some docker
+		// versions also emit the bare host:port without the
+		// "5563/tcp -> " prefix; handle both.
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		hostPort := line
+		if i := strings.LastIndex(line, "-> "); i >= 0 {
+			hostPort = strings.TrimSpace(line[i+3:])
+		}
+		// Skip IPv6 lines (`[::1]:...`); we publish on IPv4.
+		if strings.HasPrefix(hostPort, "[") {
+			continue
+		}
+		return "http://" + hostPort, nil
+	}
+	return "", fmt.Errorf("no IPv4 port mapping for %d", ArtifactsContainerPort)
 }
 
 // Down removes containers by ID. Empty ids = remove every container
@@ -181,6 +255,7 @@ func (p *Provider) Down(ctx context.Context, ids ...string) error {
 func (p *Provider) List(ctx context.Context) ([]agent.Session, error) {
 	out, err := dockerOutput(ctx, []string{
 		"ps", "-a",
+		"--no-trunc",
 		"--filter", "label=" + LabelKey + "=true",
 		"--format", "{{json .}}",
 	})
@@ -210,14 +285,25 @@ func (p *Provider) List(ctx context.Context) ([]agent.Session, error) {
 			continue
 		}
 		labels := parseDockerLabels(entry.Labels)
+		// Re-resolve the host port for each running container —
+		// docker assigns these dynamically on -p :0: and the
+		// mapping disappears when the container stops, so we
+		// can't rely on a label or a cached value at Up time.
+		// `pull <stopped-id>` will surface an empty URL, which
+		// the CLI translates to a clear error.
+		var artifactsURL string
+		if entry.State == "running" {
+			artifactsURL, _ = p.resolveArtifactsURL(ctx, entry.ID)
+		}
 		sessions = append(sessions, agent.Session{
-			ID:       entry.ID,
-			Provider: p.Name(),
-			Harness:  labels[LabelKey+"-harness"],
-			Image:    entry.Image,
-			Workdir:  labels[LabelKey+"-workdir"],
-			State:    entry.State,
-			Labels:   labels,
+			ID:           entry.ID,
+			Provider:     p.Name(),
+			Harness:      labels[LabelKey+"-harness"],
+			Image:        entry.Image,
+			Workdir:      labels[LabelKey+"-workdir"],
+			State:        entry.State,
+			Labels:       labels,
+			ArtifactsURL: artifactsURL,
 		})
 	}
 	return sessions, nil
@@ -280,17 +366,15 @@ func (p *Provider) Exec(ctx context.Context, id string, opts agent.ExecOpts) err
 	return c.Run()
 }
 
-// Run is the one-shot path: Up + harness.InvokePrompt + capture
-// stdout + Down. Streams claude's response straight to opts.Stdout
-// as it arrives so the operator sees output in real time.
+// Run is the one-shot path: Up + harness.InvokePrompt + (if
+// opts.OutputDir set) pull /artifacts + Down. Streams claude's
+// response straight to opts.Stdout as it arrives so the operator
+// sees output in real time.
 //
-// We deliberately use Up + Exec rather than `docker run --rm
-// <image> run "<prompt>"` — the latter would skip the entrypoint's
-// credential decoding because docker exec's CMD-replacement
-// semantics mean the entrypoint sees `run "<prompt>"` as argv[1]
-// argv[2] and dispatches correctly, but exec'ing into an
-// already-running container lets us capture the session ID for
-// debugging if the prompt errors.
+// The pull always uses HTTP (via Session.ArtifactsURL) even when
+// the container was bind-mounted with a workdir on local docker.
+// Mirrors what the daytona provider will do; gives us a single
+// code path to test.
 func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) error {
 	hName := opts.Harness
 	if hName == "" {
@@ -311,12 +395,89 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 		defer cancel()
 		_ = p.Down(downCtx, s.ID)
 	}()
-	return p.Exec(ctx, s.ID, agent.ExecOpts{
+	if err := p.Exec(ctx, s.ID, agent.ExecOpts{
 		Cmd: h.InvokePrompt(prompt),
 		// Run is non-interactive — no TTY. Stdout/stderr stream
 		// through to the caller (the social-agent CLI passes
 		// os.Stdout / os.Stderr).
-	})
+	}); err != nil {
+		return err
+	}
+	if opts.OutputDir == "" {
+		return nil
+	}
+	if s.ArtifactsURL == "" {
+		fmt.Fprintf(os.Stderr, "social-agent: session %s has no ArtifactsURL — skipping pull (was port 5563 published?)\n", s.ID[:12])
+		return nil
+	}
+	c := &artifacts.Client{BaseURL: s.ArtifactsURL}
+	count, bytes, err := c.PullAll(ctx, opts.OutputDir)
+	if err != nil {
+		// Surface the error but don't propagate — the prompt's
+		// already-printed answer is the operator's primary
+		// return; an artifact-pull miss is a secondary failure
+		// they can retry with `social-agent ...` separately if
+		// the session were persistent (it isn't here, so they
+		// lose the artifacts; we log so they know).
+		fmt.Fprintf(os.Stderr, "social-agent: artifacts pull failed: %v\n", err)
+		return nil
+	}
+	if count == 0 {
+		fmt.Fprintln(os.Stderr, "(no artifacts produced)")
+	} else {
+		fmt.Fprintf(os.Stderr, "pulled %d files (%s) → %s\n", count, humanBytes(bytes), opts.OutputDir)
+	}
+	return nil
+}
+
+// waitArtifactsReady polls the artifacts server's /health
+// endpoint until it answers 200 or the deadline fires. The server
+// starts in the background from the entrypoint, so a Up that
+// returns before the server has bound the port would race a fast
+// follow-up Pull. Best-effort: returns nil on success, the last
+// error otherwise. Caller logs but doesn't fail Up — the session
+// is fine, only artifact-pull is.
+func waitArtifactsReady(ctx context.Context, baseURL string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	var lastErr error
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return lastErr
+}
+
+// humanBytes formats a byte count for the post-run log line.
+// Coarse — KB/MB/GB only — to keep the line short.
+func humanBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	case n < 1024*1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	default:
+		return fmt.Sprintf("%.2f GB", float64(n)/(1024*1024*1024))
+	}
 }
 
 // ----- helpers -----

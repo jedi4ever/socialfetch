@@ -15,6 +15,36 @@ type ClaudeCode struct{}
 
 func (ClaudeCode) Name() string { return "claude-code" }
 
+// artifactsSystemPrompt is appended to claude's system prompt
+// before every InvokePrompt run. Tells claude about the
+// /artifacts outbox convention so it writes returnable files
+// there instead of the work-cwd /workspace (which doesn't come
+// back over the wire on substrates without bind-mounts).
+//
+// Kept short on purpose — claude is good at following terse
+// system instructions, and a long preamble eats context budget
+// the user's actual prompt should be using.
+const artifactsSystemPrompt = `You are running in a sandboxed container.
+
+Two conventions about the filesystem:
+
+  /workspace   your cwd. May be empty (no host bind-mount) or pre-populated
+               with the operator's repo. Edits here DO NOT come back to the
+               operator unless the operator explicitly mounted it; treat as
+               scratch unless told otherwise.
+
+  /artifacts   your outbox. Files you write here are pulled back to the
+               operator after this run. Use it for any file the operator
+               asked you to produce — rendered markdown, screenshots,
+               PNG/JPG images, code files, JSON, etc. Write binary outputs
+               directly to /artifacts/<name>; do NOT base64-encode them in
+               your text response.
+
+Your text response (this conversation) is also returned separately on
+stdout. Use it for explanation, summary, and references to artifacts you
+produced. Don't dump file contents in the response when you've already
+written them to /artifacts.`
+
 // InvokePrompt returns the argv for a one-shot prompt. The flags
 // match what `claude --help` documents:
 //
@@ -24,13 +54,17 @@ func (ClaudeCode) Name() string { return "claude-code" }
 //	                                 container is the sandbox, the
 //	                                 whole point is to give claude
 //	                                 full freedom inside.
-//
-// The container's entrypoint hardcodes the same shape today, so
-// this is mainly the canonical reference for "what does claude-code
-// expect"; when we add a second harness, the entrypoint switches on
-// $HARNESS to call the right argv.
+//	--append-system-prompt <text>    inject the /artifacts convention
+//	                                 so claude writes returnable
+//	                                 files to the right place.
 func (ClaudeCode) InvokePrompt(prompt string) []string {
-	return []string{"claude", "--print", "--dangerously-skip-permissions", prompt}
+	return []string{
+		"claude",
+		"--print",
+		"--dangerously-skip-permissions",
+		"--append-system-prompt", artifactsSystemPrompt,
+		prompt,
+	}
 }
 
 // InteractiveCmd is the bare `claude` command — drops the operator

@@ -87,12 +87,25 @@ RUN chmod +x /usr/local/bin/docker-agent-entrypoint.sh \
 # /workspace is the conventional bind-mount target. Empty by
 # default — `social-agent up --workdir <path>` mounts the host
 # directory here at runtime. With no --workdir, /workspace stays
-# empty and the agent has no host filesystem access. Owned by the
-# agent user so claude-code can write without chown gymnastics.
-RUN mkdir -p /workspace && chown agent:agent /workspace
+# empty and the agent has no host filesystem access.
+#
+# /artifacts is claude's outbox — files written here are pulled
+# back to the operator over HTTP (port 5563) after the run, even
+# on substrates that can't bind-mount (daytona). Claude is
+# instructed via system prompt to drop outputs here. Pre-created
+# so the entrypoint's artifact-server doesn't have to mkdir it.
+RUN mkdir -p /workspace /artifacts \
+ && chown agent:agent /workspace /artifacts
 
 USER agent
 WORKDIR /workspace
+
+# 5563 = artifacts HTTP server (`social-agent artifacts serve`,
+# started by the entrypoint at boot). The host port is dynamically
+# assigned by `docker run -p 127.0.0.1:0:5563`; the social-agent
+# CLI looks it up via `docker port` and exposes it as
+# Session.ArtifactsURL.
+EXPOSE 5563
 
 # Default: keep the container alive. `social-agent run` overrides
 # CMD with `run "<prompt>"` for the one-shot path; persistent
