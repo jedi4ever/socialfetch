@@ -76,10 +76,10 @@ const autoCropHeight = 4096
 const readScreenshotMaxHeightDefault = 4096
 
 type screenshotArgs struct {
-	URL       string `json:"url"`
-	FullPage  *bool  `json:"full_page,omitempty"`
-	Settle    string `json:"settle,omitempty"`
-	MaxHeight int    `json:"max_height,omitempty"`
+	URL       string  `json:"url"`
+	FullPage  *bool   `json:"full_page,omitempty"`
+	Settle    string  `json:"settle,omitempty"`
+	MaxHeight flexInt `json:"max_height,omitempty"`
 }
 
 func addScreenshotTool(s *server.MCPServer, cfg Config) {
@@ -144,9 +144,10 @@ func addScreenshotTool(s *server.MCPServer, cfg Config) {
 
 		inlinePNG := fullPNG
 		var cropped, autoCropped bool
-		appliedMax := args.MaxHeight
-		if args.MaxHeight > 0 {
-			out, didCrop, cerr := pngutil.CropPNGTop(inlinePNG, args.MaxHeight)
+		maxHeight := int(args.MaxHeight)
+		appliedMax := maxHeight
+		if maxHeight > 0 {
+			out, didCrop, cerr := pngutil.CropPNGTop(inlinePNG, maxHeight)
 			if cerr != nil {
 				audit.Logf("screenshot %s crop failed: %v", args.URL, cerr)
 			} else {
@@ -269,10 +270,10 @@ func addScreenshotTool(s *server.MCPServer, cfg Config) {
 // next_offset_y=4096 and slices_remaining=N, then call again with
 // offset_y=4096 to walk the page from top to bottom.
 type readScreenshotArgs struct {
-	Filename  string `json:"filename,omitempty"`
-	URL       string `json:"url,omitempty"`
-	MaxHeight int    `json:"max_height,omitempty"`
-	OffsetY   int    `json:"offset_y,omitempty"`
+	Filename  string  `json:"filename,omitempty"`
+	URL       string  `json:"url,omitempty"`
+	MaxHeight flexInt `json:"max_height,omitempty"`
+	OffsetY   flexInt `json:"offset_y,omitempty"`
 }
 
 func addReadScreenshotTool(s *server.MCPServer, cfg Config) {
@@ -312,11 +313,11 @@ func addReadScreenshotTool(s *server.MCPServer, cfg Config) {
 		// JSON-omitted ints come through as 0 and we want the
 		// safe default for vision-cap reasons. Operator who really
 		// wants no crop can pass a giant value (e.g. 1_000_000).
-		maxH := args.MaxHeight
+		maxH := int(args.MaxHeight)
 		if maxH <= 0 {
 			maxH = readScreenshotMaxHeightDefault
 		}
-		offsetY := args.OffsetY
+		offsetY := int(args.OffsetY)
 		if offsetY < 0 {
 			offsetY = 0
 		}

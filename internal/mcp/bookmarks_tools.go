@@ -30,15 +30,15 @@ import (
 // as "match everything." Limit defaults to 100 in the handler so
 // agents can leave it off and still get a usable result.
 type bookmarksListArgs struct {
-	Profile        string `json:"profile,omitempty"`
-	AllProfiles    bool   `json:"all_profiles,omitempty"`
-	Since          string `json:"since,omitempty"`
-	Until          string `json:"until,omitempty"`
-	URLContains    string `json:"url_contains,omitempty"`
-	TitleContains  string `json:"title_contains,omitempty"`
-	FolderContains string `json:"folder_contains,omitempty"`
-	Folder         string `json:"folder,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
+	Profile        string  `json:"profile,omitempty"`
+	AllProfiles    bool    `json:"all_profiles,omitempty"`
+	Since          string  `json:"since,omitempty"`
+	Until          string  `json:"until,omitempty"`
+	URLContains    string  `json:"url_contains,omitempty"`
+	TitleContains  string  `json:"title_contains,omitempty"`
+	FolderContains string  `json:"folder_contains,omitempty"`
+	Folder         string  `json:"folder,omitempty"`
+	Limit          flexInt `json:"limit,omitempty"`
 }
 
 func addBookmarksListTool(s *server.MCPServer, cfg Config) {
@@ -100,7 +100,7 @@ func addBookmarksListTool(s *server.MCPServer, cfg Config) {
 			audit.Logf("bookmarks_list FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		limit := args.Limit
+		limit := int(args.Limit)
 		if limit == 0 {
 			limit = 100
 		}

@@ -65,9 +65,9 @@ func writeContentTemp(tool, ext, body string) (string, int, error) {
 // ---- read_file tool --------------------------------------------------
 
 type readFileArgs struct {
-	Path     string `json:"path"`
-	Start    int    `json:"start_byte,omitempty"`
-	MaxBytes int    `json:"max_bytes,omitempty"`
+	Path     string  `json:"path"`
+	Start    flexInt `json:"start_byte,omitempty"`
+	MaxBytes flexInt `json:"max_bytes,omitempty"`
 }
 
 // addReadFileTool registers `social_fetch_read_file`, the chunked

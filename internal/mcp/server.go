@@ -253,11 +253,11 @@ func (p prefixWriter) Write(b []byte) (int, error) {
 // ---- fetch -----------------------------------------------------------
 
 type fetchArgs struct {
-	URL               string `json:"url"`
-	IncludeComments   *bool  `json:"include_comments,omitempty"`
-	MaxComments       int    `json:"max_comments,omitempty"`
-	GenericExtraction bool   `json:"generic_extraction,omitempty"`
-	Inline            bool   `json:"inline,omitempty"`
+	URL               string  `json:"url"`
+	IncludeComments   *bool   `json:"include_comments,omitempty"`
+	MaxComments       flexInt `json:"max_comments,omitempty"`
+	GenericExtraction bool    `json:"generic_extraction,omitempty"`
+	Inline            bool    `json:"inline,omitempty"`
 }
 
 func addFetchTool(s *server.MCPServer, cfg Config) {
@@ -281,7 +281,7 @@ func addFetchTool(s *server.MCPServer, cfg Config) {
 		}
 		opts := core.Options{
 			IncludeComments:   args.IncludeComments == nil || *args.IncludeComments,
-			MaxComments:       args.MaxComments,
+			MaxComments:       int(args.MaxComments),
 			GenericExtraction: args.GenericExtraction,
 			Audit:             audit,
 		}
@@ -482,15 +482,15 @@ func countComments(cs []core.Comment) int {
 // ---- search ----------------------------------------------------------
 
 type searchArgs struct {
-	Query    string `json:"query"`
-	Provider string `json:"provider,omitempty"`
-	Max      int    `json:"max,omitempty"`
-	Start    int    `json:"start,omitempty"`
-	Cursor   string `json:"cursor,omitempty"`
-	After    string `json:"after,omitempty"`
-	Before   string `json:"before,omitempty"`
-	Last     string `json:"last,omitempty"`
-	Site     string `json:"site,omitempty"`
+	Query    string  `json:"query"`
+	Provider string  `json:"provider,omitempty"`
+	Max      flexInt `json:"max,omitempty"`
+	Start    flexInt `json:"start,omitempty"`
+	Cursor   string  `json:"cursor,omitempty"`
+	After    string  `json:"after,omitempty"`
+	Before   string  `json:"before,omitempty"`
+	Last     string  `json:"last,omitempty"`
+	Site     string  `json:"site,omitempty"`
 }
 
 func addSearchTool(s *server.MCPServer, cfg Config) {
@@ -521,7 +521,7 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 			audit.Logf("search FAILED: %v", err)
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		opts := core.SearchOptions{Max: args.Max, Start: args.Start, Cursor: args.Cursor}
+		opts := core.SearchOptions{Max: int(args.Max), Start: int(args.Start), Cursor: args.Cursor}
 		if t, err := parseDate(args.After); err != nil {
 			return mcp.NewToolResultError("after: " + err.Error()), nil
 		} else if t != nil {
@@ -590,13 +590,13 @@ func addSearchTool(s *server.MCPServer, cfg Config) {
 // ---- ask -------------------------------------------------------------
 
 type askArgs struct {
-	Question     string `json:"question"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Recency      string `json:"recency,omitempty"`
-	MaxTokens    int    `json:"max_tokens,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
-	Inline       bool   `json:"inline,omitempty"`
+	Question     string  `json:"question"`
+	Provider     string  `json:"provider,omitempty"`
+	Model        string  `json:"model,omitempty"`
+	Recency      string  `json:"recency,omitempty"`
+	MaxTokens    flexInt `json:"max_tokens,omitempty"`
+	Instructions string  `json:"instructions,omitempty"`
+	Inline       bool    `json:"inline,omitempty"`
 }
 
 func addAskTool(s *server.MCPServer, cfg Config) {
@@ -628,7 +628,7 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 		ans, err := asker.Ask(ctx, args.Question, core.AskOptions{
 			Model:        args.Model,
 			Recency:      args.Recency,
-			MaxTokens:    args.MaxTokens,
+			MaxTokens:    int(args.MaxTokens),
 			Instructions: args.Instructions,
 		})
 		if err != nil {
@@ -659,13 +659,13 @@ func addAskTool(s *server.MCPServer, cfg Config) {
 // ---- timeline --------------------------------------------------------
 
 type timelineArgs struct {
-	User          string `json:"user"`
-	Provider      string `json:"provider,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	Max           int    `json:"max,omitempty"`
-	Last          string `json:"last,omitempty"`
-	Expand        bool   `json:"expand,omitempty"`
-	ExcludeShares bool   `json:"no_reshares,omitempty"`
+	User          string  `json:"user"`
+	Provider      string  `json:"provider,omitempty"`
+	Kind          string  `json:"kind,omitempty"`
+	Max           flexInt `json:"max,omitempty"`
+	Last          string  `json:"last,omitempty"`
+	Expand        bool    `json:"expand,omitempty"`
+	ExcludeShares bool    `json:"no_reshares,omitempty"`
 }
 
 func addTimelineTool(s *server.MCPServer, cfg Config) {
@@ -701,7 +701,7 @@ func addTimelineTool(s *server.MCPServer, cfg Config) {
 		}
 		opts := core.TimelineOptions{
 			Kind:          args.Kind,
-			Max:           args.Max,
+			Max:           int(args.Max),
 			Expand:        args.Expand,
 			ExcludeShares: args.ExcludeShares,
 		}
@@ -794,12 +794,12 @@ func annotateProviders(category string, names []string) []map[string]any {
 // ---- research --------------------------------------------------------
 
 type researchArgs struct {
-	Question     string `json:"question"`
-	Orchestrator string `json:"orchestrator,omitempty"`
-	MaxAngles    int    `json:"max_angles,omitempty"`
-	Jobs         int    `json:"jobs,omitempty"`
-	JSON         bool   `json:"json,omitempty"`
-	Inline       bool   `json:"inline,omitempty"`
+	Question     string  `json:"question"`
+	Orchestrator string  `json:"orchestrator,omitempty"`
+	MaxAngles    flexInt `json:"max_angles,omitempty"`
+	Jobs         flexInt `json:"jobs,omitempty"`
+	JSON         bool    `json:"json,omitempty"`
+	Inline       bool    `json:"inline,omitempty"`
 }
 
 func addResearchTool(s *server.MCPServer, cfg Config) {
@@ -832,8 +832,8 @@ func addResearchTool(s *server.MCPServer, cfg Config) {
 			Searchers:    cfg.Searchers,
 			Askers:       cfg.Askers,
 			Timelines:    cfg.Timelines,
-			MaxAngles:    args.MaxAngles,
-			Concurrency:  args.Jobs,
+			MaxAngles:    int(args.MaxAngles),
+			Concurrency:  int(args.Jobs),
 			OnProgress: func(e research.Event) {
 				// Re-emit research progress lines into the same
 				// audit logger so `social-fetch monitor` shows the

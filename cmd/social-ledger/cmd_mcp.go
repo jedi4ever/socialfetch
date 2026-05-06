@@ -37,6 +37,20 @@ func cmdMCP(args []string) error {
 		_ = os.Setenv("SOCIAL_LEDGER_READONLY", "1")
 	}
 
+	// Point the subprocess fallback at our own executable. Most
+	// ledger ops daemon-route via SOCIAL_LEDGER_DAEMON_URL (no
+	// binary needed), but a few (like article record with its
+	// JSONL-stdin flow) still shell out. Without this the
+	// fallback hits "social-ledger not on $PATH" because the
+	// MCP server's process inherits Claude Code's env, not the
+	// dist/ directory. os.Executable() resolves to whatever
+	// invoked us — exactly the binary the subprocess wants.
+	if os.Getenv("SOCIAL_LEDGER_BIN") == "" {
+		if exe, err := os.Executable(); err == nil {
+			_ = os.Setenv("SOCIAL_LEDGER_BIN", exe)
+		}
+	}
+
 	cfg := mcp.Config{Version: Version}
 	srv := mcp.NewLedgerOnlyServer(cfg)
 

@@ -33,11 +33,11 @@ import (
 // ---- list ------------------------------------------------------------
 
 type influencersListArgs struct {
-	Type         string `json:"type,omitempty"`
-	Topic        string `json:"topic,omitempty"`
-	Has          string `json:"has,omitempty"`
-	FollowedOnly bool   `json:"followed_only,omitempty"`
-	Limit        int    `json:"limit,omitempty"`
+	Type         string  `json:"type,omitempty"`
+	Topic        string  `json:"topic,omitempty"`
+	Has          string  `json:"has,omitempty"`
+	FollowedOnly bool    `json:"followed_only,omitempty"`
+	Limit        flexInt `json:"limit,omitempty"`
 }
 
 func addInfluencersListTool(s *server.MCPServer, cfg Config) {
@@ -52,7 +52,7 @@ func addInfluencersListTool(s *server.MCPServer, cfg Config) {
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args influencersListArgs) (*mcp.CallToolResult, error) {
 		audit, closeAudit := openToolAudit(cfg, "influencers_list")
 		defer closeAudit()
-		limit := args.Limit
+		limit := int(args.Limit)
 		if limit == 0 {
 			limit = 100
 		}
