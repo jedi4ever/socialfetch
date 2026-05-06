@@ -100,13 +100,29 @@ func (p *Provider) Up(ctx context.Context, opts browser.UpOpts) ([]browser.Backe
 			labels[k] = v
 		}
 
+		// Env composition: the in-sandbox social-browser entrypoint
+		// (docker-entrypoint.sh) sources tailscale-up.sh, which auto-
+		// brings the sandbox onto the operator's tailnet when
+		// TS_AUTHKEY is set. Forward it here so a single .env entry
+		// on the host puts every spawned browser sandbox on the
+		// tailnet automatically. MCP_AUTH_TOKEN was already wired;
+		// keep it. Inline pickup (rather than agent.BuildPassthroughEnv)
+		// because internal/browser must not import internal/agent —
+		// agent already imports the browser-daytona client and a
+		// reverse dep would cycle.
+		sandboxEnv := map[string]string{"MCP_AUTH_TOKEN": mcpToken}
+		for _, k := range []string{"TS_AUTHKEY", "HOST_TAILSCALE_NAME"} {
+			if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+				sandboxEnv[k] = v
+			}
+		}
 		req := CreateWorkspaceRequest{
 			Image:            image,
 			CPU:              cpu,
 			Memory:           memory,
 			Disk:             disk,
 			Target:           opts.Region,
-			Env:              map[string]string{"MCP_AUTH_TOKEN": mcpToken},
+			Env:              sandboxEnv,
 			Labels:           labels,
 			AutoStopInterval: intPtr(autoStop),
 		}
