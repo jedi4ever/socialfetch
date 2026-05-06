@@ -40,8 +40,9 @@ func cmdRun(args []string) error {
 	image := fs.String("image", "social-skills-researcher:latest", "docker image to run")
 	useClaude := fs.Bool("claude", false, "start `claude` TUI with --mcp-config (ledger + agent) instead of /bin/bash")
 	noDockerSock := fs.Bool("no-docker-sock", false, "don't bind-mount /var/run/docker.sock (only relevant with --claude)")
-	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL (e.g. http://host.docker.internal:5562/mcp) instead of spawning the binary inside. Bearer auth is read from MCP_AUTH_TOKEN. Falls back to SOCIAL_AGENT_MCP_URL env var when unset.")
-	ledgerMCPURL := fs.String("ledger-mcp-url", "", "same idea for the ledger surface (e.g. http://host.docker.internal:5557/mcp). Falls back to SOCIAL_LEDGER_MCP_URL env var when unset. MCP_AUTH_TOKEN gates auth.")
+	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL. Empty = layered default: $SOCIAL_AGENT_MCP_URL, then http://host.docker.internal:5562/mcp. Bearer auth via MCP_AUTH_TOKEN. Pass --stdio to bypass HTTP entirely.")
+	ledgerMCPURL := fs.String("ledger-mcp-url", "", "register the ledger MCP via Streamable HTTP at this URL. Empty = layered default: $SOCIAL_LEDGER_MCP_URL, then http://host.docker.internal:5557/mcp. Bearer auth via MCP_AUTH_TOKEN. Pass --stdio to bypass HTTP entirely.")
+	stdio := fs.Bool("stdio", false, "force stdio MCP for both servers — inner claude spawns /usr/local/bin/social-{agent,ledger} mcp inside the container instead of dialing host HTTP. Use when you don't have host MCP servers running. Implies the docker.sock mount unless --no-docker-sock.")
 	name := fs.String("name", "", "explicit container name (default: auto-generated)")
 	var extraEnv envFlags
 	fs.Var(&extraEnv, "env", "add an env var (KEY=VAL). Repeatable. Merged on top of host PassthroughKeys.")
@@ -49,15 +50,35 @@ func cmdRun(args []string) error {
 		return err
 	}
 
-	// Env-var fallback so the operator can put the URLs in .env once
-	// and run `social-researcher run --claude` without retyping
-	// flags. Explicit flags still win — empty flag + non-empty env
-	// uses env, empty both = stdio fallback in the inner claude.
+	// Resolve MCP URLs with layered defaults so the operator's
+	// `social-researcher run --claude` works zero-config in the common
+	// topology (host runs `social-{agent,ledger} mcp --http`):
+	//
+	//   1. Explicit --*-mcp-url flag wins.
+	//   2. Else, $SOCIAL_{AGENT,LEDGER}_MCP_URL env wins.
+	//   3. Else, the canonical localhost ports (5562 / 5557) at
+	//      host.docker.internal — what `social-{agent,ledger} mcp --http`
+	//      defaults to. Operators only override when they've moved the
+	//      servers to a different host or port.
+	//
+	// --stdio overrides everything — wipes both URLs so the inner claude
+	// falls back to spawning the binaries inside the container. Useful
+	// when no host HTTP servers exist (e.g. quick smoke test).
 	if *agentMCPURL == "" {
 		*agentMCPURL = strings.TrimSpace(os.Getenv("SOCIAL_AGENT_MCP_URL"))
 	}
+	if *agentMCPURL == "" {
+		*agentMCPURL = "http://host.docker.internal:5562/mcp"
+	}
 	if *ledgerMCPURL == "" {
 		*ledgerMCPURL = strings.TrimSpace(os.Getenv("SOCIAL_LEDGER_MCP_URL"))
+	}
+	if *ledgerMCPURL == "" {
+		*ledgerMCPURL = "http://host.docker.internal:5557/mcp"
+	}
+	if *stdio {
+		*agentMCPURL = ""
+		*ledgerMCPURL = ""
 	}
 
 	// Resolve workdir: explicit flag wins, otherwise cwd.

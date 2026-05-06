@@ -40,7 +40,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.22.3"
+const Version = "0.22.4"
 
 func main() {
 	dotenv.LoadAuto()
@@ -95,10 +95,20 @@ FLAGS (run)
   --claude             start `+"`claude`"+` TUI with --mcp-config registering
                        social-ledger + social-agent MCP servers (instead of
                        /bin/bash). Implies --dangerously-skip-permissions.
+  --agent-mcp-url URL  override the agent MCP HTTP endpoint (default:
+                       http://host.docker.internal:5562/mcp). Falls back
+                       to $SOCIAL_AGENT_MCP_URL when unset.
+  --ledger-mcp-url URL override the ledger MCP HTTP endpoint (default:
+                       http://host.docker.internal:5557/mcp). Falls back
+                       to $SOCIAL_LEDGER_MCP_URL when unset.
+  --stdio              force stdio MCP for both servers — inner claude
+                       spawns /usr/local/bin/social-{agent,ledger} mcp
+                       inside the container instead of dialing host HTTP.
+                       Use when no host MCP servers are running.
   --no-docker-sock     don't bind-mount /var/run/docker.sock into the
-                       container. Only meaningful with --claude — the
-                       socket mount is what makes mcp__agent__social_agent_run
-                       able to spawn nested containers. Default: mount it.
+                       container. Only relevant in --stdio mode (HTTP mode
+                       doesn't need it — host social-agent already has
+                       docker access).
   --env KEY=VAL        add an env var. Repeatable. Merged on top of the
                        PassthroughKeys auto-forwarded from your host env.
   --name NAME          explicit container name (default: auto-generated).
@@ -121,29 +131,36 @@ ENV PASSTHROUGH
   --http validate against.
 
 SECURITY
-  --claude mode mounts /var/run/docker.sock by default. The inner agent
-  thus has root-equivalent access to your host docker daemon. Pass
-  --no-docker-sock for stricter sessions (at the cost of disabling
-  recursive agent spawning).
+  Default --claude mode talks to host MCP servers over HTTP — no
+  docker.sock mount needed (the host's social-agent already has docker
+  access). When using --stdio, the inner claude spawns its own MCP
+  binaries inside the container; for nested-agent spawning to work
+  there, /var/run/docker.sock is bind-mounted by default. Pass
+  --no-docker-sock for stricter --stdio sessions.
 
 EXAMPLES
   # Plain bash shell, repo at /workspace
   cd ~/dev/myproject && social-researcher run
 
-  # Claude TUI with ledger + agent tools available
+  # Claude TUI with ledger + agent tools, talking to host MCP HTTP
+  # endpoints. Prereq: in another tab,
+  #   social-agent mcp --http :5562
+  #   social-ledger mcp --http :5557
   social-researcher run --claude
 
-  # Restricted: claude with ledger only, no agent fan-out
-  social-researcher run --claude --no-docker-sock
+  # Same with bearer auth — set MCP_AUTH_TOKEN in your .env
+  MCP_AUTH_TOKEN=secret social-researcher run --claude
 
-  # Point the inner claude at host-running MCP HTTP endpoints
-  # (start them in another tab: social-agent mcp --http :5562,
-  # social-ledger mcp --http :5557).
-  MCP_AUTH_TOKEN=secret social-researcher run --claude \
-    --agent-mcp-url  http://host.docker.internal:5562/mcp \
-    --ledger-mcp-url http://host.docker.internal:5557/mcp
+  # Override the URLs explicitly (e.g. host MCPs on a different machine)
+  social-researcher run --claude \
+    --agent-mcp-url  https://research.example.com/agent/mcp \
+    --ledger-mcp-url https://research.example.com/ledger/mcp
 
-  # Same, but URLs come from .env via SOCIAL_{AGENT,LEDGER}_MCP_URL
-  social-researcher run --claude
+  # Self-contained: stdio MCP, binaries spawned inside the container.
+  # Use when you don't have host HTTP servers running.
+  social-researcher run --claude --stdio
+
+  # stdio mode without docker.sock (no nested agent spawning)
+  social-researcher run --claude --stdio --no-docker-sock
 `, Version)
 }
