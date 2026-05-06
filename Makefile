@@ -31,6 +31,7 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-fetch
         ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package \
         docker-build docker-build-amd64 docker-build-arm64 \
         agent-build agent-build-amd64 agent-build-arm64 \
+        researcher-build researcher-build-amd64 researcher-build-arm64 \
         linux-binaries linux-binaries-amd64 linux-binaries-arm64 \
         docker-run docker-compose-up docker-compose-down docker-shell
 
@@ -171,8 +172,9 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 # `docker-run` uses :latest. `docker-compose-up` is the dev shorthand —
 # use it when you want to point Claude Desktop / claude.ai at the
 # local container.
-DOCKER_IMAGE       = social-skills-browser
-DOCKER_AGENT_IMAGE = social-skills-agent
+DOCKER_IMAGE            = social-skills-browser
+DOCKER_AGENT_IMAGE      = social-skills-agent
+DOCKER_RESEARCHER_IMAGE = social-skills-researcher
 DOCKER_VERSION     = $(shell awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-fetch/main.go)
 DOCKER_LEDGER_VOL  = social-skills-ledger
 
@@ -261,6 +263,34 @@ else ifeq ($(DOCKER_HOST_ARCH),aarch64)
 agent-build: agent-build-arm64
 else
 agent-build: agent-build-amd64
+endif
+
+# researcher-build wraps the agent image as social-skills-researcher.
+# Today it's a thin re-tag (Dockerfile.researcher's FROM points at
+# social-skills-agent:latest), but it gets its own image name + tag so
+# `social-researcher run`'s default --image picks it up cleanly and so
+# we can diverge later without perturbing the agent image. Depends on
+# agent-build so the FROM has something to inherit from.
+researcher-build-amd64: agent-build-amd64  ## Build social-skills-researcher:<version> for linux/amd64
+	docker buildx build --platform linux/amd64 \
+	  -f Dockerfile.researcher \
+	  -t $(DOCKER_RESEARCHER_IMAGE):$(DOCKER_VERSION) \
+	  -t $(DOCKER_RESEARCHER_IMAGE):latest \
+	  --load .
+
+researcher-build-arm64: agent-build-arm64  ## Build social-skills-researcher:<version> for linux/arm64
+	docker buildx build --platform linux/arm64 \
+	  -f Dockerfile.researcher \
+	  -t $(DOCKER_RESEARCHER_IMAGE):$(DOCKER_VERSION) \
+	  -t $(DOCKER_RESEARCHER_IMAGE):latest \
+	  --load .
+
+ifeq ($(DOCKER_HOST_ARCH),arm64)
+researcher-build: researcher-build-arm64  ## Build social-skills-researcher for the host's native arch
+else ifeq ($(DOCKER_HOST_ARCH),aarch64)
+researcher-build: researcher-build-arm64
+else
+researcher-build: researcher-build-amd64
 endif
 
 docker-run:  ## Run the container with all three daemons exposed and a named volume for state

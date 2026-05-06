@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.7
+#
+# social-skills-researcher — interactive research environment.
+#
+# Operator runs `social-researcher run` on the host; that binary docker-
+# runs this image with cwd bind-mounted at /workspace. Default mode drops
+# into /bin/bash; --claude starts the Claude Code TUI with social-ledger
+# + social-agent MCP servers wired in (stdio against in-container binaries
+# OR HTTP against host endpoints, depending on flags).
+#
+# For now: a thin re-tag of the agent image. The agent image already
+# bundles claude-code (npm), all four social-* binaries, and the same
+# entrypoint plumbing — researcher inherits everything.
+#
+# Why a separate Dockerfile + tag at all? Two reasons:
+#
+#   1. Operator mental model: `docker images social-skills-researcher`
+#      is the obvious place to look for what `social-researcher` runs.
+#   2. Future divergence: the agent image is tuned for sandboxed agent
+#      runs (no host filesystem leakage); researcher is the operator's
+#      *own* shell with cwd mounted, so we'll likely want different
+#      defaults (vim/nano installed, git config aware, etc).
+#      Keeping a separate Dockerfile gives us room to grow without
+#      perturbing the agent path.
+#
+# Built via `make researcher-build` (or -amd64 / -arm64). Tagged at
+# `social-skills-researcher:<version>` and `:latest` so
+# `social-researcher run` picks up the latest build without needing a
+# version-pinned default.
+
+ARG BASE_TAG=latest
+FROM social-skills-agent:${BASE_TAG}
+
+# No further changes today — everything we need (claude, social-fetch,
+# social-ledger, social-browser, social-agent) is already in the agent
+# image. When researcher gains its own dependencies, add them below.
+
+LABEL org.opencontainers.image.title="social-skills-researcher"
+LABEL org.opencontainers.image.description="Interactive research environment for social-researcher run"

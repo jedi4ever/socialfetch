@@ -32,7 +32,12 @@ func (e *envFlags) Set(v string) error { *e = append(*e, v); return nil }
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	workdir := fs.String("workdir", "", "host path bind-mounted at /workspace (default: cwd)")
-	image := fs.String("image", "social-skills-agent:"+Version, "docker image to run")
+	// Default image is `social-skills-researcher:latest` — built by
+	// `make researcher-build` (a thin re-tag of social-skills-agent
+	// today). Floating tag, not version-pinned, so a host-binary
+	// version bump doesn't force a per-version image rebuild.
+	// Operators wanting a specific tag pass --image explicitly.
+	image := fs.String("image", "social-skills-researcher:latest", "docker image to run")
 	useClaude := fs.Bool("claude", false, "start `claude` TUI with --mcp-config (ledger + agent) instead of /bin/bash")
 	noDockerSock := fs.Bool("no-docker-sock", false, "don't bind-mount /var/run/docker.sock (only relevant with --claude)")
 	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL (e.g. http://host.docker.internal:5562/mcp) instead of spawning the binary inside. Bearer auth is read from MCP_AUTH_TOKEN. Falls back to SOCIAL_AGENT_MCP_URL env var when unset.")

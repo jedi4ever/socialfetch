@@ -81,16 +81,17 @@ USAGE
   social-researcher help
 
 DESCRIPTION
-  Spawns a docker container backed by social-skills-agent:%s with the
-  operator's cwd bind-mounted at /workspace. All four social-* binaries
-  are on PATH inside the container.
+  Spawns a docker container backed by social-skills-researcher:latest
+  (built by 'make researcher-build') with the operator's cwd bind-
+  mounted at /workspace. All four social-* binaries are on PATH inside
+  the container.
 
   Default: drops into /bin/bash. Pass --claude to start the Claude Code
   TUI instead, with social-ledger and social-agent MCP servers wired in.
 
 FLAGS (run)
   --workdir DIR        host path bind-mounted at /workspace (default: cwd)
-  --image TAG          docker image to run (default: social-skills-agent:%s)
+  --image TAG          docker image to run (default: social-skills-researcher:latest)
   --claude             start `+"`claude`"+` TUI with --mcp-config registering
                        social-ledger + social-agent MCP servers (instead of
                        /bin/bash). Implies --dangerously-skip-permissions.
@@ -144,5 +145,5 @@ EXAMPLES
 
   # Same, but URLs come from .env via SOCIAL_{AGENT,LEDGER}_MCP_URL
   social-researcher run --claude
-`, Version, Version, Version)
+`, Version)
 }
