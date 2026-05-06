@@ -93,19 +93,24 @@ type runArgs struct {
 	Output  string            `json:"output,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Image   string            `json:"image,omitempty"`
-	Stream  bool              `json:"stream,omitempty"`
+	// Stream is a *bool so omitted-from-JSON (nil) is
+	// distinguishable from explicit-false. nil = stream when a
+	// progressToken is available (the default); *false = always
+	// buffer-and-return, useful for tests that want a single
+	// envelope back regardless of the client's progressToken.
+	Stream *bool `json:"stream,omitempty"`
 }
 
 func addRunTool(s *server.MCPServer, cfg Config) {
 	tool := mcpgo.NewTool("social_agent_run",
-		mcpgo.WithDescription("Run a one-shot prompt inside a sandboxed claude-code container, return claude's response on stdout. The container is created, prompt executed, container removed — single round trip. Use `output` to also pull files claude wrote to /artifacts/ to a host directory. Use `workdir` to bind-mount the host repo so claude can read existing files; otherwise the container has no host filesystem access. `env` is a map of additional env vars (e.g. SOCIAL_FETCH_HEADLESS_DAEMON_URL) to inject into the container — loopback URLs auto-rewrite to host.docker.internal so the container can reach host services. `harness` defaults to claude-code; pass `echo` for an auth-free smoke test. Pass `stream: true` together with a `_meta.progressToken` on the call to receive `notifications/progress` events as the run proceeds (one per session-up/text/artifact/session-down/done event); the final tool result still carries the aggregated text + artifact list."),
+		mcpgo.WithDescription("Run a one-shot prompt inside a sandboxed claude-code container, return claude's response on stdout. The container is created, prompt executed, container removed — single round trip. Use `output` to also pull files claude wrote to /artifacts/ to a host directory. Use `workdir` to bind-mount the host repo so claude can read existing files; otherwise the container has no host filesystem access. `env` is a map of additional env vars (e.g. SOCIAL_FETCH_HEADLESS_DAEMON_URL) to inject into the container — loopback URLs auto-rewrite to host.docker.internal so the container can reach host services. `harness` defaults to claude-code; pass `echo` for an auth-free smoke test. Streaming is on by default: when the client sends a `_meta.progressToken`, this tool emits one `notifications/progress` event per session-up / text / artifact / session-down / done event; the final tool result still carries the aggregated text + artifact list. Set `stream: false` to force buffer-and-return regardless of the progressToken — useful for tests."),
 		mcpgo.WithString("prompt", mcpgo.Required(), mcpgo.Description("The prompt to run. Plain English; the harness's CLI flags are added automatically.")),
 		mcpgo.WithString("harness", mcpgo.Description("Coding-agent CLI to run inside (claude-code | echo). Default: claude-code.")),
 		mcpgo.WithString("workdir", mcpgo.Description("Host path bind-mounted at /workspace. Default: no mount (sandboxed).")),
 		mcpgo.WithString("output", mcpgo.Description("Host directory to pull /artifacts to after the run. Default: skip pull.")),
 		mcpgo.WithObject("env", mcpgo.Description("Additional env vars to set inside the container. Loopback URLs are auto-rewritten so the container can reach host services.")),
 		mcpgo.WithString("image", mcpgo.Description("Override the docker image:tag. Default: social-skills-agent:<Version>.")),
-		mcpgo.WithBoolean("stream", mcpgo.Description("Emit notifications/progress events as the run proceeds. Requires the client to send a progressToken in _meta. Default: false (buffer-and-return).")),
+		mcpgo.WithBoolean("stream", mcpgo.Description("Force streaming on/off. Omit (default) = stream when the client sent a progressToken. false = buffer-and-return regardless. true is equivalent to omitting it.")),
 	)
 	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, req mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
 		if strings.TrimSpace(args.Prompt) == "" {
@@ -121,16 +126,17 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 			hName = "claude-code"
 		}
 
-		// Streaming path: only when the client opted in AND
-		// supplied a progress token. Falls through to the
-		// buffered Up+Exec path otherwise — that one keeps
-		// `output` pulls working, which the streaming path
-		// doesn't (artifacts surface as events instead).
+		// Streaming default: on when the client sent a progress
+		// token. Explicit `stream: false` forces the buffered
+		// path even when a token exists (test escape hatch).
+		// Buffered path also runs when there's no token at all —
+		// streaming requires somewhere to send notifications.
 		var progressToken any
 		if req.Params.Meta != nil {
 			progressToken = req.Params.Meta.ProgressToken
 		}
-		if args.Stream && progressToken != nil {
+		streamRequested := args.Stream == nil || *args.Stream
+		if streamRequested && progressToken != nil {
 			return runStreaming(ctx, s, prov, progressToken, args, image, hName)
 		}
 
