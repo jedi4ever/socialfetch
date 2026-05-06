@@ -419,10 +419,24 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 		// (claude-code does today). Falls back to the
 		// line-buffered text path for harnesses that don't
 		// (echo) or for harnesses we haven't migrated yet.
+		var streamErr error
 		if sj, ok := h.(harness.StreamingJSONHarness); ok {
-			return p.runStreamJSON(ctx, s, sj, prompt, opts.StreamHandler)
+			streamErr = p.runStreamJSON(ctx, s, sj, prompt, opts.StreamHandler)
+		} else {
+			streamErr = p.runStream(ctx, s, h, prompt, opts.StreamHandler)
 		}
-		return p.runStream(ctx, s, h, prompt, opts.StreamHandler)
+		// Pull artifacts BEFORE the deferred Down fires. Streaming
+		// only emits artifact metadata events during the run; this
+		// is where bytes actually land on the host. Without it, a
+		// one-shot streaming run loses artifacts at teardown
+		// (the in-container artifacts URL dies with Down).
+		if opts.OutputDir != "" && s.ArtifactsURL != "" {
+			c := &artifacts.Client{BaseURL: s.ArtifactsURL}
+			if _, _, perr := c.PullAll(ctx, opts.OutputDir); perr != nil {
+				fmt.Fprintf(os.Stderr, "social-agent: artifacts pull failed: %v\n", perr)
+			}
+		}
+		return streamErr
 	}
 	if err := p.Exec(ctx, s.ID, agent.ExecOpts{
 		Cmd: h.InvokePrompt(prompt),

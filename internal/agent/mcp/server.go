@@ -15,10 +15,15 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -30,6 +35,80 @@ import (
 	dockerprov "github.com/jedi4ever/social-skills/internal/agent/providers/docker"
 	"github.com/jedi4ever/social-skills/internal/agent/streaming"
 )
+
+// progressSummary turns a streaming.Event into a short human-
+// readable status string for the MCP progress notification's
+// `message` field. Per MCP spec, that field is for short scannable
+// updates the client renders inline (status line, transcript,
+// etc); the full typed event would belong somewhere else. Returns
+// "" for events the client doesn't need to see (claude_event is
+// noise — it duplicates the text events we emit alongside).
+func progressSummary(e streaming.Event) string {
+	switch e.Kind {
+	case "text":
+		s := strings.TrimSpace(e.Content)
+		if s == "" {
+			return ""
+		}
+		// Keep these tight — clients render in cramped UI.
+		if len(s) > 160 {
+			s = s[:157] + "..."
+		}
+		return s
+	case "artifact":
+		return fmt.Sprintf("wrote %s (%d bytes, %s)", e.Path, e.Size, e.Mime)
+	case "session":
+		id := e.ID
+		if len(id) > 12 {
+			id = id[:12]
+		}
+		if e.Status == "up" {
+			return "session up: " + id
+		}
+		return "session down: " + id
+	case "done":
+		if e.Error != "" {
+			return "done with error: " + e.Error
+		}
+		return fmt.Sprintf("done (exit %d)", e.ExitCode)
+	case "error":
+		return "error: " + e.Error
+	}
+	// claude_event (stream-json raw) and any future kinds we don't
+	// yet have UI strings for — skip the notification rather than
+	// confuse the client with empty or technical messages.
+	return ""
+}
+
+// newSessionDir creates a per-run session root under
+// $TMPDIR/social-agent/<id>/ and an `artifacts/` subdir inside it.
+// Returns (sessionRoot, artifactsDir). The session root parallels
+// the in-container session-scoped state: artifacts/ mirrors the
+// container's /artifacts/, and leaves room for future per-run
+// material (logs, transcripts, an isolated .claude/ homedir).
+//
+// Without this, streaming one-shot runs lose their artifacts at
+// teardown — the in-container artifacts HTTP server dies with the
+// container, and a buffered post-run pull has nowhere to reach.
+//
+// Name format: <RFC3339-compact>-<8-hex>. Time-prefix sorts
+// naturally in `ls`; hex suffix prevents collisions when two runs
+// land in the same second. Directories are created with 0o755 so
+// the operator can read pulled artifacts directly. Cleanup TTL is
+// a follow-up.
+func newSessionDir() (root, artifactsDir string, err error) {
+	var rand8 [4]byte
+	if _, e := rand.Read(rand8[:]); e != nil {
+		return "", "", fmt.Errorf("rand: %w", e)
+	}
+	name := time.Now().UTC().Format("20060102T150405") + "-" + hex.EncodeToString(rand8[:])
+	root = filepath.Join(os.TempDir(), "social-agent", name)
+	artifactsDir = filepath.Join(root, "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("mkdir %s: %w", artifactsDir, err)
+	}
+	return root, artifactsDir, nil
+}
 
 // Config holds the per-server settings. Mirrors social-fetch
 // MCP's Config — kept small for this v1.
@@ -210,14 +289,30 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 			return mcpgo.NewToolResultError(msg), nil
 		}
 
-		// Pull artifacts when output is set.
+		// Pull artifacts to a host directory BEFORE teardown. The
+		// caller can supply `output` to choose where (legacy: bare
+		// files dropped in that dir); otherwise we default to a
+		// per-run session root under $TMPDIR/social-agent/<id>/
+		// with an artifacts/ subdir, so a one-shot run never
+		// silently drops bytes when the caller forgot to pre-create
+		// a dir. Session root vs artifacts dir is reported
+		// separately so callers know where to find the bytes vs
+		// where future per-session state will land.
+		outDir := args.Output
+		var sessionRoot string
+		if outDir == "" {
+			if root, art, dirErr := newSessionDir(); dirErr == nil {
+				sessionRoot = root
+				outDir = art
+			}
+		}
 		var pulledFiles []string
-		if args.Output != "" && sess.ArtifactsURL != "" {
+		if outDir != "" && sess.ArtifactsURL != "" {
 			c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
 			entries, err := c.List(ctx)
 			if err == nil {
 				for _, e := range entries {
-					dst := args.Output + "/" + e.Path
+					dst := filepath.Join(outDir, e.Path)
 					if err := c.GetTo(ctx, e.Path, dst); err != nil {
 						continue
 					}
@@ -226,12 +321,11 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 			}
 		}
 
-		// Compose the response: claude's stdout + (when artifacts
-		// were pulled) a list of paths the agent can read with
-		// social_fetch_read_file or its native Read tool.
 		envelope := map[string]any{
-			"text":      stdout.String(),
-			"artifacts": pulledFiles,
+			"text":          stdout.String(),
+			"artifacts":     pulledFiles,
+			"artifacts_dir": outDir,
+			"session_dir":   sessionRoot,
 		}
 		body, _ := json.Marshal(envelope)
 		return mcpgo.NewToolResultText(string(body)), nil
@@ -341,16 +435,36 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 		}
 		mu.Unlock()
 
-		// Send progress notification. params shape mirrors MCP
-		// spec: progressToken + progress + (optional) total +
-		// (optional) message. We tuck the full Event into the
-		// notification so clients can do typed UI off it.
-		body, _ := json.Marshal(e)
+		// Send progress notification with a human-readable summary
+		// so MCP clients (Claude Code etc) render it inline. Per
+		// MCP spec the `message` field is meant for short scannable
+		// status strings; previously we stuffed the full Event JSON
+		// in there, which clients couldn't display nicely. Skip
+		// events with no useful summary (e.g. claude_event, which
+		// duplicates the text events we already emit).
+		summary := progressSummary(e)
+		if summary == "" {
+			return
+		}
 		_ = srv.SendNotificationToClient(ctx, "notifications/progress", map[string]any{
 			"progressToken": token,
 			"progress":      seq,
-			"message":       string(body),
+			"message":       summary,
 		})
+	}
+
+	// Default OutputDir to a per-run subdir so streaming artifacts
+	// survive the container teardown that fires inside prov.Run.
+	// Without this, the artifact metadata we emit during the run
+	// (path/size/sha256) would describe files that no longer exist
+	// once the response reaches the client.
+	outDir := args.Output
+	var sessionRoot string
+	if outDir == "" {
+		if root, art, derr := newSessionDir(); derr == nil {
+			sessionRoot = root
+			outDir = art
+		}
 	}
 
 	if err := prov.Run(ctx, agent.UpOpts{
@@ -360,16 +474,26 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 		Env:           envWithCb,
 		Stream:        true,
 		StreamHandler: handler,
+		OutputDir:     outDir,
 	}, args.Prompt); err != nil {
 		return mcpgo.NewToolResultError(err.Error()), nil
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
+	// Resolve each streamed artifact event to its host path so the
+	// caller can Read it directly, not just see its metadata.
+	for _, a := range artifactLst {
+		if path, ok := a["path"].(string); ok {
+			a["host_path"] = filepath.Join(outDir, path)
+		}
+	}
 	envelope := map[string]any{
-		"text":      strings.Join(textLines, "\n"),
-		"artifacts": artifactLst,
-		"exit_code": exitCode,
+		"text":          strings.Join(textLines, "\n"),
+		"artifacts":     artifactLst,
+		"exit_code":     exitCode,
+		"artifacts_dir": outDir,
+		"session_dir":   sessionRoot,
 	}
 	if runErr != "" {
 		envelope["error"] = runErr
