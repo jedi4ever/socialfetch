@@ -266,6 +266,11 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 	// ask_user tool calls back to this URL when it wants the
 	// outer Claude Code's user to answer a question. Loopback-
 	// only + bearer-token-gated; lifetime = this run.
+	//
+	// Important: RequestElicitation looks up the active client
+	// session via ClientSessionFromContext, so we must use the
+	// outer tool-call ctx (which carries the session) rather than
+	// the elicitcb HTTP handler's request ctx (which doesn't).
 	cb, err := elicitcb.Start(func(elicitCtx context.Context, question string) (string, bool, error) {
 		req := mcpgo.ElicitationRequest{
 			Request: mcpgo.Request{Method: string(mcpgo.MethodElicitationCreate)},
@@ -283,7 +288,7 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 				},
 			},
 		}
-		result, err := srv.RequestElicitation(elicitCtx, req)
+		result, err := srv.RequestElicitation(ctx, req)
 		if err != nil {
 			return "", false, err
 		}
