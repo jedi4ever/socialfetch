@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -728,8 +729,26 @@ func (d *Daemon) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fetchErr.Error(), http.StatusBadGateway)
 		return
 	}
+	writeScreenshotResponse(w, png, finalURL)
+}
+
+// writeScreenshotResponse serialises a PNG to w with Content-Length
+// set up front so net/http does NOT fall back to Transfer-Encoding:
+// chunked.
+//
+// Daytona's L7 proxy buffers chunked binary responses badly — a
+// 20 KB PNG that streams out in 2s from chromedp gets held by the
+// proxy until its 60s deadline, surfacing as a 502 "context deadline
+// exceeded" on the client side. Setting Content-Length up front
+// gives the proxy a well-shaped HTTP/1.1 response it can forward
+// without buffering. Extracted from handleScreenshot so the
+// chunked-vs-fixed-length framing contract is testable without
+// spinning up real chromedp.
+func writeScreenshotResponse(w http.ResponseWriter, png []byte, finalURL string) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("X-Final-URL", finalURL)
+	w.Header().Set("Content-Length", strconv.Itoa(len(png)))
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(png)
 }
 
