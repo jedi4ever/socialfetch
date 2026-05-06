@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -26,6 +27,7 @@ import (
 	"github.com/jedi4ever/social-skills/internal/agent/artifacts"
 	"github.com/jedi4ever/social-skills/internal/agent/harness"
 	dockerprov "github.com/jedi4ever/social-skills/internal/agent/providers/docker"
+	"github.com/jedi4ever/social-skills/internal/agent/streaming"
 )
 
 // Config holds the per-server settings. Mirrors social-fetch
@@ -91,19 +93,21 @@ type runArgs struct {
 	Output  string            `json:"output,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Image   string            `json:"image,omitempty"`
+	Stream  bool              `json:"stream,omitempty"`
 }
 
 func addRunTool(s *server.MCPServer, cfg Config) {
 	tool := mcpgo.NewTool("social_agent_run",
-		mcpgo.WithDescription("Run a one-shot prompt inside a sandboxed claude-code container, return claude's response on stdout. The container is created, prompt executed, container removed — single round trip. Use `output` to also pull files claude wrote to /artifacts/ to a host directory. Use `workdir` to bind-mount the host repo so claude can read existing files; otherwise the container has no host filesystem access. `env` is a map of additional env vars (e.g. SOCIAL_FETCH_HEADLESS_DAEMON_URL) to inject into the container — loopback URLs auto-rewrite to host.docker.internal so the container can reach host services. `harness` defaults to claude-code; pass `echo` for an auth-free smoke test."),
+		mcpgo.WithDescription("Run a one-shot prompt inside a sandboxed claude-code container, return claude's response on stdout. The container is created, prompt executed, container removed — single round trip. Use `output` to also pull files claude wrote to /artifacts/ to a host directory. Use `workdir` to bind-mount the host repo so claude can read existing files; otherwise the container has no host filesystem access. `env` is a map of additional env vars (e.g. SOCIAL_FETCH_HEADLESS_DAEMON_URL) to inject into the container — loopback URLs auto-rewrite to host.docker.internal so the container can reach host services. `harness` defaults to claude-code; pass `echo` for an auth-free smoke test. Pass `stream: true` together with a `_meta.progressToken` on the call to receive `notifications/progress` events as the run proceeds (one per session-up/text/artifact/session-down/done event); the final tool result still carries the aggregated text + artifact list."),
 		mcpgo.WithString("prompt", mcpgo.Required(), mcpgo.Description("The prompt to run. Plain English; the harness's CLI flags are added automatically.")),
 		mcpgo.WithString("harness", mcpgo.Description("Coding-agent CLI to run inside (claude-code | echo). Default: claude-code.")),
 		mcpgo.WithString("workdir", mcpgo.Description("Host path bind-mounted at /workspace. Default: no mount (sandboxed).")),
 		mcpgo.WithString("output", mcpgo.Description("Host directory to pull /artifacts to after the run. Default: skip pull.")),
 		mcpgo.WithObject("env", mcpgo.Description("Additional env vars to set inside the container. Loopback URLs are auto-rewritten so the container can reach host services.")),
 		mcpgo.WithString("image", mcpgo.Description("Override the docker image:tag. Default: social-skills-agent:<Version>.")),
+		mcpgo.WithBoolean("stream", mcpgo.Description("Emit notifications/progress events as the run proceeds. Requires the client to send a progressToken in _meta. Default: false (buffer-and-return).")),
 	)
-	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, req mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
 		if strings.TrimSpace(args.Prompt) == "" {
 			return mcpgo.NewToolResultError("prompt is required"), nil
 		}
@@ -112,23 +116,29 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 		if image == "" {
 			image = resolveImage(cfg)
 		}
-		// Capture stdout into a buffer so we can return it as
-		// the tool result. Provider.Run currently writes to
-		// os.Stdout via the ExecOpts.Stdout default; we override
-		// that here. A future cleanup can plumb opts.Stdout
-		// through Provider.Run; for now use os.Stdout's stand-in.
-		// Quick workaround: the docker provider's Run uses Exec
-		// with default Stdout=os.Stdout. We can't easily redirect.
-		// Use an Up + Exec dance instead.
 		hName := args.Harness
 		if hName == "" {
 			hName = "claude-code"
 		}
+
+		// Streaming path: only when the client opted in AND
+		// supplied a progress token. Falls through to the
+		// buffered Up+Exec path otherwise — that one keeps
+		// `output` pulls working, which the streaming path
+		// doesn't (artifacts surface as events instead).
+		var progressToken any
+		if req.Params.Meta != nil {
+			progressToken = req.Params.Meta.ProgressToken
+		}
+		if args.Stream && progressToken != nil {
+			return runStreaming(ctx, s, prov, progressToken, args, image, hName)
+		}
+
 		h, err := harness.Get(hName)
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
-		s, err := prov.Up(ctx, agent.UpOpts{
+		sess, err := prov.Up(ctx, agent.UpOpts{
 			Image:   image,
 			Harness: hName,
 			Workdir: args.Workdir,
@@ -140,11 +150,11 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 		// Best-effort teardown.
 		defer func() {
 			downCtx := context.Background()
-			_ = prov.Down(downCtx, s.ID)
+			_ = prov.Down(downCtx, sess.ID)
 		}()
 
 		var stdout, stderr bytes.Buffer
-		if err := prov.Exec(ctx, s.ID, agent.ExecOpts{
+		if err := prov.Exec(ctx, sess.ID, agent.ExecOpts{
 			Cmd:    h.InvokePrompt(args.Prompt),
 			Stdout: &stdout,
 			Stderr: &stderr,
@@ -158,8 +168,8 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 
 		// Pull artifacts when output is set.
 		var pulledFiles []string
-		if args.Output != "" && s.ArtifactsURL != "" {
-			c := &artifacts.Client{BaseURL: s.ArtifactsURL}
+		if args.Output != "" && sess.ArtifactsURL != "" {
+			c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
 			entries, err := c.List(ctx)
 			if err == nil {
 				for _, e := range entries {
@@ -182,6 +192,89 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 		body, _ := json.Marshal(envelope)
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
+}
+
+// runStreaming drives Provider.Run with Stream=true and a
+// handler that converts each streaming.Event into a
+// notifications/progress notification on the supplied
+// progressToken. Text events accumulate into the final tool
+// result so callers that ignore progress notifications still get
+// the full output. Artifact events are recorded by path in the
+// response — bodies aren't fetched here (the run-time pull would
+// race against in-progress writes); callers grab them with
+// social_agent_pull post-run.
+//
+// progress is monotonic-increasing across events (1, 2, 3, …) so
+// clients that bucket-by-progress get strict ordering. message is
+// a short human-readable summary; data is the full Event JSON
+// for clients that want to drive UI off it.
+func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provider, token any, args runArgs, image, hName string) (*mcpgo.CallToolResult, error) {
+	var (
+		mu          sync.Mutex
+		textLines   []string
+		artifactLst []map[string]any
+		progress    float64
+		exitCode    int
+		runErr      string
+	)
+
+	handler := func(e streaming.Event) {
+		mu.Lock()
+		progress++
+		seq := progress
+		switch e.Kind {
+		case "text":
+			textLines = append(textLines, e.Content)
+		case "artifact":
+			artifactLst = append(artifactLst, map[string]any{
+				"path":   e.Path,
+				"size":   e.Size,
+				"sha256": e.SHA256,
+				"mime":   e.Mime,
+			})
+		case "done":
+			exitCode = e.ExitCode
+			if e.Error != "" {
+				runErr = e.Error
+			}
+		}
+		mu.Unlock()
+
+		// Send progress notification. params shape mirrors MCP
+		// spec: progressToken + progress + (optional) total +
+		// (optional) message. We tuck the full Event into the
+		// notification so clients can do typed UI off it.
+		body, _ := json.Marshal(e)
+		_ = srv.SendNotificationToClient(ctx, "notifications/progress", map[string]any{
+			"progressToken": token,
+			"progress":      seq,
+			"message":       string(body),
+		})
+	}
+
+	if err := prov.Run(ctx, agent.UpOpts{
+		Image:         image,
+		Harness:       hName,
+		Workdir:       args.Workdir,
+		Env:           args.Env,
+		Stream:        true,
+		StreamHandler: handler,
+	}, args.Prompt); err != nil {
+		return mcpgo.NewToolResultError(err.Error()), nil
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	envelope := map[string]any{
+		"text":      strings.Join(textLines, "\n"),
+		"artifacts": artifactLst,
+		"exit_code": exitCode,
+	}
+	if runErr != "" {
+		envelope["error"] = runErr
+	}
+	body, _ := json.Marshal(envelope)
+	return mcpgo.NewToolResultText(string(body)), nil
 }
 
 // ---- up --------------------------------------------------------

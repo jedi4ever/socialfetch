@@ -16,6 +16,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/jedi4ever/social-skills/internal/agent/streaming"
 )
 
 // Provider is the per-substrate runtime that creates and manages
@@ -166,6 +168,17 @@ type UpOpts struct {
 	// progressive feedback. Ignored by Up. See
 	// internal/agent/streaming for the event shape.
 	Stream bool
+
+	// StreamHandler, when non-nil and Stream is true, replaces the
+	// default JSONL-on-stdout sink with this callback — every
+	// event the run produces is delivered here instead. Used by the
+	// MCP server to convert events into progress notifications, and
+	// by future in-process consumers (the daemon's HTTP/SSE
+	// surface, parent-agent hooks, etc). Calls are serialised by
+	// runStream's mutex; the handler may panic-safe but should not
+	// block long — events are produced from a 1s artifact poll loop
+	// and a line-buffered stdout reader.
+	StreamHandler func(streaming.Event)
 }
 
 // ExecOpts wires stdin/stdout/stderr from the caller through to

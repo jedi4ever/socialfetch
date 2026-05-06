@@ -415,7 +415,7 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 		_ = p.Down(downCtx, s.ID)
 	}()
 	if opts.Stream {
-		return p.runStream(ctx, s, h, prompt)
+		return p.runStream(ctx, s, h, prompt, opts.StreamHandler)
 	}
 	if err := p.Exec(ctx, s.ID, agent.ExecOpts{
 		Cmd: h.InvokePrompt(prompt),
@@ -452,8 +452,8 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 	return nil
 }
 
-// runStream emits JSONL events on os.Stdout while the prompt
-// runs. Three concurrent activities:
+// runStream drives event emission while the prompt runs. Three
+// concurrent activities:
 //
 //  1. Exec runs in a goroutine, writing claude's stdout to a
 //     pipe.
@@ -463,13 +463,33 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 //     /artifacts/ once per second and emitting
 //     {kind:"artifact"} events for newly-seen files.
 //
+// Events flow through the supplied handler; nil handler means
+// "default to JSONL on os.Stdout" so the CLI path keeps working.
+// In-process consumers (MCP progress notifications, daemon SSE
+// surfaces) pass a custom handler instead. All emit calls are
+// serialised by emitMu so producers never interleave.
+//
 // On exec completion (pipe closes), the poller is cancelled, a
 // final scan picks up files written in the last interval, and
 // {kind:"done"} closes the stream. Lifecycle events bracket the
 // whole thing.
-func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Harness, prompt string) error {
-	out := streaming.NewWriter(os.Stdout)
-	_ = out.Emit(streaming.Event{Kind: "session", Status: "up", ID: s.ID})
+func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Harness, prompt string, handler func(streaming.Event)) error {
+	var emitMu sync.Mutex
+	var stdoutWriter *streaming.Writer
+	if handler == nil {
+		stdoutWriter = streaming.NewWriter(os.Stdout)
+	}
+	emit := func(e streaming.Event) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if handler != nil {
+			handler(e)
+			return
+		}
+		_ = stdoutWriter.Emit(e)
+	}
+
+	emit(streaming.Event{Kind: "session", Status: "up", ID: s.ID})
 
 	// Artifact poller. Shares its `seen` map with the final
 	// post-exec scan so we never emit the same path@sha256 twice.
@@ -483,7 +503,7 @@ func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Ha
 		artClient = &artifacts.Client{BaseURL: s.ArtifactsURL}
 		go func() {
 			defer close(pollDone)
-			pollArtifactsShared(pollCtx, artClient, out, seen, &seenMu)
+			pollArtifactsShared(pollCtx, artClient, emit, seen, &seenMu)
 		}()
 	} else {
 		close(pollDone)
@@ -510,7 +530,7 @@ func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Ha
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024) // tolerate long lines
 	for scanner.Scan() {
-		_ = out.Emit(streaming.Event{Kind: "text", Content: scanner.Text()})
+		emit(streaming.Event{Kind: "text", Content: scanner.Text()})
 	}
 	scanErr := scanner.Err()
 
@@ -524,22 +544,22 @@ func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Ha
 	pollCancel()
 	<-pollDone
 	if artClient != nil {
-		emitArtifactDeltaLocked(ctx, artClient, out, seen, &seenMu)
+		emitArtifactDeltaLocked(ctx, artClient, emit, seen, &seenMu)
 	}
 
 	// Lifecycle close + done. Down happens in the caller's
 	// defer; we emit "down" here BEFORE that runs so consumers
 	// see the event before the container goes away.
-	_ = out.Emit(streaming.Event{Kind: "session", Status: "down", ID: s.ID})
+	emit(streaming.Event{Kind: "session", Status: "down", ID: s.ID})
 
 	if execErr != nil {
-		_ = out.Emit(streaming.Event{Kind: "done", ExitCode: 1, Error: execErr.Error()})
+		emit(streaming.Event{Kind: "done", ExitCode: 1, Error: execErr.Error()})
 		return nil // already emitted as event; caller doesn't need a Go error too
 	}
 	if scanErr != nil {
-		_ = out.Emit(streaming.Event{Kind: "error", Error: "scan: " + scanErr.Error()})
+		emit(streaming.Event{Kind: "error", Error: "scan: " + scanErr.Error()})
 	}
-	_ = out.Emit(streaming.Event{Kind: "done", ExitCode: 0})
+	emit(streaming.Event{Kind: "done", ExitCode: 0})
 	return nil
 }
 
@@ -547,9 +567,10 @@ func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Ha
 // event for every file not yet in seen. seen + seenMu are shared
 // with the post-exec final scan so a path@sha256 never duplicates.
 // Tracked by `path@sha256` (not just path) so a rewrite of the
-// same path with new content surfaces as a new event.
-func pollArtifactsShared(ctx context.Context, c *artifacts.Client, w *streaming.Writer, seen map[string]bool, mu *sync.Mutex) {
-	emitArtifactDeltaLocked(ctx, c, w, seen, mu)
+// same path with new content surfaces as a new event. The emit
+// callback is the runStream-level serialised sink.
+func pollArtifactsShared(ctx context.Context, c *artifacts.Client, emit func(streaming.Event), seen map[string]bool, mu *sync.Mutex) {
+	emitArtifactDeltaLocked(ctx, c, emit, seen, mu)
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -557,7 +578,7 @@ func pollArtifactsShared(ctx context.Context, c *artifacts.Client, w *streaming.
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			emitArtifactDeltaLocked(ctx, c, w, seen, mu)
+			emitArtifactDeltaLocked(ctx, c, emit, seen, mu)
 		}
 	}
 }
@@ -565,12 +586,12 @@ func pollArtifactsShared(ctx context.Context, c *artifacts.Client, w *streaming.
 // emitArtifactDeltaLocked lists /artifacts and emits an event for
 // every entry not yet in seen. Updates seen in place under the
 // mutex so the poller and the final-scan caller don't race.
-func emitArtifactDeltaLocked(ctx context.Context, c *artifacts.Client, w *streaming.Writer, seen map[string]bool, mu *sync.Mutex) {
+func emitArtifactDeltaLocked(ctx context.Context, c *artifacts.Client, emit func(streaming.Event), seen map[string]bool, mu *sync.Mutex) {
 	entries, err := c.List(ctx)
 	if err != nil {
 		// Don't spam — one error per second would be noisy.
 		// Surface as a single error event, no retry annotation.
-		_ = w.Emit(streaming.Event{Kind: "error", Error: "artifacts list: " + err.Error()})
+		emit(streaming.Event{Kind: "error", Error: "artifacts list: " + err.Error()})
 		return
 	}
 	for _, e := range entries {
@@ -582,7 +603,7 @@ func emitArtifactDeltaLocked(ctx context.Context, c *artifacts.Client, w *stream
 		}
 		seen[key] = true
 		mu.Unlock()
-		_ = w.Emit(streaming.Event{
+		emit(streaming.Event{
 			Kind:   "artifact",
 			Path:   e.Path,
 			Size:   e.Size,
