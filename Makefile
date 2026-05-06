@@ -27,7 +27,9 @@ SKILL_INSTALL_DIR ?= $(HOME)/.claude/skills/social-fetch
         bridge-package plugin-build plugin-package gh-sync-secrets gh-sync-secrets-dry \
         ledger-build ledger-test \
         ledger-skill-build ledger-skill-install ledger-skill-clean ledger-skill-package \
-        docker-build docker-run docker-compose-up docker-compose-down docker-shell
+        docker-build docker-build-amd64 docker-build-arm64 \
+        linux-binaries linux-binaries-amd64 linux-binaries-arm64 \
+        docker-run docker-compose-up docker-compose-down docker-shell
 
 # Staging dir used when building the redistributable skill zip. Wiped
 # before each package run and again after the zip is sealed, so the
@@ -145,23 +147,80 @@ bridge-package:  ## Package the Chrome browser-bridge extension as ./dist/social
 # ---- docker container -----------------------------------------------------
 # The container runs all three long-running services (headless browser
 # pool :5556, ledger daemon :5557, MCP HTTP server :5558) under a tiny
-# supervisor in docker-entrypoint.sh. See Dockerfile for the layer
-# layout; multi-stage so the runtime image doesn't carry the Go
-# toolchain.
+# supervisor in docker-entrypoint.sh.
 #
-# `docker-build` tags both <version> and `latest`. `docker-run` uses
-# `latest` and a named volume so ledger state persists across calls.
-# `docker-compose-up` is the development shorthand — use it when you
-# want to point Claude Desktop / claude.ai at the local container.
+# Build model (v0.15.4+): Go binaries are cross-compiled on the host
+# to dist/linux-<arch>/, then the Dockerfile single-stage COPYs them
+# in. Switching between arm64 (apple-silicon dev) and amd64 (Daytona)
+# reuses the apt-install layer and re-runs the Go build only when
+# source changes. Pre-v0.15.4 used a builder stage with `go build`
+# inside docker; that re-built Go from scratch on every arch flip
+# because Docker layer cache is per-platform.
+#
+# Targets:
+#   docker-build         host-native arch (auto-detect; arm64 on apple silicon)
+#   docker-build-arm64   apple-silicon local-dev image
+#   docker-build-amd64   Daytona-target image
+#   linux-binaries-<arch>  Go cross-compile only, no docker
+#
+# `docker-run` uses :latest. `docker-compose-up` is the dev shorthand —
+# use it when you want to point Claude Desktop / claude.ai at the
+# local container.
 DOCKER_IMAGE     = social-skills
 DOCKER_VERSION   = $(shell awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-fetch/main.go)
 DOCKER_LEDGER_VOL = social-skills-ledger
 
-docker-build:  ## Build the social-skills container image (multi-stage; chromedp + ledger + MCP)
-	docker build \
+# Cross-compile artifacts. Per-arch dirs so we can build both in
+# parallel without clobbering. Listed in their own variable so the
+# `docker-build-<arch>` rules and the daemon's
+# `provider daytona build` Go path stay in sync about WHERE the
+# binaries land.
+LINUX_BINS              := social-fetch social-ledger social-browser
+LINUX_BIN_DIR_AMD64     := dist/linux-amd64
+LINUX_BIN_DIR_ARM64     := dist/linux-arm64
+LINUX_BINS_AMD64        := $(addprefix $(LINUX_BIN_DIR_AMD64)/,$(LINUX_BINS))
+LINUX_BINS_ARM64        := $(addprefix $(LINUX_BIN_DIR_ARM64)/,$(LINUX_BINS))
+
+# Per-binary, per-arch build rules. Pattern stem is the cmd dir
+# under cmd/ (e.g. "social-browser") which matches the binary name.
+$(LINUX_BIN_DIR_AMD64)/%: $(SKILL_DEPS)
+	@mkdir -p $(LINUX_BIN_DIR_AMD64)
+	GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -o $@ ./cmd/$*
+
+$(LINUX_BIN_DIR_ARM64)/%: $(SKILL_DEPS)
+	@mkdir -p $(LINUX_BIN_DIR_ARM64)
+	GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -o $@ ./cmd/$*
+
+linux-binaries-amd64: $(LINUX_BINS_AMD64)  ## Cross-compile linux/amd64 binaries (Daytona target)
+linux-binaries-arm64: $(LINUX_BINS_ARM64)  ## Cross-compile linux/arm64 binaries (apple-silicon local docker)
+linux-binaries: linux-binaries-amd64 linux-binaries-arm64  ## Both archs
+
+# `docker buildx` needed for --platform + --load. Plain `docker build`
+# would also work but buildx is cleaner about cross-arch context.
+docker-build-amd64: linux-binaries-amd64  ## Build social-skills:<version> for linux/amd64 (Daytona-bound)
+	docker buildx build --platform linux/amd64 \
 	  -t $(DOCKER_IMAGE):$(DOCKER_VERSION) \
 	  -t $(DOCKER_IMAGE):latest \
-	  .
+	  --load .
+
+docker-build-arm64: linux-binaries-arm64  ## Build social-skills:<version> for linux/arm64 (apple-silicon dev)
+	docker buildx build --platform linux/arm64 \
+	  -t $(DOCKER_IMAGE):$(DOCKER_VERSION) \
+	  -t $(DOCKER_IMAGE):latest \
+	  --load .
+
+# Default `docker-build` picks the host's native arch. uname -m on
+# apple silicon returns "arm64"; on linux/amd64 hosts it returns
+# "x86_64". Anything else falls through to amd64 — the safer default
+# for unknown CI runners.
+DOCKER_HOST_ARCH := $(shell uname -m)
+ifeq ($(DOCKER_HOST_ARCH),arm64)
+docker-build: docker-build-arm64  ## Build social-skills container for the host's native arch
+else ifeq ($(DOCKER_HOST_ARCH),aarch64)
+docker-build: docker-build-arm64
+else
+docker-build: docker-build-amd64
+endif
 
 docker-run:  ## Run the container with all three daemons exposed and a named volume for state
 	docker run --rm -it \

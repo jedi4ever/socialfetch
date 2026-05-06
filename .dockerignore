@@ -2,8 +2,15 @@
 # skip everything else so `docker build` sends a small context and
 # the builder stage doesn't see stale binaries / caches.
 
-# Already-built artifacts and packaging output
+# Already-built artifacts and packaging output. The runtime image's
+# COPY pulls from dist/linux-<arch>/ (pre-built by the host via
+# `make linux-binaries-<arch>` — the Dockerfile no longer builds Go
+# inside docker), so we un-exclude that subtree. Everything else
+# under /dist (host-arch binaries, packaged zips, stage dirs) stays
+# out of the build context.
 /dist
+!/dist/linux-amd64
+!/dist/linux-arm64
 *.zip
 *.mcpb
 

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/jedi4ever/social-skills/internal/browser"
@@ -198,23 +199,83 @@ func runProviderDaytonaEnv(args []string) error {
 // Same shape as the old social-daytona equivalents. Keeps
 // existing operator muscle memory.
 
+// runProviderDaytonaBuild cross-compiles the Go binaries on the host
+// for linux/<arch>, then docker-buildx-builds the runtime image
+// COPYing them in. Cross-arch flips (amd64 ↔ arm64) reuse the
+// apt-install layer because the Go build no longer happens inside
+// docker — see Dockerfile + Makefile docker-build-<arch> for the
+// shared build model.
 func runProviderDaytonaBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	tag := fs.String("tag", "social-skills:"+Version, "docker image tag to build")
-	native := fs.Bool("native", false, "build for the host's architecture (skip the linux/amd64 cross-compile)")
+	arch := fs.String("arch", "amd64", "target architecture: amd64 (Daytona) | arm64 (apple-silicon dev)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cmdArgs := []string{"build"}
-	if !*native {
-		cmdArgs = append(cmdArgs, "--platform", "linux/amd64")
+	if *arch != "amd64" && *arch != "arm64" {
+		return fmt.Errorf("--arch must be amd64 or arm64, got %q", *arch)
 	}
-	cmdArgs = append(cmdArgs, "-t", *tag, "-t", "social-skills:latest", ".")
+
+	// Cross-compile linux/<arch> binaries to dist/linux-<arch>/.
+	// The Dockerfile reads from there via TARGETARCH.
+	if err := buildLinuxBinaries(*arch); err != nil {
+		return fmt.Errorf("cross-compile linux/%s binaries: %w", *arch, err)
+	}
+
+	// docker buildx build --platform linux/<arch> --load — single
+	// platform so --load works (multi-platform images can only be
+	// --pushed to a registry).
+	cmdArgs := []string{"buildx", "build",
+		"--platform", "linux/" + *arch,
+		"-t", *tag,
+		"-t", "social-skills:latest",
+		"--load",
+		".",
+	}
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = ensureDockerHost(os.Environ())
 	return cmd.Run()
+}
+
+// buildLinuxBinaries cross-compiles social-fetch / social-ledger /
+// social-browser for linux/<arch> into dist/linux-<arch>/. Mirrors the
+// Makefile linux-binaries-<arch> target so callers that don't have
+// `make` on PATH (or that prefer one-command flows) still produce
+// the same artifact tree.
+func buildLinuxBinaries(arch string) error {
+	binaries := []string{"social-fetch", "social-ledger", "social-browser"}
+	outDir := filepath.Join("dist", "linux-"+arch)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return err
+	}
+	for _, bin := range binaries {
+		target := filepath.Join(outDir, bin)
+		fmt.Fprintf(os.Stderr, "  cross-compiling linux/%s/%s\n", arch, bin)
+		c := exec.Command("go", "build",
+			"-ldflags=-s -w",
+			"-trimpath",
+			"-o", target,
+			"./cmd/"+bin,
+		)
+		c.Stdout = os.Stderr
+		c.Stderr = os.Stderr
+		c.Env = append(os.Environ(),
+			"GOOS=linux",
+			"GOARCH="+arch,
+			// Cross-compile defaults to CGO_ENABLED=0 unless a
+			// C toolchain is configured for the target. Force it
+			// off so the build is reproducible across hosts and
+			// the resulting binary is statically linked, matching
+			// the previous in-docker builder behaviour.
+			"CGO_ENABLED=0",
+		)
+		if err := c.Run(); err != nil {
+			return fmt.Errorf("build %s: %w", bin, err)
+		}
+	}
+	return nil
 }
 
 func runProviderDaytonaPush(args []string) error {

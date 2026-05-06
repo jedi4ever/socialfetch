@@ -149,8 +149,13 @@ daytnoa autoscale
 queue requests instead of dropping - jobs/ids
 ====
 I now want to build a social-agent : it can run sandboxed claude-code sessions.
-First provider is docker for this. It will have its own dockerfile to include the claude-code requirements
-That social-agent image will also contain our social skills binaries.
+First provider is docker for this. It will have its own dockerfile to include the claude-code requirements.
+We might switch coding agents, let's for now call those harness = claude-code
+
+Later we might do the same for daytona provider.
+Also should we rename the existing one to Dockerfile-browser or simlar? Dockerfile-agent
+
+That social-agent image will contain our social skills binaries.
 I should be able to set the env vars for i such as the social-browser pool
 I need to also set the anthropic-api-envs / or it reads it from the .env
 

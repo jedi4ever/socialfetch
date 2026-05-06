@@ -1,49 +1,34 @@
 # syntax=docker/dockerfile:1.7
 #
-# social-skills container — runs the three long-running services
-# (headless browser pool, ledger daemon, MCP over HTTP) in one image
-# so a single `docker compose up` brings up a working stack a remote
-# Claude Desktop / claude.ai / Daytona-tunneled agent can point at.
+# social-skills runtime container — single stage. The Go binaries are
+# cross-compiled on the host (see Makefile linux-binaries-* targets)
+# and copied in via TARGETARCH. Switching between arm64 (apple-silicon
+# local dev) and amd64 (Daytona push) reuses every layer below the
+# COPYs — apt install of chromium + fonts is the slow step and it's
+# arch-portable. Result: re-arch image build takes seconds, not
+# minutes.
 #
-# Multi-stage so the runtime layer doesn't carry the Go toolchain.
-# Builder produces ./dist/social-fetch + ./dist/social-ledger +
-# ./dist/social-browser; runtime only carries those binaries plus
-# chromium + a handful of fonts.
+# Pre-v0.15.4 had a multi-stage Dockerfile with a `golang:1.26-bookworm
+# AS builder` stage that ran `go build` inside docker. That re-built
+# Go from scratch on every arch flip because the layer cache for
+# `RUN go build` is per-platform. The host-cross-compile model here
+# fixes that and also makes Go errors visible in `make` output instead
+# of buried in `docker build` logs.
 
-# === Stage 1: build the binaries ===========================================
-# go.mod requires 1.26+; bump in lockstep when the module's `go` line moves.
-FROM golang:1.26-bookworm AS builder
+FROM debian:bookworm-slim
 
-WORKDIR /src
-
-# Cache the module download in its own layer so source-only edits
-# don't re-run go mod download.
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-# Build flags match the Makefile: stripped + trimpath for reproducible
-# binaries. Output goes to /src/dist/{social-fetch, social-ledger,
-# social-browser} which the runtime stage copies from.
-RUN go build -ldflags="-s -w" -trimpath -o ./dist/social-fetch ./cmd/social-fetch \
- && go build -ldflags="-s -w" -trimpath -o ./dist/social-ledger ./cmd/social-ledger \
- && go build -ldflags="-s -w" -trimpath -o ./dist/social-browser ./cmd/social-browser
-
-# === Stage 2: runtime ======================================================
-FROM debian:bookworm-slim AS runtime
+# TARGETARCH is set by docker buildx --platform; selects which
+# dist/linux-<arch>/ tree to copy the binaries from.
+ARG TARGETARCH
 
 # chromium — what chromedp drives via CDP. We don't install
 # chromium-driver because we use CDP, not WebDriver.
 # fonts-liberation + fonts-noto-cjk — patai's tests show missing
-# glyphs trigger anti-bot detection on Asian-language sites; small
-# size, big quality win.
+# glyphs trigger anti-bot detection on Asian-language sites.
 # ca-certificates — chromium needs a working trust store for HTTPS.
 # dumb-init — PID 1 reaper for clean SIGTERM propagation under
 # `docker stop`.
 # curl — the HEALTHCHECK + ad-hoc debugging probe.
-# tini — alternative reaper (fallback if dumb-init dies); cheap to
-# include and idiomatic on slim debian images.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       chromium \
@@ -61,11 +46,18 @@ RUN useradd -m -u 1000 -U -s /bin/bash sf \
  && mkdir -p /data \
  && chown sf:sf /data
 
-COPY --from=builder /src/dist/social-fetch   /usr/local/bin/social-fetch
-COPY --from=builder /src/dist/social-ledger  /usr/local/bin/social-ledger
-COPY --from=builder /src/dist/social-browser /usr/local/bin/social-browser
+# Pre-built binaries from the host. `make linux-binaries-<arch>` (or
+# `social-browser provider daytona build` which calls into the same
+# cross-compile path) must have populated dist/linux-<arch>/ before
+# `docker build` runs, otherwise these COPYs fail.
+COPY dist/linux-${TARGETARCH}/social-fetch   /usr/local/bin/social-fetch
+COPY dist/linux-${TARGETARCH}/social-ledger  /usr/local/bin/social-ledger
+COPY dist/linux-${TARGETARCH}/social-browser /usr/local/bin/social-browser
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/social-fetch \
+              /usr/local/bin/social-ledger \
+              /usr/local/bin/social-browser
 
 # Ledger persistence root. Compose mounts a named volume here.
 WORKDIR /data
