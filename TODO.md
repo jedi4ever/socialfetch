@@ -165,9 +165,6 @@ sessions their own workdir/artefact dir
 prune images / dyatna
 ====
 
-=====
-youtube summaries over mcp - too long or too much text on output
-yt dosnload not working  - too large over mcp
 
 ====
 social-agent connenct to ledger????
@@ -178,7 +175,13 @@ tessl as ledger ?
 
 disable fallback of soial-browser/fetch ?
 ====
-uload daytona
+upload daytona
 
 ====
 mcp token env var
+====
+tailscale for agent & browser too - will solve our daytona issue
+=====
+=====
+youtube summaries over mcp - too long or too much text on output
+yt dosnload not working  - too large over mcp
