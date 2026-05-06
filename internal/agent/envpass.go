@@ -70,6 +70,13 @@ var PassthroughKeys = []string{
 	"SOCIAL_LEDGER_DAEMON_TOKEN",
 	"SOCIAL_BRIDGE_URL",
 
+	// MCP HTTP transport — `social-{agent,ledger,fetch} mcp --http`
+	// gates `/mcp` on a bearer token from MCP_AUTH_TOKEN. Forwarded
+	// so the inner claude (in a social-researcher container, agent
+	// container, etc) presents the same Authorization header when it
+	// dials those host servers. Same value on both sides; no rotation.
+	"MCP_AUTH_TOKEN",
+
 	// Observability — when set the in-container social-fetch
 	// emits OTel traces; useful for debugging agent runs.
 	"OTEL_EXPORTER_OTLP_ENDPOINT",

@@ -39,7 +39,7 @@ import (
 // binaries ship as a pair — ingest writes from social-fetch must
 // match the schema social-ledger reads — so bumping one bumps
 // them all. See CLAUDE.md "Versioning" for the full lockstep set.
-const Version = "0.22.4"
+const Version = "0.22.5"
 
 func main() {
 	start := time.Now()
