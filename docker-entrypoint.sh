@@ -37,10 +37,18 @@ HEADLESS_BIND="${HEADLESS_BIND:-0.0.0.0:5556}"
 LEDGER_BIND="${LEDGER_BIND:-0.0.0.0:5557}"
 MCP_BIND="${MCP_BIND:-:5558}"
 
-# Local-pool tuning. Honour the v0.14-era SOCIAL_FETCH_HEADLESS_*
+# Local-pool tuning. Default pool-size to 1 because the typical
+# topology runs one container per Daytona sandbox (or per docker
+# compose service) — parallelism comes from scaling horizontally
+# across sandboxes, not from per-sandbox pool depth. A single
+# chromedp browser per container caps memory + cleanly scopes
+# fingerprint per sandbox. Operators running a standalone container
+# (no outer fleet) override with SOCIAL_BROWSER_POOL_SIZE=4 to get
+# the in-process round-robin behaviour the social-browser binary
+# uses by default. Honour the v0.14-era SOCIAL_FETCH_HEADLESS_*
 # names too so operators upgrading from earlier images don't have to
 # rename anything.
-POOL_SIZE="${SOCIAL_BROWSER_POOL_SIZE:-${SOCIAL_FETCH_HEADLESS_POOL_SIZE:-4}}"
+POOL_SIZE="${SOCIAL_BROWSER_POOL_SIZE:-${SOCIAL_FETCH_HEADLESS_POOL_SIZE:-1}}"
 RECYCLE_AFTER="${SOCIAL_BROWSER_RECYCLE_AFTER:-${SOCIAL_FETCH_HEADLESS_RECYCLE_AFTER:-50}}"
 
 case "$mode" in

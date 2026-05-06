@@ -260,10 +260,26 @@ func (d *Daemon) newSlot(parent context.Context, id int) (*slot, error) {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(parent, allocOpts...)
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 
-	// Force Chrome launch by running a no-op — without this the
-	// real launch happens lazily on the first chromedp.Run, which
-	// would mean the first /fetch eats the warmup cost we want to
-	// pay here at startup.
+	// Force Chrome launch + warm the page lifecycle by navigating
+	// to about:blank and waiting for the body to be ready. A bare
+	// chromedp.Run(browserCtx) launches Chrome but doesn't open or
+	// navigate any tab — and an untouched session breaks
+	// chromedp.CaptureScreenshot when it's the first action on a
+	// fresh tab inside the slot (reproducible in containerised
+	// Chromium: /fetch as the first request works and subsequent
+	// /screenshot calls work; /screenshot as the first request hangs
+	// until the per-fetch deadline). The throwaway about:blank
+	// navigate moves the slot's browser past whatever lazy-init
+	// step is missing; WaitReady ensures we don't return until the
+	// session is actually ready, otherwise the first user request
+	// races the load and the failure mode comes back intermittently.
+	// Force Chrome launch with a no-op Run. The slot's tab is then
+	// reused across all /fetch and /screenshot handlers (no
+	// per-request chromedp.NewContext) so the tab is never "fresh"
+	// for a screenshot — the first request's Navigate primes the
+	// page lifecycle and subsequent screenshots work. Per-request
+	// new tabs hung the first /screenshot in containerised Chromium
+	// until the per-fetch deadline.
 	if err := chromedp.Run(browserCtx); err != nil {
 		cancelBrowser()
 		cancelAlloc()
@@ -479,14 +495,17 @@ func (d *Daemon) releaseSlot(s *slot, errored bool) *slot {
 // attempt's body is suspiciously short — likely a JS-rendered
 // SPA that needed more hydration time).
 func (d *Daemon) runFetch(reqCtx context.Context, s *slot, url string, settleOverride time.Duration) (html, finalURL string, err error) {
-	tabCtx, cancelTab := chromedp.NewContext(s.browserCtx)
-	defer cancelTab()
-
+	// Reuse the slot's tab rather than NewContext-ing a fresh one
+	// per call. Containerised Chromium hangs CaptureScreenshot when
+	// it's the first action in a brand-new tab; reusing the tab
+	// avoids that race because subsequent Navigates put us back at
+	// the same page-lifecycle stage. Anonymous-only daemon, so
+	// per-tab isolation isn't a feature we need.
 	timeout := d.Options.Timeout
 	if timeout == 0 {
 		timeout = headless.DefaultOptions.Timeout
 	}
-	timedCtx, cancelTimeout := context.WithTimeout(tabCtx, timeout)
+	timedCtx, cancelTimeout := context.WithTimeout(s.browserCtx, timeout)
 	defer cancelTimeout()
 
 	actions := []chromedp.Action{
@@ -664,8 +683,9 @@ type screenshotRequest struct {
 }
 
 // handleScreenshot is the /screenshot HTTP handler. Acquires a slot
-// from the pool, navigates, captures via chromedp.FullScreenshot or
-// chromedp.CaptureScreenshot, and returns the PNG bytes with
+// from the pool, navigates, captures via page.CaptureScreenshot
+// (captureBeyondViewport=true for full-page) or
+// chromedp.CaptureScreenshot (viewport-only), and returns the PNG bytes with
 // Content-Type image/png. Same slot lifecycle as handleFetch — busy
 // markers, recycle on error, history ring updated.
 //
@@ -753,17 +773,15 @@ func writeScreenshotResponse(w http.ResponseWriter, png []byte, finalURL string)
 }
 
 // runScreenshot captures a PNG inside an existing warm browser slot.
-// Same shape as runFetch — fresh tab via chromedp.NewContext on the
-// slot's browser context, navigate, settle, capture, return.
+// Same shape as runFetch — reuses the slot's tab (see runFetch
+// comment for why we don't NewContext per call), navigate, settle,
+// capture, return.
 func (d *Daemon) runScreenshot(reqCtx context.Context, s *slot, url string, settleOverride time.Duration, fullPage bool) (png []byte, finalURL string, err error) {
-	tabCtx, cancelTab := chromedp.NewContext(s.browserCtx)
-	defer cancelTab()
-
 	timeout := d.Options.Timeout
 	if timeout == 0 {
 		timeout = headless.DefaultOptions.Timeout
 	}
-	timedCtx, cancelTimeout := context.WithTimeout(tabCtx, timeout)
+	timedCtx, cancelTimeout := context.WithTimeout(s.browserCtx, timeout)
 	defer cancelTimeout()
 
 	actions := []chromedp.Action{
@@ -786,7 +804,27 @@ func (d *Daemon) runScreenshot(reqCtx context.Context, s *slot, url string, sett
 		actions = append(actions, chromedp.Sleep(settle))
 	}
 	if fullPage {
-		actions = append(actions, chromedp.FullScreenshot(&png, 100))
+		// Use page.CaptureScreenshot with captureBeyondViewport=true
+		// instead of chromedp.FullScreenshot. The latter is a higher-
+		// level helper that calls emulation.SetDeviceMetricsOverride
+		// to resize the layout viewport before capture; that path
+		// hangs indefinitely in the older Chromium shipped by
+		// debian-bookworm-slim (the runtime image base) while
+		// CaptureScreenshot variants return in ~2s.
+		// captureBeyondViewport gives us "whole scrollable page"
+		// semantics without the layout-recompute step.
+		actions = append(actions, chromedp.ActionFunc(func(ctx context.Context) error {
+			b, err := page.CaptureScreenshot().
+				WithFormat(page.CaptureScreenshotFormatPng).
+				WithCaptureBeyondViewport(true).
+				WithFromSurface(true).
+				Do(ctx)
+			if err != nil {
+				return err
+			}
+			png = b
+			return nil
+		}))
 	} else {
 		actions = append(actions, chromedp.CaptureScreenshot(&png))
 	}
