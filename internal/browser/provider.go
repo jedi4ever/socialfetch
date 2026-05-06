@@ -128,11 +128,14 @@ type Provider interface {
 	// Filters to OUR-labelled backends only.
 	List(ctx context.Context) ([]Backend, error)
 
-	// RefreshToken fetches a fresh token for an existing backend
-	// (called when the daemon sees a 401). Returns the new token;
-	// the daemon caches it on the in-memory Backend.
+	// RefreshBackend re-resolves URL + Token for an existing
+	// backend (called when the daemon sees a 401). Returns the
+	// updated Backend; the daemon swaps both fields in the fleet.
 	//
-	// Providers that don't use tokens (local pool) return ""
-	// nil error — the daemon then continues with an empty Token.
-	RefreshToken(ctx context.Context, id string) (string, error)
+	// URL refresh matters for providers using signed/rotating
+	// preview URLs (Daytona — each call returns a fresh
+	// short-token-embedded hostname). Providers that hold a stable
+	// URL just return the existing one with whatever token they
+	// produce.
+	RefreshBackend(ctx context.Context, id string) (Backend, error)
 }

@@ -157,14 +157,18 @@ func (f *Fleet) MarkAlive(id string) {
 	}
 }
 
-// UpdateToken swaps the Token field on a backend (called after
-// Provider.RefreshToken returns a fresh value).
-func (f *Fleet) UpdateToken(id, token string) {
+// UpdateBackend swaps the rotating fields (URL + Token) on an
+// existing backend. Called after Provider.RefreshBackend returns
+// a fresh value — Daytona signed URLs rotate URL + embedded auth
+// together, so we replace both atomically rather than just the
+// token. ID, Provider, and Labels stay pinned to the original.
+func (f *Fleet) UpdateBackend(id string, b Backend) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, fb := range f.backends {
 		if fb.ID == id {
-			fb.Token = token
+			fb.URL = b.URL
+			fb.Token = b.Token
 			return
 		}
 	}

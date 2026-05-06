@@ -223,15 +223,24 @@ func (p *Provider) List(ctx context.Context) ([]browser.Backend, error) {
 	return out, nil
 }
 
-// RefreshToken re-fetches the preview URL for a backend (Daytona
-// preview tokens expire ~1h). The URL itself is stable per
-// sandbox; only the token changes.
-func (p *Provider) RefreshToken(ctx context.Context, id string) (string, error) {
+// RefreshBackend re-resolves a fresh signed preview URL for a
+// backend. Daytona's signed URLs rotate per call (each request
+// returns a different short-id hostname with a fresh embedded
+// auth token, default TTL 3600s) — so refresh has to swap the
+// whole URL, not just a header token. Token in the returned
+// Backend is intentionally "" because auth lives in the URL.
+func (p *Provider) RefreshBackend(ctx context.Context, id string) (browser.Backend, error) {
 	preview, err := p.c.GetPreviewURL(ctx, id, 5556, 0)
 	if err != nil {
-		return "", err
+		return browser.Backend{}, err
 	}
-	return preview.Token, nil
+	return browser.Backend{
+		ID:       id,
+		Provider: "daytona",
+		URL:      preview.URL,
+		Token:    "",
+		State:    "ready",
+	}, nil
 }
 
 // ----- helpers (lifted from cmd/social-daytona/cmd_up.go) -----

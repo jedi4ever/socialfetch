@@ -198,11 +198,15 @@ func (d *Daemon) handleProxy(path string) http.HandlerFunc {
 		}
 		out, status, err := d.forward(r.Context(), be, path, r.URL.RawQuery, body, ctype)
 		if status == http.StatusUnauthorized {
-			// Token expired — refresh and retry once.
-			d.Logf("backend %s 401 on %s, refreshing token", be.ID, path)
-			if newToken, terr := d.Provider.RefreshToken(r.Context(), be.ID); terr == nil {
-				d.Fleet.UpdateToken(be.ID, newToken)
-				be.Token = newToken
+			// URL/token expired — refresh and retry once. Daytona
+			// signed URLs rotate per call (fresh short-id hostname
+			// + fresh embedded auth), so refresh swaps the whole
+			// Backend, not just a header token.
+			d.Logf("backend %s 401 on %s, refreshing url+token", be.ID, path)
+			if fresh, terr := d.Provider.RefreshBackend(r.Context(), be.ID); terr == nil {
+				d.Fleet.UpdateBackend(be.ID, fresh)
+				be.URL = fresh.URL
+				be.Token = fresh.Token
 				out, status, err = d.forward(r.Context(), be, path, r.URL.RawQuery, body, ctype)
 			}
 		} else if isProxyColdStart(status, out) {

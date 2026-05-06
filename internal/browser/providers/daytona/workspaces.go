@@ -111,32 +111,58 @@ func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 
 // PreviewURL is the response shape for the preview-url endpoint —
 // signed tunnel URL the agent uses to reach a port inside a
-// sandbox. The URL embeds the sandbox id + port; Token is a
-// short-lived bearer the URL itself accepts (Daytona signs the
-// proxy URL host-side; the agent doesn't need to add auth headers).
+// sandbox. The URL embeds the sandbox id, port, and an opaque
+// short token (e.g. `5556-luclhu3ugafxputj.daytonaproxy01.net`),
+// so callers do NOT add auth headers — including bearer headers
+// here triggers Daytona's proxy to fall through to a browser-OAuth
+// flow (307 → Auth0 → cached 404 at the CF edge for 60s, the flake
+// we hit before this method was switched to signed URLs).
+//
+// Token is preserved in the response shape for backwards compat
+// but populated as "" — auth is in the URL itself, downstream
+// callers should not attach it as a bearer header.
 type PreviewURL struct {
 	URL   string `json:"url"`
 	Token string `json:"token,omitempty"`
 }
 
-// GetPreviewURL fetches a signed URL for a sandbox's port. Endpoint
-// shape verified against api v0.172: GET
-// /workspace/<id>/ports/<port>/preview-url returns {url, token}.
-// The port lives as a path segment, not a query parameter.
+// GetPreviewURL fetches a SIGNED preview URL for a sandbox's port.
+// Endpoint: GET /sandbox/<id>/ports/<port>/signed-preview-url?expires=<n>
+// returns {sandboxId, port, url, token}. We return only `url` to
+// callers (Token is "") — the URL embeds an opaque short-id that
+// the proxy validates without any header.
 //
-// expiresSec is unused today — Daytona's signed URLs are sized
-// server-side via account policy, not per-call. Kept in the
-// signature for forward-compat.
+// Why signed (not standard) preview URLs: the standard form
+// (`/workspace/<id>/ports/<port>/preview-url`, full sandbox-id
+// hostname + bearer token via `X-Daytona-Preview-Token`) is
+// intermittently routed through Auth0's PKCE OAuth flow by the
+// Daytona proxy, returning 307 → 404 → cached at CF edge for 60s.
+// Signed URLs bypass that path entirely. See
+// internal/browser/daemon.go's history for the empirical chase.
+//
+// expiresSec sets the signed URL's TTL in seconds. 0 = use the
+// API default (3600s = 1h). Callers may want to refresh URLs
+// proactively before the TTL expires (or rely on the daemon's
+// 401-handling RefreshBackend path).
 func (c *Client) GetPreviewURL(ctx context.Context, sandboxID string, port int, expiresSec int) (*PreviewURL, error) {
 	if port <= 0 {
 		return nil, fmt.Errorf("port must be > 0")
 	}
-	path := "/workspace/" + url.PathEscape(sandboxID) +
+	path := "/sandbox/" + url.PathEscape(sandboxID) +
 		"/ports/" + itoa(port) +
-		"/preview-url"
-	var out PreviewURL
-	if err := c.getJSON(ctx, path, nil, &out); err != nil {
+		"/signed-preview-url"
+	if expiresSec > 0 {
+		path += "?expires=" + itoa(expiresSec)
+	}
+	var raw struct {
+		URL   string `json:"url"`
+		Token string `json:"token,omitempty"`
+	}
+	if err := c.getJSON(ctx, path, nil, &raw); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	// Auth is embedded in the URL; intentionally drop the
+	// API-returned token so downstream callers don't attach it as a
+	// header (which would trigger the OAuth fallback).
+	return &PreviewURL{URL: raw.URL}, nil
 }
