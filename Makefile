@@ -5,6 +5,7 @@ BIN                     := ./dist/social-fetch
 LEDGER_CMD_BIN          := ./dist/social-ledger
 BROWSER_CMD_BIN         := ./dist/social-browser
 AGENT_CMD_BIN           := ./dist/social-agent
+RESEARCHER_CMD_BIN      := ./dist/social-researcher
 SKILL_BIN               := ./skills/social-fetch/scripts/social-fetch
 SKILL_LEDGER_BIN        := ./skills/social-fetch/scripts/social-ledger
 LEDGER_SKILL_DIR        := ./skills/social-ledger
@@ -66,6 +67,7 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	go build $(GO_BUILD_FLAGS) -o $(LEDGER_CMD_BIN) ./cmd/social-ledger
 	go build $(GO_BUILD_FLAGS) -o $(BROWSER_CMD_BIN) ./cmd/social-browser
 	go build $(GO_BUILD_FLAGS) -o $(AGENT_CMD_BIN) ./cmd/social-agent
+	go build $(GO_BUILD_FLAGS) -o $(RESEARCHER_CMD_BIN) ./cmd/social-researcher
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
@@ -182,7 +184,7 @@ DOCKER_LEDGER_VOL  = social-skills-ledger
 # (browser + agent) so the agent's claude-code can shell out to
 # social-fetch / social-ledger / social-browser without a second
 # install.
-LINUX_BINS              := social-fetch social-ledger social-browser social-agent
+LINUX_BINS              := social-fetch social-ledger social-browser social-agent social-researcher
 LINUX_BIN_DIR_AMD64     := dist/linux-amd64
 LINUX_BIN_DIR_ARM64     := dist/linux-arm64
 LINUX_BINS_AMD64        := $(addprefix $(LINUX_BIN_DIR_AMD64)/,$(LINUX_BINS))
@@ -443,6 +445,7 @@ check:  ## Run the same checks CI runs (gofmt + vet + test + plugin SKILL.md syn
 	ledger_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-ledger/main.go); \
 	browser_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-browser/main.go); \
 	agent_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-agent/main.go); \
+	researcher_ver=$$(awk -F\" '/^const Version =/ {print $$2; exit}' cmd/social-researcher/main.go); \
 	desktop_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' extensions/claude-desktop/manifest.json); \
 	plugin_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' extensions/claude-code/.claude-plugin/plugin.json); \
 	market_ver=$$(awk -F\" '/^  "version":/ {print $$4; exit}' .claude-plugin/marketplace.json); \
@@ -451,11 +454,12 @@ check:  ## Run the same checks CI runs (gofmt + vet + test + plugin SKILL.md syn
 	[ "$$ledger_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-ledger/main.go: $$ledger_ver (want $$bin_ver)\n"; \
 	[ "$$browser_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-browser/main.go: $$browser_ver (want $$bin_ver)\n"; \
 	[ "$$agent_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-agent/main.go: $$agent_ver (want $$bin_ver)\n"; \
+	[ "$$researcher_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - cmd/social-researcher/main.go: $$researcher_ver (want $$bin_ver)\n"; \
 	[ "$$desktop_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - extensions/claude-desktop/manifest.json: $$desktop_ver (want $$bin_ver)\n"; \
 	[ "$$plugin_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - extensions/claude-code/.claude-plugin/plugin.json: $$plugin_ver (want $$bin_ver)\n"; \
 	[ "$$market_ver" = "$$bin_ver" ] || mismatch="$$mismatch  - .claude-plugin/marketplace.json: $$market_ver (want $$bin_ver)\n"; \
 	if [ -n "$$mismatch" ]; then \
-		echo "::error::version lockstep violation — these seven must all match $$bin_ver:"; \
+		echo "::error::version lockstep violation — these eight must all match $$bin_ver:"; \
 		printf "$$mismatch"; \
 		echo "  see CLAUDE.md \"Versioning\" — bump all together"; \
 		exit 1; \

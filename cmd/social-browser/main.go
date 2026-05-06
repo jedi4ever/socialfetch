@@ -28,7 +28,7 @@ import (
 // Version is held in lockstep with social-fetch / social-ledger
 // and the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.21.2"
+const Version = "0.22.0"
 
 func main() {
 	dotenv.LoadAuto()

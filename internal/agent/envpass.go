@@ -95,3 +95,40 @@ func BuildPassthroughEnv(host map[string]string) map[string]string {
 	}
 	return out
 }
+
+// RewriteLoopbackURL swaps host-loopback names (127.0.0.1,
+// 0.0.0.0, localhost) inside `http://`-shape URLs with
+// `host.docker.internal`. The container's own loopback is its
+// own; reaching the host's loopback requires the magic
+// host.docker.internal name (paired with --add-host on the docker
+// run argv). Lives here rather than in providers/docker because
+// every host-side caller composing a container env wants the same
+// rewrite — docker provider, social-researcher, anything else.
+//
+// Non-URL values pass through unchanged so plain string env vars
+// (FOO=bar) aren't mangled by an over-eager regex.
+func RewriteLoopbackURL(v string) string {
+	// Skip cheaply when we're sure there's nothing to rewrite.
+	if !strings.Contains(v, "://") {
+		return v
+	}
+	// Only rewrite the host portion. The same scheme + path stays
+	// intact. We do dumb string-replace on the few well-known
+	// loopback substrings rather than url.Parse + Reassemble —
+	// less surface for parser drift, and the substring forms are
+	// unambiguous when bracketed by `://` and `:` / `/`.
+	for _, loopback := range []string{
+		"://127.0.0.1:",
+		"://127.0.0.1/",
+		"://localhost:",
+		"://localhost/",
+		"://0.0.0.0:",
+		"://0.0.0.0/",
+	} {
+		want := strings.Replace(loopback, "127.0.0.1", "host.docker.internal", 1)
+		want = strings.Replace(want, "localhost", "host.docker.internal", 1)
+		want = strings.Replace(want, "0.0.0.0", "host.docker.internal", 1)
+		v = strings.ReplaceAll(v, loopback, want)
+	}
+	return v
+}
