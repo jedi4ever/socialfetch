@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -116,9 +117,21 @@ func cmdRun(args []string) error {
 	argv := []string{
 		"docker", "run", "--rm", "-it",
 		"--label", "social-researcher=true",
-		"--add-host", "host.docker.internal:host-gateway",
 		"-w", "/workspace",
 		"-v", *workdir + ":/workspace",
+	}
+	// On Linux native Docker, host.docker.internal isn't resolvable by
+	// default — `--add-host host.docker.internal:host-gateway` is the
+	// usual fix. On macOS Docker Desktop, however, host.docker.internal
+	// already resolves to a routable IP that bridges to host loopback;
+	// adding --add-host there pins it to the docker0 bridge gateway
+	// (172.17.0.1) instead, which can NOT reach host loopback. So we
+	// only emit --add-host on Linux. Detect "is this Docker Desktop?"
+	// is awkward; use GOOS as the proxy — accurate in practice because
+	// macOS = Docker Desktop, Linux = native Docker (or Colima, which
+	// also benefits from --add-host).
+	if runtime.GOOS == "linux" {
+		argv = append(argv, "--add-host", "host.docker.internal:host-gateway")
 	}
 	if *name != "" {
 		argv = append(argv, "--name", *name)
