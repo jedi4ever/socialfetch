@@ -37,6 +37,21 @@ RUN apt-get update \
       ca-certificates \
       dumb-init \
       curl \
+      gnupg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Tailscale (userspace mode). Installed here so a daytona / remote
+# social-browser daemon can join the operator's tailnet to expose
+# the local browser pool to laptops elsewhere on the tailnet
+# without a tunnel hop. No auto-up here; the operator runs
+# `tailscale up` inside the container (or a sidecar) when needed.
+RUN install -d -m 0755 /usr/share/keyrings \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
+      -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
+      -o /etc/apt/sources.list.d/tailscale.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends tailscale \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user, uid/gid 1000 to match the typical Daytona workspace

@@ -31,41 +31,16 @@
 ARG BASE_TAG=latest
 FROM social-skills-agent:${BASE_TAG}
 
-# Tailscale — install the userspace tailscale binaries so operators
-# can bring the researcher container up on their tailnet to reach
-# host services without depending on host.docker.internal (relevant
-# when running researcher on a remote host or a Daytona sandbox).
-#
-# Userspace mode (`tailscaled --tun=userspace-networking`) needs no
-# NET_ADMIN cap and no /dev/net/tun mount, so we don't change docker
-# run flags. Outbound traffic flows through tailscale's userspace
-# net stack; inbound via `tailscale serve`. The binaries are
-# installed; the operator runs them inside the container — see
-# `social-researcher help` for the recipe.
-#
-# Switch to root for apt; restore the agent user before exit so the
-# image's normal USER directive is unchanged.
-USER root
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-      curl gnupg ca-certificates \
- && install -d -m 0755 /usr/share/keyrings \
- && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
-      -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
- && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
-      -o /etc/apt/sources.list.d/tailscale.list \
- && apt-get update \
- && apt-get install -y --no-install-recommends tailscale \
- && rm -rf /var/lib/apt/lists/*
-USER agent
-
-# Auto-up tailscale on container start when TS_AUTHKEY is in the env.
-# The script is a no-op when TS_AUTHKEY is unset — falls through to
-# exec immediately, so operators not using tailscale see no behaviour
-# change. See scripts/researcher-entrypoint.sh for the full recipe.
+# Tailscale binaries are inherited from the agent image (Dockerfile.agent
+# installs them so every downstream consumer gets the tooling for free).
+# Researcher's job is to add the *auto-up entrypoint*: when TS_AUTHKEY is
+# set in the container env, run `tailscaled` + `tailscale up` before
+# handing off to bash/claude. Falls through to exec immediately when
+# TS_AUTHKEY is unset, so operators not using tailscale see no behaviour
+# change. See scripts/researcher-entrypoint.sh for the recipe.
 COPY --chmod=0755 scripts/researcher-entrypoint.sh \
      /usr/local/bin/researcher-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/researcher-entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="social-skills-researcher"
-LABEL org.opencontainers.image.description="Interactive research environment for social-researcher run (with tailscale)"
+LABEL org.opencontainers.image.description="Interactive research environment for social-researcher run (with tailscale auto-up entrypoint)"

@@ -48,6 +48,26 @@ RUN apt-get update \
       bash \
       sudo \
       ffmpeg \
+      gnupg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Tailscale (userspace mode). Installed here in the agent image so
+# every downstream consumer (social-skills-researcher's own
+# Dockerfile, ad-hoc agent containers an operator might want to put
+# on the tailnet) gets the binaries for free, with a single apt-update
+# layer instead of one per child image.
+#
+# The agent path doesn't auto-up tailscale — that's an operator
+# concern. Researcher's entrypoint is what runs `tailscale up`; here
+# we just ship the binaries. Userspace mode means no NET_ADMIN cap
+# and no /dev/net/tun mount on `docker run`.
+RUN install -d -m 0755 /usr/share/keyrings \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
+      -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
+      -o /etc/apt/sources.list.d/tailscale.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends tailscale \
  && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp — youtube transcript / metadata extractor used by
