@@ -35,13 +35,24 @@ func cmdRun(args []string) error {
 	image := fs.String("image", "social-skills-agent:"+Version, "docker image to run")
 	useClaude := fs.Bool("claude", false, "start `claude` TUI with --mcp-config (ledger + agent) instead of /bin/bash")
 	noDockerSock := fs.Bool("no-docker-sock", false, "don't bind-mount /var/run/docker.sock (only relevant with --claude)")
-	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL (e.g. http://host.docker.internal:5562/mcp) instead of spawning the binary inside. Bearer auth is read from MCP_AUTH_TOKEN. Implies the inner claude calls the host's social-agent MCP — no docker.sock needed for fan-out.")
-	ledgerMCPURL := fs.String("ledger-mcp-url", "", "same idea for the ledger surface (e.g. http://host.docker.internal:5557/mcp). MCP_AUTH_TOKEN gates auth.")
+	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL (e.g. http://host.docker.internal:5562/mcp) instead of spawning the binary inside. Bearer auth is read from MCP_AUTH_TOKEN. Falls back to SOCIAL_AGENT_MCP_URL env var when unset.")
+	ledgerMCPURL := fs.String("ledger-mcp-url", "", "same idea for the ledger surface (e.g. http://host.docker.internal:5557/mcp). Falls back to SOCIAL_LEDGER_MCP_URL env var when unset. MCP_AUTH_TOKEN gates auth.")
 	name := fs.String("name", "", "explicit container name (default: auto-generated)")
 	var extraEnv envFlags
 	fs.Var(&extraEnv, "env", "add an env var (KEY=VAL). Repeatable. Merged on top of host PassthroughKeys.")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// Env-var fallback so the operator can put the URLs in .env once
+	// and run `social-researcher run --claude` without retyping
+	// flags. Explicit flags still win — empty flag + non-empty env
+	// uses env, empty both = stdio fallback in the inner claude.
+	if *agentMCPURL == "" {
+		*agentMCPURL = strings.TrimSpace(os.Getenv("SOCIAL_AGENT_MCP_URL"))
+	}
+	if *ledgerMCPURL == "" {
+		*ledgerMCPURL = strings.TrimSpace(os.Getenv("SOCIAL_LEDGER_MCP_URL"))
 	}
 
 	// Resolve workdir: explicit flag wins, otherwise cwd.

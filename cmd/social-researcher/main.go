@@ -40,7 +40,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.22.2"
+const Version = "0.22.3"
 
 func main() {
 	dotenv.LoadAuto()
@@ -110,6 +110,15 @@ ENV PASSTHROUGH
   Loopback URLs (127.0.0.1, localhost, 0.0.0.0) are auto-rewritten to
   host.docker.internal so the container reaches host services.
 
+  SOCIAL_AGENT_MCP_URL / SOCIAL_LEDGER_MCP_URL — fallbacks for the
+  --agent-mcp-url / --ledger-mcp-url flags. Set in .env once and
+  every social-researcher run --claude picks them up.
+
+  MCP_AUTH_TOKEN — sent as Authorization: Bearer in the inner
+  claude's --mcp-config when an HTTP endpoint is registered. Same
+  value the host-side social-agent mcp --http / social-ledger mcp
+  --http validate against.
+
 SECURITY
   --claude mode mounts /var/run/docker.sock by default. The inner agent
   thus has root-equivalent access to your host docker daemon. Pass
@@ -125,5 +134,15 @@ EXAMPLES
 
   # Restricted: claude with ledger only, no agent fan-out
   social-researcher run --claude --no-docker-sock
+
+  # Point the inner claude at host-running MCP HTTP endpoints
+  # (start them in another tab: social-agent mcp --http :5562,
+  # social-ledger mcp --http :5557).
+  MCP_AUTH_TOKEN=secret social-researcher run --claude \
+    --agent-mcp-url  http://host.docker.internal:5562/mcp \
+    --ledger-mcp-url http://host.docker.internal:5557/mcp
+
+  # Same, but URLs come from .env via SOCIAL_{AGENT,LEDGER}_MCP_URL
+  social-researcher run --claude
 `, Version, Version, Version)
 }
