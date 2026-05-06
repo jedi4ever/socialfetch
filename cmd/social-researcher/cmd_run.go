@@ -35,6 +35,8 @@ func cmdRun(args []string) error {
 	image := fs.String("image", "social-skills-agent:"+Version, "docker image to run")
 	useClaude := fs.Bool("claude", false, "start `claude` TUI with --mcp-config (ledger + agent) instead of /bin/bash")
 	noDockerSock := fs.Bool("no-docker-sock", false, "don't bind-mount /var/run/docker.sock (only relevant with --claude)")
+	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL (e.g. http://host.docker.internal:5562/mcp) instead of spawning the binary inside. Bearer auth is read from MCP_AUTH_TOKEN. Implies the inner claude calls the host's social-agent MCP — no docker.sock needed for fan-out.")
+	ledgerMCPURL := fs.String("ledger-mcp-url", "", "same idea for the ledger surface (e.g. http://host.docker.internal:5557/mcp). MCP_AUTH_TOKEN gates auth.")
 	name := fs.String("name", "", "explicit container name (default: auto-generated)")
 	var extraEnv envFlags
 	fs.Var(&extraEnv, "env", "add an env var (KEY=VAL). Repeatable. Merged on top of host PassthroughKeys.")
@@ -84,11 +86,15 @@ func cmdRun(args []string) error {
 	if *name != "" {
 		argv = append(argv, "--name", *name)
 	}
-	if *useClaude && !*noDockerSock {
-		// docker.sock mount lets the inner social-agent MCP shell
-		// out to docker. Without it, mcp__agent__social_agent_run
-		// fails — the agent surface still registers but every call
-		// errors at exec time.
+	// docker.sock mount only matters when the inner claude is
+	// expected to spawn sibling containers via the in-container
+	// social-agent CLI. When --agent-mcp-url is set, the inner
+	// claude calls the *host's* social-agent MCP over HTTP instead
+	// — that's what the user asked for; no socket needed. Default
+	// path (no --agent-mcp-url, no --no-docker-sock) keeps the
+	// existing socket-mount behaviour for backward compat.
+	mountDockerSock := *useClaude && !*noDockerSock && *agentMCPURL == ""
+	if mountDockerSock {
 		argv = append(argv, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}
 	for k, v := range envMap {
@@ -97,7 +103,8 @@ func cmdRun(args []string) error {
 	argv = append(argv, *image)
 
 	if *useClaude {
-		mcpConfig, err := buildClaudeMCPConfig()
+		token := strings.TrimSpace(envMap["MCP_AUTH_TOKEN"])
+		mcpConfig, err := buildClaudeMCPConfig(*agentMCPURL, *ledgerMCPURL, token)
 		if err != nil {
 			return fmt.Errorf("build mcp config: %w", err)
 		}
@@ -119,27 +126,56 @@ func cmdRun(args []string) error {
 }
 
 // buildClaudeMCPConfig returns the inline JSON `claude --mcp-config`
-// expects, registering two stdio MCP servers inside the container:
-// social-ledger mcp and social-agent mcp. Both binaries live at
-// /usr/local/bin in the agent image.
-func buildClaudeMCPConfig() (string, error) {
-	cfg := map[string]any{
-		"mcpServers": map[string]any{
-			"ledger": map[string]any{
-				"command": "/usr/local/bin/social-ledger",
-				"args":    []string{"mcp"},
-			},
-			"agent": map[string]any{
-				"command": "/usr/local/bin/social-agent",
-				"args":    []string{"mcp"},
-			},
-		},
+// expects. Each registered server is one of two shapes:
+//
+//   - stdio (default): {"command":"/usr/local/bin/social-ledger",
+//     "args":["mcp"]} — claude spawns the binary
+//     inside the container and pipes JSON-RPC.
+//   - http: {"type":"http","url":"<url>","headers":{...}} — claude
+//     opens an HTTP/SSE connection to the supplied
+//     URL. Used when the operator points at a
+//     host-running `social-agent mcp --http` /
+//     `social-ledger mcp --http`, so the inner
+//     claude controls the host's resources without
+//     needing the binary or docker socket inside
+//     the container.
+//
+// agentURL / ledgerURL select per-server: empty = stdio, non-empty =
+// http. token, when non-empty, becomes the Authorization header for
+// every HTTP entry — same value the corresponding host server
+// validates via MCP_AUTH_TOKEN.
+func buildClaudeMCPConfig(agentURL, ledgerURL, token string) (string, error) {
+	servers := map[string]any{
+		"ledger": mcpEntry("/usr/local/bin/social-ledger", ledgerURL, token),
+		"agent":  mcpEntry("/usr/local/bin/social-agent", agentURL, token),
 	}
-	body, err := json.Marshal(cfg)
+	body, err := json.Marshal(map[string]any{"mcpServers": servers})
 	if err != nil {
 		return "", err
 	}
 	return string(body), nil
+}
+
+// mcpEntry returns the stdio-spawn entry when url is empty,
+// otherwise the HTTP entry. binPath is the in-container binary path
+// for the stdio fallback (unused when url is set).
+func mcpEntry(binPath, url, token string) map[string]any {
+	if url == "" {
+		return map[string]any{
+			"command": binPath,
+			"args":    []string{"mcp"},
+		}
+	}
+	entry := map[string]any{
+		"type": "http",
+		"url":  url,
+	}
+	if token != "" {
+		entry["headers"] = map[string]any{
+			"Authorization": "Bearer " + token,
+		}
+	}
+	return entry
 }
 
 // parseEnviron splits an os.Environ() slice into a map. Stops at the

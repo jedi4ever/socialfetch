@@ -9,24 +9,39 @@ package main
 // seen, record what I just learned" and shouldn't have outbound
 // HTTP capability.
 //
+// Two transports:
+//
+//   stdio (default)   default; what .mcp.json registers in
+//                     Claude Desktop / Claude Code.
+//
+//   --http :PORT      Streamable HTTP. Used by an inner claude
+//                     running inside a social-researcher container
+//                     — it points at the host's
+//                     http://host.docker.internal:PORT/mcp and
+//                     queries the host's ledger DB without needing
+//                     the binary or DB inside the container.
+//
 // Daemon-routing is automatic — the same SOCIAL_LEDGER_DAEMON_URL
 // the social-fetch path uses. Set SOCIAL_LEDGER_READONLY=1 to flip
 // the write tools (record / forget) into refused mode while keeping
-// the read surface live.
+// the read surface live. MCP_AUTH_TOKEN gates /mcp on the HTTP path.
 
 import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	mcpgo "github.com/mark3labs/mcp-go/server"
 
 	"github.com/jedi4ever/social-skills/internal/mcp"
+	"github.com/jedi4ever/social-skills/internal/util/mcphttp"
 )
 
 func cmdMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	readonly := fs.Bool("readonly", false, "set SOCIAL_LEDGER_READONLY=1 for this process so record/forget refuse")
+	httpAddr := fs.String("http", "", "if set, serve over Streamable HTTP on this bind addr (e.g. :5557 or 127.0.0.1:5557) instead of stdio. /mcp is the protocol endpoint; / and /health are unauthenticated status probes. MCP_AUTH_TOKEN env adds bearer auth.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -54,9 +69,23 @@ func cmdMCP(args []string) error {
 	cfg := mcp.Config{Version: Version}
 	srv := mcp.NewLedgerOnlyServer(cfg)
 
-	// Stdio is the only transport for v1 — same as social-fetch
-	// mcp / social-agent ask-mcp. HTTP/ngrok comes later if a
-	// hosted use case demands it.
+	if strings.TrimSpace(*httpAddr) != "" {
+		token := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+		if token == "" {
+			fmt.Fprintf(os.Stderr,
+				"social-ledger mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
+					"  Loopback-only addrs are fine; set MCP_AUTH_TOKEN before exposing on a routable interface.\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "social-ledger mcp: bearer-token auth enabled (MCP_AUTH_TOKEN env)\n")
+		}
+		fmt.Fprintf(os.Stderr, "social-ledger mcp: listening on %s (Streamable HTTP)\n", *httpAddr)
+		return mcphttp.Serve(*httpAddr, srv, mcphttp.Options{
+			Service: "social-ledger-mcp",
+			Version: Version,
+			Token:   token,
+		})
+	}
+
 	if err := mcpgo.ServeStdio(srv); err != nil {
 		return fmt.Errorf("serve stdio: %w", err)
 	}
