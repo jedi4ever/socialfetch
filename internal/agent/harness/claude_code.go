@@ -46,6 +46,13 @@ stdout. Use it for explanation, summary, and references to artifacts you
 produced. Don't dump file contents in the response when you've already
 written them to /artifacts.
 
+You also have a ` + "`social`" + ` MCP server backed by a shared content ledger.
+BEFORE fetching any URL, call ` + "`social_ledger_seen`" + ` — if seen=true, call
+` + "`social_ledger_get`" + ` for the cached body instead of re-fetching. Use
+` + "`social_fetch_fetch`" + ` for misses; that fetch auto-records into the ledger
+so the next run hits the cache. Prefer ` + "`social_fetch_fetch`" + ` over Claude
+Code's built-in WebFetch so the result lands in the ledger.
+
 You also have an ` + "`ask_user`" + ` tool from the ` + "`ask`" + ` MCP server. It forwards a
 plain-English question to the human operator and returns their reply.
 Use it when you need information that is not in your context — credentials,
@@ -54,16 +61,44 @@ trivial things; the operator's attention is expensive. If the tool errors
 "not available", you're running outside an MCP session — don't retry, just
 proceed with your best guess and surface the assumption in your answer.`
 
-// askMCPConfigJSON is the inline --mcp-config payload that
-// registers the in-container ask-MCP server with claude-code.
-// Always passed; the tool's handler fails cleanly when the
-// outer callback URL isn't set (CLI runs without an MCP outer).
+// innerMCPConfigJSON is the inline --mcp-config payload that
+// registers the in-container MCP servers with claude-code:
 //
-// /usr/local/bin/social-agent is the binary path inside the
-// agent image (see Dockerfile.agent's COPY layer for
-// social-agent). ask-mcp serve speaks stdio MCP and round-trips
-// to SOCIAL_AGENT_CALLBACK_URL when invoked.
-const askMCPConfigJSON = `{"mcpServers":{"ask":{"command":"/usr/local/bin/social-agent","args":["ask-mcp","serve"]}}}`
+//   - ask    → social-agent ask-mcp serve. Forwards ask_user
+//     questions to the outer Claude Code session via
+//     SOCIAL_AGENT_CALLBACK_URL. Handler errors cleanly
+//     when the env var is unset (CLI runs).
+//   - social → social-fetch mcp. Exposes the full social-fetch
+//     tool surface (fetch, search, ask, ledger_*, …).
+//     Read-side ledger tools auto-route to the host
+//     daemon when SOCIAL_LEDGER_DAEMON_URL is set.
+//
+// Built once at package init via json.Marshal so the JSON is
+// always well-formed. Both binaries live at /usr/local/bin/ in
+// the agent image (see Dockerfile.agent's COPY layer).
+var innerMCPConfigJSON = buildInnerMCPConfigJSON()
+
+func buildInnerMCPConfigJSON() string {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"ask": map[string]any{
+				"command": "/usr/local/bin/social-agent",
+				"args":    []string{"ask-mcp", "serve"},
+			},
+			"social": map[string]any{
+				"command": "/usr/local/bin/social-fetch",
+				"args":    []string{"mcp"},
+			},
+		},
+	}
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		// Map of strings only — json.Marshal can't fail here.
+		// Panic is fine because this runs at package init.
+		panic("buildInnerMCPConfigJSON: " + err.Error())
+	}
+	return string(body)
+}
 
 // InvokePrompt returns the argv for a one-shot prompt. The flags
 // match what `claude --help` documents:
@@ -74,6 +109,11 @@ const askMCPConfigJSON = `{"mcpServers":{"ask":{"command":"/usr/local/bin/social
 //	                                 container is the sandbox, the
 //	                                 whole point is to give claude
 //	                                 full freedom inside.
+//	--mcp-config <json>              register the in-container MCP
+//	                                 servers (ask + social) so the
+//	                                 inner agent can elicit the
+//	                                 outer operator and consult the
+//	                                 shared content ledger.
 //	--append-system-prompt <text>    inject the /artifacts convention
 //	                                 so claude writes returnable
 //	                                 files to the right place.
@@ -82,6 +122,7 @@ func (ClaudeCode) InvokePrompt(prompt string) []string {
 		"claude",
 		"--print",
 		"--dangerously-skip-permissions",
+		"--mcp-config", innerMCPConfigJSON,
 		"--append-system-prompt", artifactsSystemPrompt,
 		prompt,
 	}
@@ -140,11 +181,12 @@ func (ClaudeCode) EnvFromHost(host map[string]string) (map[string]string, error)
 // --input-format and --output-format are stream-json — without it
 // claude refuses to start.
 //
-// --mcp-config registers the in-container ask-MCP server so the
-// inner agent can call ask_user to elicit input from the outer
-// human operator. Always included; the tool's handler returns
-// a clean error when no SOCIAL_AGENT_CALLBACK_URL is set (CLI
-// runs without an MCP outer).
+// --mcp-config registers the in-container ask + social MCP
+// servers so the inner agent can elicit the outer operator and
+// consult the shared content ledger. Always included; ask_user
+// returns a clean error when no SOCIAL_AGENT_CALLBACK_URL is set
+// (CLI runs without an MCP outer), and the ledger tools degrade
+// gracefully when no SOCIAL_LEDGER_DAEMON_URL is set.
 func (ClaudeCode) StreamJSONCmd() []string {
 	return []string{
 		"claude",
@@ -153,7 +195,7 @@ func (ClaudeCode) StreamJSONCmd() []string {
 		"--output-format=stream-json",
 		"--verbose",
 		"--dangerously-skip-permissions",
-		"--mcp-config", askMCPConfigJSON,
+		"--mcp-config", innerMCPConfigJSON,
 		"--append-system-prompt", artifactsSystemPrompt,
 	}
 }
