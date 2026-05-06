@@ -60,6 +60,34 @@ type Harness interface {
 	EnvFromHost(host map[string]string) (map[string]string, error)
 }
 
+// StreamingJSONHarness is an optional capability harnesses can
+// implement when their CLI supports JSONL stdin/stdout. claude-code
+// has it via `--input-format=stream-json --output-format=stream-json`.
+// When implemented, the docker provider's runStream prefers this
+// path over InvokePrompt — the upside is richer output events
+// (assistant turns, tool_use, tool_result, result with usage and
+// stop_reason) and a stdin that stays open across turns, which is
+// what the v0.18.1 multi-turn `social_agent_send` will plug into.
+//
+// Today (v0.18.0) we only use it for one-shot runs: write one
+// user-message JSONL to stdin, close stdin, drain output until the
+// process exits. Multi-turn comes in the follow-up.
+type StreamingJSONHarness interface {
+	// StreamJSONCmd returns argv to run the harness in JSONL
+	// stream-mode. NO prompt argument — the prompt arrives over
+	// stdin as a WrapUserMessage line. The container's entrypoint
+	// passes this through to exec(2) when the docker CMD is the
+	// streaming runner.
+	StreamJSONCmd() []string
+
+	// WrapUserMessage encodes one user-turn as a JSONL line
+	// (trailing newline included). The returned bytes are written
+	// verbatim to the harness's stdin. Multiple turns can be
+	// concatenated by writing multiple WrapUserMessage lines
+	// before closing stdin; for v0.18.0 we send exactly one.
+	WrapUserMessage(text string) []byte
+}
+
 // registry is the in-process catalog of known harnesses, populated
 // at init time from each harness's own file.
 var registry = map[string]Harness{}

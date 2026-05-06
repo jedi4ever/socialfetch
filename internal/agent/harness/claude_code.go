@@ -6,6 +6,7 @@ package harness
 // harness-agnostic.
 
 import (
+	"encoding/json"
 	"strings"
 )
 
@@ -112,6 +113,45 @@ func (ClaudeCode) EnvFromHost(host map[string]string) (map[string]string, error)
 		}
 	}
 	return out, nil
+}
+
+// StreamJSONCmd is the stream-json variant of InvokePrompt. The
+// prompt comes over stdin as a WrapUserMessage line; argv carries
+// only the flags. `--verbose` is required when both
+// --input-format and --output-format are stream-json — without it
+// claude refuses to start.
+func (ClaudeCode) StreamJSONCmd() []string {
+	return []string{
+		"claude",
+		"--print",
+		"--input-format=stream-json",
+		"--output-format=stream-json",
+		"--verbose",
+		"--dangerously-skip-permissions",
+		"--append-system-prompt", artifactsSystemPrompt,
+	}
+}
+
+// WrapUserMessage encodes one user turn as the JSONL envelope
+// claude-code expects on stdin in stream-json mode:
+//
+//	{"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}
+//
+// Trailing newline included so callers can write the bytes
+// verbatim and concatenate multiple turns. json.Marshal panics
+// only on un-encodable types — we feed it strings, so the error
+// is unreachable in practice.
+func (ClaudeCode) WrapUserMessage(text string) []byte {
+	body, _ := json.Marshal(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "text", "text": text},
+			},
+		},
+	})
+	return append(body, '\n')
 }
 
 func init() {

@@ -62,6 +62,16 @@ type Event struct {
 
 	// error / done
 	Error string `json:"error,omitempty"`
+
+	// claude_event — raw JSONL line emitted by claude-code in
+	// stream-json mode (kinds: assistant, user, system, result,
+	// tool_use, tool_result, …). Body is the unparsed JSON so
+	// downstream consumers can re-decode against claude-code's
+	// own schema without us shadowing fields. We also surface
+	// extracted text via Kind="text" + Content for backward
+	// compat with consumers that only care about the assistant's
+	// prose.
+	Body json.RawMessage `json:"body,omitempty"`
 }
 
 // Writer is a goroutine-safe JSONL emitter. Wraps io.Writer with

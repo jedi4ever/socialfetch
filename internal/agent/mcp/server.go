@@ -48,10 +48,22 @@ type Config struct {
 // registered. Caller runs it via server.ServeStdio for stdio
 // transport.
 func NewServer(cfg Config) *server.MCPServer {
+	hooks := &server.Hooks{}
+	// Capture the client's declared capabilities at initialize
+	// time so the probe tool can report them. Stored on a
+	// package-level pointer (see clientCaps below) — there's
+	// only ever one client per stdio server, so a single slot
+	// is sufficient.
+	hooks.AddAfterInitialize(func(_ context.Context, _ any, req *mcpgo.InitializeRequest, _ *mcpgo.InitializeResult) {
+		caps := req.Params.Capabilities
+		clientCaps.Store(&caps)
+	})
+
 	s := server.NewMCPServer(
 		"social-agent",
 		cfg.Version,
 		server.WithToolCapabilities(false),
+		server.WithHooks(hooks),
 	)
 	registerTools(s, cfg)
 	return s
@@ -66,6 +78,31 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addPullTool(s, cfg)
 	addRmFileTool(s, cfg)
 	addHarnessListTool(s, cfg)
+	addProbeClientTool(s, cfg)
+}
+
+// clientCaps is a single-slot cache of the client's declared
+// capabilities, populated by an AfterInitialize hook. Used by the
+// probe tool to surface what the connected client supports.
+// atomic.Value would also work — sync.Map is just convenient for
+// the typed-pointer-or-nil pattern.
+var clientCaps capsSlot
+
+type capsSlot struct {
+	mu  sync.Mutex
+	val *mcpgo.ClientCapabilities
+}
+
+func (c *capsSlot) Store(v *mcpgo.ClientCapabilities) {
+	c.mu.Lock()
+	c.val = v
+	c.mu.Unlock()
+}
+
+func (c *capsSlot) Load() *mcpgo.ClientCapabilities {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.val
 }
 
 // buildProvider returns the docker provider — the only substrate
@@ -522,6 +559,111 @@ func addHarnessListTool(s *server.MCPServer, cfg Config) {
 	)
 	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, _ struct{}) (*mcpgo.CallToolResult, error) {
 		body, _ := json.Marshal(harness.Names())
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
+
+// ---- probe client ---------------------------------------------
+//
+// Diagnostic tool used to discover what bidirectional MCP
+// surfaces the connected client supports. The connected client
+// (Claude Code, Claude Desktop, claude.ai) declares its
+// capabilities at initialize time — we cache those via the
+// AfterInitialize hook above. This tool reports the cached
+// capabilities AND attempts a real elicitation/sampling call so
+// the operator can see whether the server-to-client request
+// path actually round-trips.
+//
+// Intended as a one-shot probe during the bidirectional-input
+// design phase — not part of the durable MCP API. Drop the tool
+// (or guard it behind a build tag) once we've decided which
+// surface to build on.
+
+type probeClientArgs struct {
+	// TrySampling, when true, also attempts a sampling/createMessage
+	// request alongside the elicitation. Default false because
+	// sampling triggers an LLM call on the client and costs tokens.
+	TrySampling bool `json:"try_sampling,omitempty"`
+}
+
+func addProbeClientTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_probe_client",
+		mcpgo.WithDescription("Diagnostic: report the connected MCP client's declared capabilities (sampling, elicitation, roots) and attempt an elicitation/create round-trip. Used to figure out what bidirectional input surfaces are available before designing the inner-claude-asks-outer-client path. Set try_sampling=true to also test sampling/createMessage (warning: triggers an LLM call on the client)."),
+		mcpgo.WithBoolean("try_sampling", mcpgo.Description("Also attempt a sampling/createMessage request. Default false (no token spend).")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args probeClientArgs) (*mcpgo.CallToolResult, error) {
+		report := map[string]any{}
+
+		// 1. Cached client capabilities.
+		if caps := clientCaps.Load(); caps != nil {
+			report["capabilities"] = map[string]any{
+				"sampling":    caps.Sampling != nil,
+				"elicitation": caps.Elicitation != nil,
+				"roots":       caps.Roots != nil,
+			}
+		} else {
+			report["capabilities"] = "(not captured — initialize hook didn't fire?)"
+		}
+
+		// 2. Try an elicitation/create request — server asks
+		//    client for one short string. If the client doesn't
+		//    support elicitation, mcp-go returns
+		//    ErrElicitationNotSupported; otherwise we get the
+		//    user's answer (or a decline).
+		elicReq := mcpgo.ElicitationRequest{
+			Request: mcpgo.Request{Method: string(mcpgo.MethodElicitationCreate)},
+			Params: mcpgo.ElicitationParams{
+				Message: "social-agent probe: please type any short string to confirm bidirectional input works.",
+				RequestedSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"answer": map[string]any{
+							"type":        "string",
+							"description": "anything",
+						},
+					},
+					"required": []string{"answer"},
+				},
+			},
+		}
+		if elicResult, err := s.RequestElicitation(ctx, elicReq); err != nil {
+			report["elicitation"] = map[string]any{"error": err.Error()}
+		} else {
+			report["elicitation"] = map[string]any{
+				"action":  elicResult.Action,
+				"content": elicResult.Content,
+			}
+		}
+
+		// 3. Optional sampling/createMessage probe.
+		if args.TrySampling {
+			sampReq := mcpgo.CreateMessageRequest{
+				Request: mcpgo.Request{Method: string(mcpgo.MethodSamplingCreateMessage)},
+				CreateMessageParams: mcpgo.CreateMessageParams{
+					Messages: []mcpgo.SamplingMessage{
+						{
+							Role: mcpgo.RoleUser,
+							Content: mcpgo.TextContent{
+								Type: "text",
+								Text: "Reply with the single word: pong",
+							},
+						},
+					},
+					MaxTokens: 16,
+				},
+			}
+			if sampResult, err := s.RequestSampling(ctx, sampReq); err != nil {
+				report["sampling"] = map[string]any{"error": err.Error()}
+			} else {
+				report["sampling"] = map[string]any{
+					"role":    sampResult.Role,
+					"content": sampResult.Content,
+					"model":   sampResult.Model,
+				}
+			}
+		}
+
+		body, _ := json.Marshal(report)
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
 }

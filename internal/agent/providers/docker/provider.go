@@ -415,6 +415,13 @@ func (p *Provider) Run(ctx context.Context, opts agent.UpOpts, prompt string) er
 		_ = p.Down(downCtx, s.ID)
 	}()
 	if opts.Stream {
+		// Prefer stream-json when the harness supports it
+		// (claude-code does today). Falls back to the
+		// line-buffered text path for harnesses that don't
+		// (echo) or for harnesses we haven't migrated yet.
+		if sj, ok := h.(harness.StreamingJSONHarness); ok {
+			return p.runStreamJSON(ctx, s, sj, prompt, opts.StreamHandler)
+		}
 		return p.runStream(ctx, s, h, prompt, opts.StreamHandler)
 	}
 	if err := p.Exec(ctx, s.ID, agent.ExecOpts{
@@ -555,6 +562,146 @@ func (p *Provider) runStream(ctx context.Context, s *agent.Session, h harness.Ha
 	if execErr != nil {
 		emit(streaming.Event{Kind: "done", ExitCode: 1, Error: execErr.Error()})
 		return nil // already emitted as event; caller doesn't need a Go error too
+	}
+	if scanErr != nil {
+		emit(streaming.Event{Kind: "error", Error: "scan: " + scanErr.Error()})
+	}
+	emit(streaming.Event{Kind: "done", ExitCode: 0})
+	return nil
+}
+
+// runStreamJSON is the stream-json variant of runStream for
+// harnesses that implement StreamingJSONHarness (claude-code
+// today). Differences from runStream:
+//
+//   - The prompt is written to claude's stdin as one
+//     WrapUserMessage JSONL line, then stdin is closed (one-shot
+//     for v0.18.0; multi-turn lands when send arrives).
+//   - claude's stdout is parsed line-by-line as JSON. Each line
+//     is emitted twice: once as kind="claude_event" with the raw
+//     body for clients that want the typed claude schema, and
+//     (for "assistant" events) once per text content block as
+//     kind="text" so consumers that only care about the prose
+//     keep working.
+//
+// Lifecycle (session up/down) and the artifact poller are shared
+// with runStream — same emit-mutex pattern, same shared `seen`
+// map for de-duped artifact events.
+func (p *Provider) runStreamJSON(ctx context.Context, s *agent.Session, h harness.StreamingJSONHarness, prompt string, handler func(streaming.Event)) error {
+	var emitMu sync.Mutex
+	var stdoutWriter *streaming.Writer
+	if handler == nil {
+		stdoutWriter = streaming.NewWriter(os.Stdout)
+	}
+	emit := func(e streaming.Event) {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		if handler != nil {
+			handler(e)
+			return
+		}
+		_ = stdoutWriter.Emit(e)
+	}
+
+	emit(streaming.Event{Kind: "session", Status: "up", ID: s.ID})
+
+	// Artifact poller — identical to runStream.
+	pollCtx, pollCancel := context.WithCancel(ctx)
+	pollDone := make(chan struct{})
+	seen := map[string]bool{}
+	var seenMu sync.Mutex
+	var artClient *artifacts.Client
+	if s.ArtifactsURL != "" {
+		artClient = &artifacts.Client{BaseURL: s.ArtifactsURL}
+		go func() {
+			defer close(pollDone)
+			pollArtifactsShared(pollCtx, artClient, emit, seen, &seenMu)
+		}()
+	} else {
+		close(pollDone)
+	}
+
+	// Stdin: write the prompt as a user-message JSONL, then
+	// close. A goroutine owns the writer so Exec can read until
+	// EOF without blocking on us; closing the writer is what
+	// makes claude finish and exit.
+	stdinR, stdinW := io.Pipe()
+	go func() {
+		defer stdinW.Close()
+		_, _ = stdinW.Write(h.WrapUserMessage(prompt))
+	}()
+
+	// Stdout: pipe + JSONL parser.
+	pr, pw := io.Pipe()
+	execErrCh := make(chan error, 1)
+	go func() {
+		err := p.Exec(ctx, s.ID, agent.ExecOpts{
+			Cmd:    h.StreamJSONCmd(),
+			Stdin:  stdinR,
+			Stdout: pw,
+			Stderr: os.Stderr,
+		})
+		_ = pw.Close()
+		execErrCh <- err
+	}()
+
+	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Always emit the raw JSONL — copy because the scanner
+		// reuses its buffer.
+		bodyCopy := make([]byte, len(line))
+		copy(bodyCopy, line)
+		var raw map[string]any
+		if err := json.Unmarshal(line, &raw); err != nil {
+			// Not valid JSON — claude shouldn't emit this in
+			// stream-json mode but be defensive: surface as
+			// raw text so the operator sees something rather
+			// than silently dropping a line.
+			emit(streaming.Event{Kind: "text", Content: scanner.Text()})
+			continue
+		}
+		emit(streaming.Event{Kind: "claude_event", Body: bodyCopy})
+
+		// Extract assistant prose into kind="text" so consumers
+		// that only join text events still produce a readable
+		// answer. tool_use / tool_result blocks are intentionally
+		// NOT extracted — they live in the raw event for clients
+		// that care.
+		if t, _ := raw["type"].(string); t == "assistant" {
+			if msg, _ := raw["message"].(map[string]any); msg != nil {
+				if content, _ := msg["content"].([]any); content != nil {
+					for _, c := range content {
+						cm, _ := c.(map[string]any)
+						if cm == nil {
+							continue
+						}
+						if cm["type"] == "text" {
+							if txt, _ := cm["text"].(string); txt != "" {
+								emit(streaming.Event{Kind: "text", Content: txt})
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	scanErr := scanner.Err()
+
+	execErr := <-execErrCh
+
+	pollCancel()
+	<-pollDone
+	if artClient != nil {
+		emitArtifactDeltaLocked(ctx, artClient, emit, seen, &seenMu)
+	}
+
+	emit(streaming.Event{Kind: "session", Status: "down", ID: s.ID})
+
+	if execErr != nil {
+		emit(streaming.Event{Kind: "done", ExitCode: 1, Error: execErr.Error()})
+		return nil
 	}
 	if scanErr != nil {
 		emit(streaming.Event{Kind: "error", Error: "scan: " + scanErr.Error()})
