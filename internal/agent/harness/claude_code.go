@@ -68,10 +68,20 @@ func (ClaudeCode) InvokePrompt(prompt string) []string {
 }
 
 // InteractiveCmd is the bare `claude` command — drops the operator
-// into Claude Code's interactive UI. Useful when the operator
-// `social-agent exec`s into a session and wants to iterate live.
+// into Claude Code's interactive UI with a fresh chat. Useful when
+// the operator `social-agent exec`s into a session and wants to
+// start a new conversation.
 func (ClaudeCode) InteractiveCmd() []string {
 	return []string{"claude"}
+}
+
+// ResumeCmd is `claude --continue`, which loads the session
+// container's most-recent conversation from ~/.claude/conversations/
+// and continues it. Different from InteractiveCmd: that one
+// always starts fresh. Operators iterate on multi-turn work via
+// `social-agent session resume <id>` between prompt-runs.
+func (ClaudeCode) ResumeCmd() []string {
+	return []string{"claude", "--continue"}
 }
 
 // EnvFromHost selects the auth-related env vars to forward. Today:

@@ -172,7 +172,6 @@ ledger also store converstatopn of agents
 memory ???
 graph ???
 ====
-
 also workspace , for debugging ?
 recycle, session reumse
 ====

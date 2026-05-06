@@ -36,6 +36,14 @@ func (Echo) InteractiveCmd() []string {
 	return []string{"/bin/bash", "-l"}
 }
 
+// ResumeCmd has no real "resume" concept for the echo harness —
+// there's no conversation history to continue. Falls back to the
+// interactive bash shell so `social-agent session resume <id>`
+// against an echo session at least does something useful.
+func (Echo) ResumeCmd() []string {
+	return Echo{}.InteractiveCmd()
+}
+
 // EnvFromHost: nothing to forward. The echo harness needs no auth.
 func (Echo) EnvFromHost(host map[string]string) (map[string]string, error) {
 	return map[string]string{}, nil

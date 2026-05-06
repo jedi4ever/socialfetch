@@ -40,7 +40,17 @@ type Harness interface {
 
 	// InteractiveCmd returns argv for an interactive PTY session
 	// (no prompt, the user is going to drive the agent live).
+	// `social-agent exec <id>` with no command runs this.
 	InteractiveCmd() []string
+
+	// ResumeCmd returns argv for a "continue the previous
+	// conversation in this session" PTY entry. claude-code uses
+	// `claude --continue` to resume the most recent stored chat;
+	// harnesses without a conversation concept (echo) fall back
+	// to InteractiveCmd. `social-agent session resume <id>` runs
+	// this — the difference from InteractiveCmd is that the
+	// agent's stateful conversation history is loaded.
+	ResumeCmd() []string
 
 	// EnvFromHost reads operator-side env vars and returns the set
 	// to inject into the container. Today: pass through

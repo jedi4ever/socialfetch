@@ -41,7 +41,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests. See
 // CLAUDE.md "Versioning".
-const Version = "0.16.3"
+const Version = "0.16.4"
 
 func main() {
 	dotenv.LoadAuto()
@@ -67,6 +67,8 @@ func run(args []string) error {
 		return cmdExec(args[1:])
 	case "ls", "list":
 		return cmdLs(args[1:])
+	case "session":
+		return cmdSession(args[1:])
 	case "pull":
 		return cmdPull(args[1:])
 	case "rm-file":
@@ -97,13 +99,21 @@ func printHelp(w *os.File) {
 	fmt.Fprintf(w, `social-agent %s — sandboxed claude-code sessions
 
 USAGE
-  social-agent run "<prompt>" [--output DIR]
+  social-agent run "<prompt>" [--output DIR] [--stream]
                                          one-shot: up + run prompt + (if
-                                         --output) pull /artifacts + down
-  social-agent up [--workdir DIR]        create a persistent session
-  social-agent exec <id> [-- cmd...]     enter a session (PTY shell or run cmd)
-  social-agent down [<id>...]            tear down sessions (empty = all of ours)
-  social-agent ls                        list our sessions
+                                         --output) pull /artifacts + down.
+                                         --stream emits JSONL events.
+
+  social-agent session create [--workdir DIR]   create persistent session
+  social-agent session list                     list sessions
+  social-agent session resume <id>              continue claude's prior chat
+  social-agent session stop [<id>...]           tear down
+
+  Aliases (kept for convenience):
+    social-agent up        = session create
+    social-agent ls        = session list
+    social-agent exec <id> = enter session, run a command
+    social-agent down      = session stop
   social-agent pull <id> [<path>] [--to PATH]
                                          pull /artifacts (or one file) to host
   social-agent rm-file <id> <path>       remove one file from /artifacts
