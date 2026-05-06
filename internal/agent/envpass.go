@@ -77,6 +77,14 @@ var PassthroughKeys = []string{
 	// dials those host servers. Same value on both sides; no rotation.
 	"MCP_AUTH_TOKEN",
 
+	// Tailscale — when set, the social-researcher container can
+	// `tailscale up --authkey=$TS_AUTHKEY` and reach the operator's
+	// tailnet (alternative to host.docker.internal for cross-host
+	// setups). Pre-auth keys from
+	// https://login.tailscale.com/admin/settings/keys; ephemeral +
+	// short-lived recommended.
+	"TS_AUTHKEY",
+
 	// Observability — when set the in-container social-fetch
 	// emits OTel traces; useful for debugging agent runs.
 	"OTEL_EXPORTER_OTLP_ENDPOINT",

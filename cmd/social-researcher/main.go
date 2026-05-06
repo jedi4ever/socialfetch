@@ -40,7 +40,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.22.6"
+const Version = "0.23.0"
 
 func main() {
 	dotenv.LoadAuto()
@@ -137,6 +137,48 @@ SECURITY
   binaries inside the container; for nested-agent spawning to work
   there, /var/run/docker.sock is bind-mounted by default. Pass
   --no-docker-sock for stricter --stdio sessions.
+
+TAILSCALE (alternative to host.docker.internal)
+  The researcher image ships the tailscale binaries. Useful when:
+
+    - Running researcher on a remote host where host.docker.internal
+      doesn't bridge to your laptop (Daytona, a different machine).
+    - Reaching MCP servers (or anything else) on your tailnet by
+      tailnet-DNS name instead of an IP that varies per setup.
+
+  Setup (once): grab a pre-auth key from
+    https://login.tailscale.com/admin/settings/keys
+  Tick "Ephemeral" when you create it — researcher containers come
+  and go, so each tailscale-up registers a fresh device; ephemeral
+  keys + the --ephemeral flag tell Tailscale to auto-prune the node
+  ~5 min after disconnect, so your tailnet doesn't fill with dead
+  research-* entries. Reusable + tag it (e.g. tag:research) so the
+  same key works across many runs.
+
+  Add the key to your shell or .env as TS_AUTHKEY=tskey-auth-...;
+  PassthroughKeys forwards it into the container automatically.
+
+  Inside the container, bring tailscale up in userspace mode (no
+  NET_ADMIN / /dev/net/tun needed):
+
+    tailscaled --tun=userspace-networking --state=/tmp/tailscaled.state &
+    tailscale --socket=/tmp/tailscaled.sock up \
+      --authkey="$TS_AUTHKEY" \
+      --ephemeral \
+      --hostname=research-$(hostname)
+    tailscale --socket=/tmp/tailscaled.sock status
+
+  Then reach a host on your tailnet by name:
+    curl http://laptop.tailnet.ts.net:5562/mcp
+
+  Or point the researcher's --agent-mcp-url / --ledger-mcp-url at the
+  tailnet hostnames before exec'ing into the container so claude uses
+  them directly.
+
+  Notes: in userspace mode, outbound to tailnet hosts works
+  transparently. For inbound (other tailnet hosts reaching the
+  container), use `+"`tailscale serve`"+` (also userspace-mode-friendly).
+  Auth keys are single-use unless you mark them reusable in the admin UI.
 
 EXAMPLES
   # Plain bash shell, repo at /workspace

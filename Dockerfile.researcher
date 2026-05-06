@@ -31,9 +31,33 @@
 ARG BASE_TAG=latest
 FROM social-skills-agent:${BASE_TAG}
 
-# No further changes today — everything we need (claude, social-fetch,
-# social-ledger, social-browser, social-agent) is already in the agent
-# image. When researcher gains its own dependencies, add them below.
+# Tailscale — install the userspace tailscale binaries so operators
+# can bring the researcher container up on their tailnet to reach
+# host services without depending on host.docker.internal (relevant
+# when running researcher on a remote host or a Daytona sandbox).
+#
+# Userspace mode (`tailscaled --tun=userspace-networking`) needs no
+# NET_ADMIN cap and no /dev/net/tun mount, so we don't change docker
+# run flags. Outbound traffic flows through tailscale's userspace
+# net stack; inbound via `tailscale serve`. The binaries are
+# installed; the operator runs them inside the container — see
+# `social-researcher help` for the recipe.
+#
+# Switch to root for apt; restore the agent user before exit so the
+# image's normal USER directive is unchanged.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      curl gnupg ca-certificates \
+ && install -d -m 0755 /usr/share/keyrings \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
+      -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+ && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list \
+      -o /etc/apt/sources.list.d/tailscale.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends tailscale \
+ && rm -rf /var/lib/apt/lists/*
+USER agent
 
 LABEL org.opencontainers.image.title="social-skills-researcher"
-LABEL org.opencontainers.image.description="Interactive research environment for social-researcher run"
+LABEL org.opencontainers.image.description="Interactive research environment for social-researcher run (with tailscale)"
