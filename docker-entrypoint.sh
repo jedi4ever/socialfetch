@@ -27,6 +27,17 @@
 
 set -eu
 
+# ----- tailscale auto-up -----
+# When TS_AUTHKEY is in the container env, bring tailscale up in
+# userspace mode so this browser daemon can reach the operator's
+# tailnet (or be reached on it via `tailscale serve`). No-op when
+# unset. Shared with the agent + researcher entrypoints.
+export TS_HOSTNAME_PREFIX="${TS_HOSTNAME_PREFIX:-browser}"
+if [ -x /usr/local/bin/tailscale-up.sh ]; then
+  # POSIX `.` (sh) — researcher/agent use bash but this script is sh.
+  . /usr/local/bin/tailscale-up.sh
+fi
+
 mode="${1:-all}"
 shift || true
 

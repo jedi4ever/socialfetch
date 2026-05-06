@@ -31,13 +31,16 @@
 ARG BASE_TAG=latest
 FROM social-skills-agent:${BASE_TAG}
 
-# Tailscale binaries are inherited from the agent image (Dockerfile.agent
-# installs them so every downstream consumer gets the tooling for free).
-# Researcher's job is to add the *auto-up entrypoint*: when TS_AUTHKEY is
-# set in the container env, run `tailscaled` + `tailscale up` before
-# handing off to bash/claude. Falls through to exec immediately when
-# TS_AUTHKEY is unset, so operators not using tailscale see no behaviour
-# change. See scripts/researcher-entrypoint.sh for the recipe.
+# Tailscale binaries are inherited from the agent image. The shared
+# tailscale-up.sh handles the bring-up logic; researcher-entrypoint
+# wraps it + exec's the operator's command (bash or claude). Both
+# scripts no-op when TS_AUTHKEY is unset, so operators not using
+# tailscale see zero overhead. tailscale-up.sh is also COPY'd into
+# the agent image, so this is "where do we duplicate the .sh" — the
+# answer is "we don't, both Dockerfiles COPY the same file from
+# scripts/".
+COPY --chmod=0755 scripts/tailscale-up.sh \
+     /usr/local/bin/tailscale-up.sh
 COPY --chmod=0755 scripts/researcher-entrypoint.sh \
      /usr/local/bin/researcher-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/researcher-entrypoint.sh"]

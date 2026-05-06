@@ -32,6 +32,17 @@
 
 set -eu
 
+# ----- tailscale auto-up -----
+# When TS_AUTHKEY is in the container env, bring tailscale up in
+# userspace mode so this agent can reach the operator's tailnet.
+# No-op when the var is unset. Lives in scripts/tailscale-up.sh and
+# is shared with the researcher + browser entrypoints — single
+# source of truth for the recipe across all three image families.
+export TS_HOSTNAME_PREFIX="${TS_HOSTNAME_PREFIX:-agent}"
+if [ -x /usr/local/bin/tailscale-up.sh ]; then
+  . /usr/local/bin/tailscale-up.sh
+fi
+
 # ----- claude onboarding pre-population -----
 # Mirrors ~/dev/dclaude/src/extensions/claude/setup.sh. claude --print
 # (the agent path) silently skips the first-run wizard, but the
