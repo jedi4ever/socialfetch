@@ -88,6 +88,38 @@ func NewServer(cfg Config) *server.MCPServer {
 	return s
 }
 
+// NewLedgerOnlyServer builds an MCP server with ONLY the ledger
+// tools registered (no fetch / search / ask / research / etc).
+// Used by `social-ledger mcp` so a third-party agent can be wired
+// to the ledger without pulling in the full social-fetch surface
+// — useful when the agent's job is purely "read what's been seen,
+// record what I just learned" and shouldn't have outbound HTTP
+// capability.
+//
+// Includes addReadFileTool because social_ledger_get returns a
+// content_file path; the agent needs read-file to page through it.
+//
+// Set SOCIAL_LEDGER_READONLY=1 in the host env to flip every write
+// tool (record / forget) into "refused" mode while keeping the
+// read tools live — the operator's lever for "let this agent see
+// the ledger but not mutate it."
+func NewLedgerOnlyServer(cfg Config) *server.MCPServer {
+	s := server.NewMCPServer(
+		"social-ledger",
+		cfg.Version,
+		server.WithToolCapabilities(false),
+	)
+	addLedgerSeenTool(s, cfg)
+	addLedgerGetTool(s, cfg)
+	addLedgerListTool(s, cfg)
+	addLedgerSearchTool(s, cfg)
+	addLedgerStatsTool(s, cfg)
+	addLedgerRecordTool(s, cfg)
+	addLedgerForgetTool(s, cfg)
+	addReadFileTool(s, cfg)
+	return s
+}
+
 func registerTools(s *server.MCPServer, cfg Config) {
 	addFetchTool(s, cfg)
 	addSearchTool(s, cfg)

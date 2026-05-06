@@ -39,7 +39,7 @@ import (
 // binaries ship as a pair — ingest writes from social-fetch must
 // match the schema social-ledger reads — so bumping one bumps
 // them all. See CLAUDE.md "Versioning" for the full lockstep set.
-const Version = "0.20.0"
+const Version = "0.21.0"
 
 func main() {
 	start := time.Now()
@@ -74,6 +74,8 @@ func run(args []string) error {
 		return cmdMirror(args[1:])
 	case "daemon":
 		return cmdDaemon(args[1:])
+	case "mcp":
+		return cmdMCP(args[1:])
 	case "influencer", "influencers":
 		return cmdInfluencer(args[1:])
 	case "version", "--version", "-v":
@@ -280,6 +282,12 @@ UTILITY COMMANDS
   mirror sync            reconcile on-disk tree with the store
   mirror rebuild         nuke and recreate the tree from the store
   daemon <verb>          start/stop/status the ledger HTTP daemon
+  mcp                    serve the ledger-only MCP surface on stdio
+                         (social_ledger_seen / get / search / record / forget
+                         / list / stats / read_file). Pass --readonly to
+                         refuse record/forget. Use to wire third-party
+                         agents to the ledger without the full social-fetch
+                         tool surface.
 
   version                print version
   help                   this message
