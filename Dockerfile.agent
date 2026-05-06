@@ -47,7 +47,28 @@ RUN apt-get update \
       dumb-init \
       bash \
       sudo \
+      ffmpeg \
  && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp — youtube transcript / metadata extractor used by
+# social-fetch's youtube path. Install the standalone PyInstaller-
+# frozen binary from the official release (the bare `yt-dlp`
+# script needs python3 on PATH; the *_linux* / *_linux_aarch64*
+# bundles are self-contained). The arch suffix differs between
+# amd64 and arm64; resolve from $TARGETARCH so the build works
+# for both image flavours.
+#
+# We pin to "latest" rather than a specific version because
+# YouTube's anti-bot changes weekly and a stale yt-dlp breaks
+# transcripts; rebuild the image to refresh.
+RUN case "${TARGETARCH}" in \
+      amd64) YTDLP_ASSET=yt-dlp_linux ;; \
+      arm64) YTDLP_ASSET=yt-dlp_linux_aarch64 ;; \
+      *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /usr/local/bin/yt-dlp \
+      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${YTDLP_ASSET}" \
+ && chmod 0755 /usr/local/bin/yt-dlp
 
 # Claude Code itself. npm installs into /usr/local/lib/node_modules
 # so it's available on PATH as `claude`. Pinning a version is

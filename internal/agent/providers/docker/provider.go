@@ -119,13 +119,25 @@ func (p *Provider) Up(ctx context.Context, opts agent.UpOpts) (*agent.Session, e
 		args = append(args, "--label", LabelKey+"-workdir="+opts.Workdir)
 	}
 
-	// Env: harness-selected auth vars first, then operator-supplied
-	// extras, then a CLAUDE_OAUTH_CREDENTIALS injection if the
-	// caller pre-extracted it. The order matters because Env
-	// entries with the same key win on the right (last one set).
-	envForContainer, err := h.EnvFromHost(parseEnviron(os.Environ()))
+	// Env composition (last write wins on collision):
+	//
+	//   1. harness EnvFromHost  — harness-specific auth (e.g.
+	//                              ANTHROPIC_API_KEY for claude-code)
+	//   2. social-skills passthrough — operator's .env / shell
+	//                                   provider keys (BRAVE, TAVILY,
+	//                                   ...) so social-fetch's chains
+	//                                   work inside the container
+	//   3. opts.Env             — explicit `--env KEY=VAL` overrides
+	//   4. CredentialsBlob      — extracted OAuth credentials, if any
+	hostEnv := parseEnviron(os.Environ())
+	envForContainer, err := h.EnvFromHost(hostEnv)
 	if err != nil {
 		return nil, fmt.Errorf("harness %s: env: %w", hName, err)
+	}
+	for k, v := range agent.BuildPassthroughEnv(hostEnv) {
+		if _, set := envForContainer[k]; !set {
+			envForContainer[k] = v
+		}
 	}
 	for k, v := range opts.Env {
 		envForContainer[k] = v

@@ -400,8 +400,16 @@ func waitForArtifactsServer(ctx context.Context, c *artifacts.Client, timeout ti
 }
 
 // buildEnv composes the env map injected into the sandbox.
-// Harness EnvFromHost first (so claude-code's auth flows
-// through), then operator's UpOpts.Env (wins on collision).
+// Same order as the docker provider:
+//
+//  1. harness EnvFromHost  — claude-code's auth keys
+//  2. social-skills passthrough — operator's provider keys
+//     (BRAVE, TAVILY, …) so the
+//     in-sandbox social-fetch's
+//     chains work
+//  3. opts.Env             — explicit `--env` overrides
+//  4. CredentialsBlob
+//
 // Loopback URL rewriting is NOT needed on Daytona — sandboxes
 // have direct internet egress, so SOCIAL_FETCH_HEADLESS_DAEMON_URL
 // pointing at a public daytona-proxy URL just works.
@@ -410,9 +418,15 @@ func buildEnv(hName string, opts agent.UpOpts) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	env, err := h.EnvFromHost(parseEnviron(os.Environ()))
+	hostEnv := parseEnviron(os.Environ())
+	env, err := h.EnvFromHost(hostEnv)
 	if err != nil {
 		return nil, fmt.Errorf("harness %s: env: %w", hName, err)
+	}
+	for k, v := range agent.BuildPassthroughEnv(hostEnv) {
+		if _, set := env[k]; !set {
+			env[k] = v
+		}
 	}
 	for k, v := range opts.Env {
 		env[k] = v
