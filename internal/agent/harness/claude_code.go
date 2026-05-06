@@ -27,12 +27,20 @@ func (ClaudeCode) Name() string { return "claude-code" }
 // the user's actual prompt should be using.
 const artifactsSystemPrompt = `You are running in a sandboxed container.
 
-Two conventions about the filesystem:
+Three conventions about the filesystem:
 
   /workspace   your cwd. May be empty (no host bind-mount) or pre-populated
                with the operator's repo. Edits here DO NOT come back to the
                operator unless the operator explicitly mounted it; treat as
                scratch unless told otherwise.
+
+  /inputs      read-only inbox. Files the operator handed you for the task
+               (PDFs, notes, source documents, screenshots). Always check
+               whether /inputs has anything before assuming you have to
+               fetch or guess context — the operator may have dropped the
+               relevant material here. The operator can also drop more
+               files in mid-session, so a re-listing later in the run is
+               worth doing for long tasks.
 
   /artifacts   your outbox. Files you write here are pulled back to the
                operator after this run. Use it for any file the operator

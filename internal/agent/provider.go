@@ -160,6 +160,18 @@ type UpOpts struct {
 	// persistent sessions is `social-agent pull <id>` on demand).
 	OutputDir string
 
+	// InputsDir is a host directory bind-mounted read-only at
+	// /inputs in the container. Used to pre-stage operator-supplied
+	// files the agent should work on (e.g. a PDF to summarise, a
+	// notes.md to extend). Mirrors OutputDir as the inbound
+	// counterpart of /artifacts. Empty = no /inputs mount.
+	//
+	// The MCP layer copies caller-supplied paths into a per-session
+	// staging dir before passing it here, so the agent never sees
+	// the operator's real filesystem layout — only the curated
+	// subset under /inputs/.
+	InputsDir string
+
 	// Stream switches Provider.Run from "print claude's response
 	// + post-run pull" to "emit JSONL events on stdout as the run
 	// progresses": session up/down, line-buffered text, artifact

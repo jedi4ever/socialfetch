@@ -15,8 +15,8 @@ import (
 	"github.com/jedi4ever/social-skills/internal/agent/streaming"
 )
 
-func TestNewSessionDir_CreatesArtifactsSubdirAndIsUnique(t *testing.T) {
-	rootA, artA, err := newSessionDir()
+func TestNewSessionDir_CreatesSubdirsAndIsUnique(t *testing.T) {
+	rootA, artA, inA, err := newSessionDir()
 	if err != nil {
 		t.Fatalf("first newSessionDir: %v", err)
 	}
@@ -28,11 +28,17 @@ func TestNewSessionDir_CreatesArtifactsSubdirAndIsUnique(t *testing.T) {
 	if _, err := os.Stat(artA); err != nil {
 		t.Errorf("artifacts dir %q does not exist: %v", artA, err)
 	}
+	if _, err := os.Stat(inA); err != nil {
+		t.Errorf("inputs dir %q does not exist: %v", inA, err)
+	}
 	if filepath.Base(artA) != "artifacts" {
 		t.Errorf("artifacts dir base = %q, want \"artifacts\"", filepath.Base(artA))
 	}
-	if filepath.Dir(artA) != rootA {
-		t.Errorf("artifacts dir parent = %q, want %q", filepath.Dir(artA), rootA)
+	if filepath.Base(inA) != "inputs" {
+		t.Errorf("inputs dir base = %q, want \"inputs\"", filepath.Base(inA))
+	}
+	if filepath.Dir(artA) != rootA || filepath.Dir(inA) != rootA {
+		t.Errorf("subdirs not under root: art parent=%q in parent=%q root=%q", filepath.Dir(artA), filepath.Dir(inA), rootA)
 	}
 
 	want := filepath.Join(os.TempDir(), "social-agent")
@@ -40,7 +46,7 @@ func TestNewSessionDir_CreatesArtifactsSubdirAndIsUnique(t *testing.T) {
 		t.Errorf("session root %q does not live under %q", rootA, want)
 	}
 
-	rootB, _, err := newSessionDir()
+	rootB, _, _, err := newSessionDir()
 	if err != nil {
 		t.Fatalf("second newSessionDir: %v", err)
 	}
@@ -48,6 +54,45 @@ func TestNewSessionDir_CreatesArtifactsSubdirAndIsUnique(t *testing.T) {
 
 	if rootA == rootB {
 		t.Errorf("two consecutive calls collided on %q — should have a unique random suffix", rootA)
+	}
+}
+
+func TestStageInputs_CopiesFilesAndRejectsDirs(t *testing.T) {
+	tmp := t.TempDir()
+	src1 := filepath.Join(tmp, "notes.md")
+	src2 := filepath.Join(tmp, "spec.txt")
+	dirSrc := filepath.Join(tmp, "subdir")
+	if err := os.WriteFile(src1, []byte("# notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src2, []byte("spec body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dirSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(tmp, "inputs")
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := stageInputs([]string{src1, src2}, dest)
+	if err != nil {
+		t.Fatalf("stageInputs: %v", err)
+	}
+	if len(staged) != 2 {
+		t.Errorf("staged %d files, want 2", len(staged))
+	}
+	if got, _ := os.ReadFile(filepath.Join(dest, "notes.md")); string(got) != "# notes" {
+		t.Errorf("notes.md content = %q", string(got))
+	}
+
+	if _, err := stageInputs([]string{dirSrc}, dest); err == nil {
+		t.Errorf("expected error when staging a directory")
+	}
+
+	if _, err := stageInputs([]string{filepath.Join(tmp, "missing.bin")}, dest); err == nil {
+		t.Errorf("expected error for missing file")
 	}
 }
 
@@ -89,7 +134,7 @@ func TestProgressSummary_TextTruncates(t *testing.T) {
 }
 
 func TestNewSessionDir_NameShape(t *testing.T) {
-	root, _, err := newSessionDir()
+	root, _, _, err := newSessionDir()
 	if err != nil {
 		t.Fatalf("newSessionDir: %v", err)
 	}

@@ -118,6 +118,12 @@ func (p *Provider) Up(ctx context.Context, opts agent.UpOpts) (*agent.Session, e
 		args = append(args, "-v", opts.Workdir+":/workspace")
 		args = append(args, "--label", LabelKey+"-workdir="+opts.Workdir)
 	}
+	if opts.InputsDir != "" {
+		// Read-only mount so the agent can't accidentally clobber
+		// the operator's source files. Inbound counterpart of
+		// /artifacts (writable).
+		args = append(args, "-v", opts.InputsDir+":/inputs:ro")
+	}
 
 	// Env composition (last write wins on collision):
 	//

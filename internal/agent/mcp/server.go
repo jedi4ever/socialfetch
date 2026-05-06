@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,11 +82,12 @@ func progressSummary(e streaming.Event) string {
 }
 
 // newSessionDir creates a per-run session root under
-// $TMPDIR/social-agent/<id>/ and an `artifacts/` subdir inside it.
-// Returns (sessionRoot, artifactsDir). The session root parallels
-// the in-container session-scoped state: artifacts/ mirrors the
-// container's /artifacts/, and leaves room for future per-run
-// material (logs, transcripts, an isolated .claude/ homedir).
+// $TMPDIR/social-agent/<id>/ with `artifacts/` and `inputs/`
+// subdirs. The session root parallels the in-container
+// session-scoped state: artifacts/ mirrors /artifacts/ (outbound),
+// inputs/ mirrors /inputs/ (inbound, read-only in the container),
+// leaving room for future per-run material (logs, transcripts,
+// an isolated .claude/ homedir).
 //
 // Without this, streaming one-shot runs lose their artifacts at
 // teardown — the in-container artifacts HTTP server dies with the
@@ -96,18 +98,69 @@ func progressSummary(e streaming.Event) string {
 // land in the same second. Directories are created with 0o755 so
 // the operator can read pulled artifacts directly. Cleanup TTL is
 // a follow-up.
-func newSessionDir() (root, artifactsDir string, err error) {
+func newSessionDir() (root, artifactsDir, inputsDir string, err error) {
 	var rand8 [4]byte
 	if _, e := rand.Read(rand8[:]); e != nil {
-		return "", "", fmt.Errorf("rand: %w", e)
+		return "", "", "", fmt.Errorf("rand: %w", e)
 	}
 	name := time.Now().UTC().Format("20060102T150405") + "-" + hex.EncodeToString(rand8[:])
 	root = filepath.Join(os.TempDir(), "social-agent", name)
 	artifactsDir = filepath.Join(root, "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("mkdir %s: %w", artifactsDir, err)
+	inputsDir = filepath.Join(root, "inputs")
+	for _, d := range []string{artifactsDir, inputsDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return "", "", "", fmt.Errorf("mkdir %s: %w", d, err)
+		}
 	}
-	return root, artifactsDir, nil
+	return root, artifactsDir, inputsDir, nil
+}
+
+// stageInputs copies operator-supplied host files into the
+// session's inputs dir so they're visible at /inputs in the
+// container via bind-mount. Each path lands at
+// inputsDir/<basename> — directories are rejected (operators
+// can tar them if they really need a tree). Returns the list of
+// staged destination paths so the caller can echo them back.
+func stageInputs(hostPaths []string, inputsDir string) ([]string, error) {
+	staged := make([]string, 0, len(hostPaths))
+	for _, src := range hostPaths {
+		src = strings.TrimSpace(src)
+		if src == "" {
+			continue
+		}
+		info, err := os.Stat(src)
+		if err != nil {
+			return nil, fmt.Errorf("stat %s: %w", src, err)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("input %s is a directory; only files are supported (tar it first)", src)
+		}
+		dst := filepath.Join(inputsDir, filepath.Base(src))
+		if err := copyFile(src, dst); err != nil {
+			return nil, fmt.Errorf("copy %s → %s: %w", src, dst, err)
+		}
+		staged = append(staged, dst)
+	}
+	return staged, nil
+}
+
+// copyFile copies one file byte-for-byte using io.Copy so large
+// inputs (PDFs, screenshots) don't spike RAM.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Config holds the per-server settings. Mirrors social-fetch
@@ -156,6 +209,7 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addLsTool(s, cfg)
 	addDownTool(s, cfg)
 	addPullTool(s, cfg)
+	addUploadTool(s, cfg)
 	addRmFileTool(s, cfg)
 	addHarnessListTool(s, cfg)
 	addProbeClientTool(s, cfg)
@@ -210,6 +264,13 @@ type runArgs struct {
 	Output  string            `json:"output,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Image   string            `json:"image,omitempty"`
+	// Inputs is a list of host paths to stage into the
+	// session's /inputs/ directory before exec. Files are copied
+	// into <session-dir>/inputs/<basename> and bind-mounted
+	// read-only at /inputs in the container. Lets the operator
+	// hand the agent files (PDF, notes, screenshots) without
+	// exposing the rest of the filesystem.
+	Inputs []string `json:"inputs,omitempty"`
 	// Stream is a *bool so omitted-from-JSON (nil) is
 	// distinguishable from explicit-false. nil = stream when a
 	// progressToken is available (the default); *false = always
@@ -227,6 +288,7 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 		mcpgo.WithString("output", mcpgo.Description("Host directory to pull /artifacts to after the run. Default: skip pull.")),
 		mcpgo.WithObject("env", mcpgo.Description("Additional env vars to set inside the container. Loopback URLs are auto-rewritten so the container can reach host services.")),
 		mcpgo.WithString("image", mcpgo.Description("Override the docker image:tag. Default: social-skills-agent:<Version>.")),
+		mcpgo.WithArray("inputs", mcpgo.Description("List of host file paths to copy into the session's inputs/ dir, bind-mounted read-only at /inputs in the container. Lets the operator hand the agent files to work on without exposing the rest of the filesystem. Files only — directories are rejected. Items: type=string.")),
 		mcpgo.WithBoolean("stream", mcpgo.Description("Force streaming on/off. Omit (default) = stream when the client sent a progressToken. false = buffer-and-return regardless. true is equivalent to omitting it.")),
 	)
 	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, req mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
@@ -261,11 +323,31 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
+
+		// Always allocate a session root up-front so /inputs/ can
+		// be bind-mounted at create time (you can't add a docker
+		// bind-mount to a running container). args.Output, when
+		// set, overrides where artifacts get pulled but doesn't
+		// replace the session root — the session dir still exists
+		// for inputs and any future per-session state.
+		sessionRoot, artifactsDir, inputsDir, dirErr := newSessionDir()
+		if dirErr != nil {
+			return mcpgo.NewToolResultError("session dir: " + dirErr.Error()), nil
+		}
+		if _, err := stageInputs(args.Inputs, inputsDir); err != nil {
+			return mcpgo.NewToolResultError("stage inputs: " + err.Error()), nil
+		}
+		outDir := args.Output
+		if outDir == "" {
+			outDir = artifactsDir
+		}
+
 		sess, err := prov.Up(ctx, agent.UpOpts{
-			Image:   image,
-			Harness: hName,
-			Workdir: args.Workdir,
-			Env:     args.Env,
+			Image:     image,
+			Harness:   hName,
+			Workdir:   args.Workdir,
+			Env:       args.Env,
+			InputsDir: inputsDir,
 		})
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
@@ -289,23 +371,6 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 			return mcpgo.NewToolResultError(msg), nil
 		}
 
-		// Pull artifacts to a host directory BEFORE teardown. The
-		// caller can supply `output` to choose where (legacy: bare
-		// files dropped in that dir); otherwise we default to a
-		// per-run session root under $TMPDIR/social-agent/<id>/
-		// with an artifacts/ subdir, so a one-shot run never
-		// silently drops bytes when the caller forgot to pre-create
-		// a dir. Session root vs artifacts dir is reported
-		// separately so callers know where to find the bytes vs
-		// where future per-session state will land.
-		outDir := args.Output
-		var sessionRoot string
-		if outDir == "" {
-			if root, art, dirErr := newSessionDir(); dirErr == nil {
-				sessionRoot = root
-				outDir = art
-			}
-		}
 		var pulledFiles []string
 		if outDir != "" && sess.ArtifactsURL != "" {
 			c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
@@ -325,6 +390,7 @@ func addRunTool(s *server.MCPServer, cfg Config) {
 			"text":          stdout.String(),
 			"artifacts":     pulledFiles,
 			"artifacts_dir": outDir,
+			"inputs_dir":    inputsDir,
 			"session_dir":   sessionRoot,
 		}
 		body, _ := json.Marshal(envelope)
@@ -453,18 +519,21 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 		})
 	}
 
-	// Default OutputDir to a per-run subdir so streaming artifacts
-	// survive the container teardown that fires inside prov.Run.
-	// Without this, the artifact metadata we emit during the run
-	// (path/size/sha256) would describe files that no longer exist
-	// once the response reaches the client.
+	// Always allocate a session root so artifacts survive teardown
+	// AND /inputs/ can be bind-mounted (set at container create
+	// time, can't be added to a running container). args.Output
+	// overrides only where artifacts get pulled, not the session
+	// root — inputs/ still lives under sessionRoot/.
+	sessionRoot, artifactsDir, inputsDir, derr := newSessionDir()
+	if derr != nil {
+		return mcpgo.NewToolResultError("session dir: " + derr.Error()), nil
+	}
+	if _, err := stageInputs(args.Inputs, inputsDir); err != nil {
+		return mcpgo.NewToolResultError("stage inputs: " + err.Error()), nil
+	}
 	outDir := args.Output
-	var sessionRoot string
 	if outDir == "" {
-		if root, art, derr := newSessionDir(); derr == nil {
-			sessionRoot = root
-			outDir = art
-		}
+		outDir = artifactsDir
 	}
 
 	if err := prov.Run(ctx, agent.UpOpts{
@@ -475,6 +544,7 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 		Stream:        true,
 		StreamHandler: handler,
 		OutputDir:     outDir,
+		InputsDir:     inputsDir,
 	}, args.Prompt); err != nil {
 		return mcpgo.NewToolResultError(err.Error()), nil
 	}
@@ -493,6 +563,7 @@ func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provide
 		"artifacts":     artifactLst,
 		"exit_code":     exitCode,
 		"artifacts_dir": outDir,
+		"inputs_dir":    inputsDir,
 		"session_dir":   sessionRoot,
 	}
 	if runErr != "" {
@@ -510,16 +581,18 @@ type upArgs struct {
 	Name    string            `json:"name,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	Image   string            `json:"image,omitempty"`
+	Inputs  []string          `json:"inputs,omitempty"`
 }
 
 func addUpTool(s *server.MCPServer, cfg Config) {
 	tool := mcpgo.NewTool("social_agent_up",
-		mcpgo.WithDescription("Create a persistent agent session container. Returns the session id. Use `social_agent_exec` to run commands inside, `social_agent_pull` to fetch files from /artifacts, `social_agent_down` to tear down. For one-shot prompts use `social_agent_run` instead."),
+		mcpgo.WithDescription("Create a persistent agent session container. Returns the session id. Use `social_agent_exec` to run commands inside, `social_agent_pull` to fetch files from /artifacts, `social_agent_down` to tear down. For one-shot prompts use `social_agent_run` instead. `inputs` pre-stages files at /inputs (read-only) and `social_agent_upload` adds more files mid-session."),
 		mcpgo.WithString("harness", mcpgo.Description("Coding-agent CLI to run inside (claude-code | echo). Default: claude-code.")),
 		mcpgo.WithString("workdir", mcpgo.Description("Host path bind-mounted at /workspace. Default: no mount.")),
 		mcpgo.WithString("name", mcpgo.Description("Explicit container name. Re-running `up` with the same name reuses the existing container.")),
 		mcpgo.WithObject("env", mcpgo.Description("Additional env vars to set inside the container.")),
 		mcpgo.WithString("image", mcpgo.Description("Override the docker image:tag.")),
+		mcpgo.WithArray("inputs", mcpgo.Description("List of host file paths to copy into the session's inputs/ dir, bind-mounted read-only at /inputs in the container. Files only — directories are rejected. Add more files later via social_agent_upload. Items: type=string.")),
 	)
 	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args upArgs) (*mcpgo.CallToolResult, error) {
 		prov := buildProvider()
@@ -527,26 +600,54 @@ func addUpTool(s *server.MCPServer, cfg Config) {
 		if image == "" {
 			image = resolveImage(cfg)
 		}
-		s, err := prov.Up(ctx, agent.UpOpts{
-			Image:   image,
-			Harness: args.Harness,
-			Workdir: args.Workdir,
-			Name:    args.Name,
-			Env:     args.Env,
+
+		// Always allocate a session root + bind-mount /inputs/ so
+		// social_agent_upload can later drop files into the same
+		// host dir and have them appear inside the container
+		// without needing docker cp. Stage caller-supplied paths
+		// up front.
+		sessionRoot, _, inputsDir, dirErr := newSessionDir()
+		if dirErr != nil {
+			return mcpgo.NewToolResultError("session dir: " + dirErr.Error()), nil
+		}
+		if _, err := stageInputs(args.Inputs, inputsDir); err != nil {
+			return mcpgo.NewToolResultError("stage inputs: " + err.Error()), nil
+		}
+
+		sess, err := prov.Up(ctx, agent.UpOpts{
+			Image:     image,
+			Harness:   args.Harness,
+			Workdir:   args.Workdir,
+			Name:      args.Name,
+			Env:       args.Env,
+			InputsDir: inputsDir,
 		})
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
+		// Remember the inputs dir per session so social_agent_upload
+		// can find it without scanning. Container labels would also
+		// work but in-process map is simpler and sessions are
+		// process-lifetime anyway.
+		sessionInputs.Store(sess.ID, inputsDir)
 		body, _ := json.Marshal(map[string]any{
-			"id":            s.ID,
-			"harness":       s.Harness,
-			"workdir":       s.Workdir,
-			"image":         s.Image,
-			"artifacts_url": s.ArtifactsURL,
+			"id":            sess.ID,
+			"harness":       sess.Harness,
+			"workdir":       sess.Workdir,
+			"image":         sess.Image,
+			"artifacts_url": sess.ArtifactsURL,
+			"session_dir":   sessionRoot,
+			"inputs_dir":    inputsDir,
 		})
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
 }
+
+// sessionInputs maps session IDs (docker container IDs) to their
+// host-side inputs dir so social_agent_upload can find where to
+// drop new files. Populated by addUpTool on Up; survives until
+// the daemon process exits or the session is removed via Down.
+var sessionInputs sync.Map // string → string
 
 // ---- exec ------------------------------------------------------
 
@@ -691,6 +792,52 @@ func addPullTool(s *server.MCPServer, cfg Config) {
 			"count": count,
 			"bytes": bytes,
 			"to":    dest,
+		})
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
+
+// ---- upload ----------------------------------------------------
+
+type uploadArgs struct {
+	ID     string   `json:"id"`
+	Inputs []string `json:"inputs"`
+}
+
+func addUploadTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_upload",
+		mcpgo.WithDescription("Copy host files into a running session's /inputs/ dir. Mid-session counterpart to social_agent_pull: pre-stage files at session creation via social_agent_up({inputs:[…]}), or drop more in later via this tool. Files appear inside the container at /inputs/<basename> immediately (the dir is bind-mounted, so a host write is visible without a docker round-trip). Files only — directories rejected. Useful when the operator gathers more material partway through a multi-step session."),
+		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_up`. Prefix match works.")),
+		mcpgo.WithArray("inputs", mcpgo.Description("Host file paths to copy into /inputs/. Items: type=string. Each lands at /inputs/<basename>.")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args uploadArgs) (*mcpgo.CallToolResult, error) {
+		if strings.TrimSpace(args.ID) == "" {
+			return mcpgo.NewToolResultError("id is required"), nil
+		}
+		if len(args.Inputs) == 0 {
+			return mcpgo.NewToolResultError("inputs is required (list of host file paths)"), nil
+		}
+		// Resolve session id (prefix match) to its host inputs dir.
+		var inputsDir string
+		sessionInputs.Range(func(k, v any) bool {
+			id, _ := k.(string)
+			dir, _ := v.(string)
+			if id == args.ID || hasIDPrefix(id, args.ID) || hasIDPrefix(args.ID, id) {
+				inputsDir = dir
+				return false
+			}
+			return true
+		})
+		if inputsDir == "" {
+			return mcpgo.NewToolResultError(fmt.Sprintf("no inputs dir tracked for session %q (was the session created with social_agent_up after the upload feature shipped?)", args.ID)), nil
+		}
+		staged, err := stageInputs(args.Inputs, inputsDir)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		body, _ := json.Marshal(map[string]any{
+			"uploaded":   staged,
+			"inputs_dir": inputsDir,
 		})
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
