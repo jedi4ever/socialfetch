@@ -40,7 +40,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.23.0"
+const Version = "0.23.1"
 
 func main() {
 	dotenv.LoadAuto()
@@ -159,9 +159,14 @@ TAILSCALE (alternative to host.docker.internal)
   PassthroughKeys forwards it into the container automatically.
 
   Inside the container, bring tailscale up in userspace mode (no
-  NET_ADMIN / /dev/net/tun needed):
+  NET_ADMIN / /dev/net/tun needed). The default tailscaled socket
+  path /var/run/tailscale/ doesn't exist + isn't writable for the
+  non-root agent user — we point both processes at /tmp instead.
 
-    tailscaled --tun=userspace-networking --state=/tmp/tailscaled.state &
+    tailscaled \
+      --tun=userspace-networking \
+      --socket=/tmp/tailscaled.sock \
+      --state=/tmp/tailscaled.state &
     tailscale --socket=/tmp/tailscaled.sock up \
       --authkey="$TS_AUTHKEY" \
       --ephemeral \
