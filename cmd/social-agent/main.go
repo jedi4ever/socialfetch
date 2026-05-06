@@ -41,7 +41,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests. See
 // CLAUDE.md "Versioning".
-const Version = "0.16.1"
+const Version = "0.16.2"
 
 func main() {
 	dotenv.LoadAuto()
@@ -79,6 +79,8 @@ func run(args []string) error {
 		return cmdHarness(args[1:])
 	case "artifacts":
 		return cmdArtifacts(args[1:])
+	case "mcp":
+		return cmdMCP(args[1:])
 	case "version", "--version", "-v":
 		fmt.Println("social-agent", Version)
 		return nil
@@ -115,7 +117,14 @@ USAGE
                                          (daytona) plug in here
 
   social-agent harness list              available coding-agent CLIs
-                                         (today: claude-code)
+                                         (today: claude-code, echo)
+  social-agent mcp                       run as an MCP server over
+                                         stdio — Claude Desktop /
+                                         claude.ai / Claude Code can
+                                         load this and call run / up /
+                                         exec / ls / down / pull /
+                                         rm-file / harness_list as
+                                         tools
 
 ENVIRONMENT
   ANTHROPIC_API_KEY                       claude-code auth (env passthrough)
