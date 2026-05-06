@@ -34,6 +34,35 @@ caps `start_time` to 7 days — `xsearch.go` rejects out-of-window
 `opts.After` with a message that names the constraint, instead of
 letting X return a bare `HTTP 400`.
 
+## Daytona preview-URL proxy is flaky for POST /fetch and /screenshot
+
+The signed-URL proxy that fronts each Daytona sandbox port
+(`5556-<id>.daytonaproxy01.net`) returns **intermittent HTTP 404
+"Not found."** on proxied POST requests, even when:
+
+  - The in-sandbox upstream is healthy (in-sandbox curl returns 200)
+  - The same external curl with the same token returns 200
+  - The proxy's GET /status with the same token returns 200
+
+Manifests as flaky `/fetch` and `/screenshot` through
+`social-browser daemon --provider daytona`. We've sunk hours debugging
+this multiple times — it is a Daytona-side issue, not ours. Don't
+re-investigate; instead:
+
+  - The proxy daemon already retries once after 750ms on 404
+    "Not found." (see `isProxyColdStart` in
+    `internal/browser/daemon.go`). That catches some flakes but not
+    all — sometimes the same backend 404s on 3+ consecutive calls.
+  - Higher-level fall-throughs (article-fetcher goquery, etc.) keep
+    user-visible behaviour mostly working: when the headless path
+    fails, downstream fetchers swap in a non-headless transport.
+  - For confirmed-working diagnosis, hit the in-sandbox port via
+    `daytona exec <id> -- curl http://127.0.0.1:5556/...`. If THAT
+    works and the proxy doesn't, the daemon code is fine.
+  - If we ever need 100% reliable screenshots through Daytona,
+    swap the proxy hop for `daytona exec` + base64 — strictly
+    slower but bypasses the flake entirely.
+
 ## Selectors that scrape third-party DOMs will drift
 
 LinkedIn, Reddit, X-syndication, etc. rename CSS classes periodically.

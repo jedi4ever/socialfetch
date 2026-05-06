@@ -154,11 +154,16 @@ That social-agent image will also contain our social skills binaries.
 I should be able to set the env vars for i such as the social-browser pool
 I need to also set the anthropic-api-envs / or it reads it from the .env
 
-I will later extend this into a social-research which will extend this to specific context/system prompt and agent tooling.
-Look at addt claude logic for running it in a container 
+Look at addt in @~/dev/dclaude/ for claude logic for running it in a container. Including how to extract claude-code credentials
+
+I will later extend this into a social-researcher / or other more specialize agents which will extend this to specific context/system prompt and agent tooling.
 
 ======
 socual-browser test/live test
 ====
 social-agent / sandbox local provider
+====
+ledger also store converstatopn of agents
+memory ???
+graph ???
 ====
