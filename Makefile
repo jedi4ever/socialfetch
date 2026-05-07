@@ -6,6 +6,7 @@ LEDGER_CMD_BIN          := ./dist/social-ledger
 BROWSER_CMD_BIN         := ./dist/social-browser
 AGENT_CMD_BIN           := ./dist/social-agent
 RESEARCHER_CMD_BIN      := ./dist/social-researcher
+NOTIFIER_CMD_BIN        := ./dist/social-notifier
 SKILL_BIN               := ./skills/social-fetch/scripts/social-fetch
 SKILL_LEDGER_BIN        := ./skills/social-fetch/scripts/social-ledger
 LEDGER_SKILL_DIR        := ./skills/social-ledger
@@ -69,6 +70,7 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	go build $(GO_BUILD_FLAGS) -o $(BROWSER_CMD_BIN) ./cmd/social-browser
 	go build $(GO_BUILD_FLAGS) -o $(AGENT_CMD_BIN) ./cmd/social-agent
 	go build $(GO_BUILD_FLAGS) -o $(RESEARCHER_CMD_BIN) ./cmd/social-researcher
+	go build $(GO_BUILD_FLAGS) -o $(NOTIFIER_CMD_BIN) ./cmd/social-notifier
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 

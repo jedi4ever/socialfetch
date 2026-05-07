@@ -77,6 +77,14 @@ var PassthroughKeys = []string{
 	// dials those host servers. Same value on both sides; no rotation.
 	"MCP_AUTH_TOKEN",
 
+	// Slack notifier — social-notifier's slack provider posts via
+	// chat.postMessage with a Bot Token (xoxb-…). Forwarded so an
+	// agent / researcher container can `social-notifier post …`
+	// without the operator having to set the token on every run.
+	// Default channel is optional; --channel on the call wins.
+	"SLACK_BOT_TOKEN",
+	"SLACK_DEFAULT_CHANNEL",
+
 	// Tailscale — when set, the social-researcher container can
 	// `tailscale up --authkey=$TS_AUTHKEY` and reach the operator's
 	// tailnet (alternative to host.docker.internal for cross-host
