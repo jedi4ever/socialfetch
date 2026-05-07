@@ -133,6 +133,19 @@ func cmdRun(args []string) error {
 				fmt.Fprintf(os.Stderr, "social-researcher: --claude-creds=auto: %v (proceeding without OAuth blob)\n", err)
 			} else if b64 != "" {
 				envMap["CLAUDE_OAUTH_CREDENTIALS"] = b64
+				// claude-code prefers ANTHROPIC_API_KEY over an
+				// on-disk OAuth blob when both are present in
+				// env. The whole point of --claude-creds=auto is
+				// "use my logged-in /login session"; an
+				// API-key in .env silently winning would defeat
+				// that. Strip it so OAuth is unambiguously
+				// chosen. Operator who explicitly wants the API
+				// key path can use --claude-creds=env (today's
+				// default).
+				if _, hadKey := envMap["ANTHROPIC_API_KEY"]; hadKey {
+					delete(envMap, "ANTHROPIC_API_KEY")
+					fmt.Fprintf(os.Stderr, "social-researcher: --claude-creds=auto: dropping ANTHROPIC_API_KEY from container env so OAuth wins\n")
+				}
 				fmt.Fprintf(os.Stderr, "social-researcher: forwarding host claude OAuth credentials to the container\n")
 			} else {
 				fmt.Fprintf(os.Stderr, "social-researcher: --claude-creds=auto: no Keychain entry / credentials.json found; falling back to ANTHROPIC_API_KEY if set\n")
