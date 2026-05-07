@@ -55,13 +55,12 @@ if [ -x /usr/local/bin/claude-onboarding.sh ]; then
 fi
 
 # ----- credentials -----
-if [ -n "${CLAUDE_OAUTH_CREDENTIALS:-}" ]; then
-  mkdir -p "$HOME/.claude"
-  # Strip whitespace before decoding — copy-paste from a terminal
-  # tends to wrap base64 with newlines that base64(1) on debian
-  # accepts but on alpine doesn't; tr is portable.
-  printf '%s' "$CLAUDE_OAUTH_CREDENTIALS" | tr -d '[:space:]' | base64 -d > "$HOME/.claude/.credentials.json"
-  chmod 0600 "$HOME/.claude/.credentials.json"
+# OAuth blob decode lives in scripts/claude-creds-decode.sh so the
+# researcher entrypoint can source the same logic. Single source of
+# truth — drift between the two would silently drop the blob on one
+# path (which is how we discovered this).
+if [ -x /usr/local/bin/claude-creds-decode.sh ]; then
+  . /usr/local/bin/claude-creds-decode.sh
 fi
 
 # ----- artifacts server -----

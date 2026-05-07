@@ -20,4 +20,11 @@ if [ -x /usr/local/bin/claude-onboarding.sh ]; then
   . /usr/local/bin/claude-onboarding.sh
 fi
 
+# Decode the operator's CLAUDE_OAUTH_CREDENTIALS env (when set) into
+# ~/.claude/.credentials.json so the inner claude reuses the host's
+# logged-in /login session. Same logic the agent entrypoint sources.
+if [ -x /usr/local/bin/claude-creds-decode.sh ]; then
+  . /usr/local/bin/claude-creds-decode.sh
+fi
+
 exec "$@"
