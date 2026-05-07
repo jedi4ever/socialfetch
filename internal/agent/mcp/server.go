@@ -13,6 +13,7 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -783,7 +784,19 @@ type runRecord struct {
 	Artifacts  []string
 	Error      string
 	ExitCode   int
-	done       chan struct{} // closed when status flips to done|error
+	// Events captures every JSONL line claude emits in stream-json
+	// mode (system/init, assistant turns, tool_use, tool_result,
+	// result, …) in the order received. Surfaced via run_status
+	// so the operator can see what the agent is doing mid-run
+	// instead of polling a binary running/done flag. Entries are
+	// the raw claude JSONL bodies — clients re-parse against
+	// claude-code's schema.
+	Events []json.RawMessage
+	// LastEventAt bumps every time a new event lands. Lets a
+	// polling client tell whether the agent is still making
+	// progress vs hung.
+	LastEventAt time.Time
+	done        chan struct{} // closed when status flips to done|error
 }
 
 // snapshot copies the public fields into a JSON-shaped map for the
@@ -807,6 +820,21 @@ func (r *runRecord) snapshot(httpMode bool, baseURL string, signKey []byte) map[
 		"run_id":     r.ID,
 		"status":     r.Status,
 		"started_at": r.StartedAt.Format(time.RFC3339Nano),
+		// Always surface progress fields, even mid-run, so the
+		// poller can see "agent is still alive + here's what it's
+		// emitted so far" rather than just a binary status flag.
+		// events_count is cheap to read; events is the full log.
+		"events":       r.Events,
+		"events_count": len(r.Events),
+	}
+	if !r.LastEventAt.IsZero() {
+		out["last_event_at"] = r.LastEventAt.Format(time.RFC3339Nano)
+	}
+	// Partial response is also useful mid-run — claude's prose
+	// accumulates as assistant events arrive, so polling sees the
+	// answer build up rather than appear all at once at status=done.
+	if r.Response != "" {
+		out["response"] = r.Response
 	}
 	if !r.FinishedAt.IsZero() {
 		out["finished_at"] = r.FinishedAt.Format(time.RFC3339Nano)
@@ -814,16 +842,13 @@ func (r *runRecord) snapshot(httpMode bool, baseURL string, signKey []byte) map[
 	}
 	switch r.Status {
 	case runStatusDone:
+		// Re-set response to make the field present even if empty
+		// (clients may rely on its presence at status=done).
 		out["response"] = r.Response
 		out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode, signKey)
 		out["exit_code"] = r.ExitCode
 	case runStatusError:
 		out["error"] = r.Error
-		// Include partial response/artifacts if we got that far —
-		// helpful for debugging, no harm if both are zero.
-		if r.Response != "" {
-			out["response"] = r.Response
-		}
 		if len(r.Artifacts) > 0 {
 			out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode, signKey)
 		}
@@ -1015,15 +1040,99 @@ func executeRun(ctx context.Context, cfg Config, rec *runRecord) {
 		_ = prov.Down(context.Background(), sess.ID)
 	}()
 
-	var stdout, stderr bytes.Buffer
-	execErr := prov.Exec(ctx, sess.ID, agent.ExecOpts{
-		Cmd:    h.InvokePrompt(rec.Prompt),
-		Stdout: &stdout,
-		Stderr: &stderr,
-	})
+	// Stream-json invoke. Run claude with --input-format=stream-json
+	// --output-format=stream-json and pipe the prompt as one user-
+	// message JSONL line. Each stdout line is a JSON event we
+	// append to rec.Events under registryMu so polling clients see
+	// progress as the agent works (assistant turns, tool_use,
+	// tool_result, result, …) — not just a binary running/done
+	// flag. Assistant prose accumulates into rec.Response so the
+	// final response field is built up incrementally.
+	sj, ok := h.(harness.StreamingJSONHarness)
+	if !ok {
+		finalize(runStatusError, "harness "+hName+" doesn't support stream-json (no live progress in run_status)", "", nil, 0)
+		return
+	}
 
-	// Pull artifacts whether or not exec succeeded — claude may have
-	// written partial output before the failure, useful for debugging.
+	stdinR, stdinW := io.Pipe()
+	go func() {
+		defer stdinW.Close()
+		_, _ = stdinW.Write(sj.WrapUserMessage(rec.Prompt))
+	}()
+	stdoutR, stdoutW := io.Pipe()
+	var stderr bytes.Buffer
+	execErrCh := make(chan error, 1)
+	go func() {
+		err := prov.Exec(ctx, sess.ID, agent.ExecOpts{
+			Cmd:    sj.StreamJSONCmd(),
+			Stdin:  stdinR,
+			Stdout: stdoutW,
+			Stderr: &stderr,
+		})
+		_ = stdoutW.Close()
+		execErrCh <- err
+	}()
+
+	// Read claude's stdout line by line. Each line is a JSON
+	// envelope. Append the raw bytes to rec.Events; for
+	// "assistant" lines also extract text content into a running
+	// response buffer.
+	var responseBuf strings.Builder
+	scanner := bufio.NewScanner(stdoutR)
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Copy because the scanner reuses its buffer.
+		body := make([]byte, len(line))
+		copy(body, line)
+
+		var raw map[string]any
+		if err := json.Unmarshal(body, &raw); err != nil {
+			// Non-JSON line — wrap so polling clients still see
+			// it (and so developers can spot stream contamination).
+			body, _ = json.Marshal(map[string]any{
+				"type": "raw_text",
+				"text": string(line),
+			})
+		}
+
+		appendText := ""
+		if t, _ := raw["type"].(string); t == "assistant" {
+			if msg, _ := raw["message"].(map[string]any); msg != nil {
+				if content, _ := msg["content"].([]any); content != nil {
+					for _, c := range content {
+						cm, _ := c.(map[string]any)
+						if cm == nil {
+							continue
+						}
+						if cm["type"] == "text" {
+							if txt, _ := cm["text"].(string); txt != "" {
+								appendText += txt
+							}
+						}
+					}
+				}
+			}
+		}
+
+		registryMu.Lock()
+		rec.Events = append(rec.Events, body)
+		rec.LastEventAt = time.Now().UTC()
+		if appendText != "" {
+			if responseBuf.Len() > 0 {
+				responseBuf.WriteByte('\n')
+			}
+			responseBuf.WriteString(appendText)
+			rec.Response = responseBuf.String()
+		}
+		registryMu.Unlock()
+	}
+	scanErr := scanner.Err()
+	execErr := <-execErrCh
+
+	// Pull artifacts whether or not exec succeeded — claude may
+	// have written partial output before the failure, useful for
+	// debugging.
 	var relArtifacts []string
 	if sess.ArtifactsURL != "" {
 		c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
@@ -1038,12 +1147,20 @@ func executeRun(ctx context.Context, cfg Config, rec *runRecord) {
 		}
 	}
 
+	finalResponse := responseBuf.String()
 	if execErr != nil {
 		errMsg := fmt.Sprintf("exec: %v\nstderr: %s", execErr, strings.TrimSpace(stderr.String()))
-		finalize(runStatusError, errMsg, stdout.String(), relArtifacts, 0)
+		finalize(runStatusError, errMsg, finalResponse, relArtifacts, 0)
 		return
 	}
-	finalize(runStatusDone, "", stdout.String(), relArtifacts, 0)
+	if scanErr != nil {
+		// Scan error after exec completed cleanly — surface as
+		// soft warning. Still call done since we have a response.
+		errMsg := fmt.Sprintf("scan: %v", scanErr)
+		finalize(runStatusError, errMsg, finalResponse, relArtifacts, 0)
+		return
+	}
+	finalize(runStatusDone, "", finalResponse, relArtifacts, 0)
 }
 
 // ---- run_status -------------------------------------------------
