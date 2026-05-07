@@ -24,6 +24,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -40,13 +41,15 @@ func cmdMCP(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	httpMode := strings.TrimSpace(*httpAddr) != ""
 	cfg := agentmcp.Config{
 		Version:      Version,
 		DefaultImage: *image,
+		HTTPMode:     httpMode,
 	}
 	srv := agentmcp.NewServer(cfg)
 
-	if strings.TrimSpace(*httpAddr) != "" {
+	if httpMode {
 		token := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
 		if token == "" {
 			fmt.Fprintf(os.Stderr,
@@ -56,10 +59,20 @@ func cmdMCP(args []string) error {
 			fmt.Fprintf(os.Stderr, "social-agent mcp: bearer-token auth enabled (MCP_AUTH_TOKEN env)\n")
 		}
 		fmt.Fprintf(os.Stderr, "social-agent mcp: listening on %s (Streamable HTTP)\n", *httpAddr)
+		fmt.Fprintf(os.Stderr, "social-agent mcp: artifacts available at %s<session_id>/<path> (same bearer token)\n", agentmcp.ArtifactsURLPrefix)
+		// Register the artifacts file-server alongside /mcp on
+		// the same listen addr. Callers fetching files via plain
+		// HTTP (the `url` field in social_agent_list_artifacts)
+		// avoid the MCP message-size budget and can pull in
+		// parallel — much cheaper than per-file MCP downloads
+		// when the agent produces many artifacts.
 		return mcphttp.Serve(*httpAddr, srv, mcphttp.Options{
 			Service: "social-agent-mcp",
 			Version: Version,
 			Token:   token,
+			ExtraHandlers: map[string]http.Handler{
+				agentmcp.ArtifactsURLPrefix: agentmcp.NewArtifactsHandler(),
+			},
 		})
 	}
 

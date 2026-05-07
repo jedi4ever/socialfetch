@@ -14,4 +14,10 @@ set -e
 export TS_HOSTNAME_PREFIX="${TS_HOSTNAME_PREFIX:-research}"
 . /usr/local/bin/tailscale-up.sh
 
+# Pre-populate claude's first-run markers so the TUI lands directly
+# in a usable session (same pre-pop the agent entrypoint does).
+if [ -x /usr/local/bin/claude-onboarding.sh ]; then
+  . /usr/local/bin/claude-onboarding.sh
+fi
+
 exec "$@"

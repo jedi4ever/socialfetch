@@ -44,49 +44,14 @@ if [ -x /usr/local/bin/tailscale-up.sh ]; then
 fi
 
 # ----- claude onboarding pre-population -----
-# Mirrors ~/dev/dclaude/src/extensions/claude/setup.sh. claude --print
-# (the agent path) silently skips the first-run wizard, but the
-# interactive TUI shown by `claude` (the social-researcher path) walks
-# the operator through onboarding + workspace-trust + API-key approval
-# every fresh container, which is annoying when we own the sandbox.
-# Pre-populate the marker files so claude considers itself already
-# onboarded; idempotent — bail if either file already exists so a
-# host-mounted ~/.claude wins.
-CLAUDE_JSON="$HOME/.claude.json"
-CLAUDE_DIR="$HOME/.claude"
-CLAUDE_INTERNAL_JSON="$CLAUDE_DIR/claude.json"
-if [ ! -e "$CLAUDE_JSON" ] && [ ! -d "$CLAUDE_DIR" ]; then
-  mkdir -p "$CLAUDE_DIR"
-  cat > "$CLAUDE_JSON" <<'EOF'
-{
-  "hasCompletedOnboarding": true,
-  "hasTrustDialogAccepted": true,
-  "bypassPermissionsModeAccepted": true,
-  "projects": {
-    "/workspace": {
-      "allowedTools": [],
-      "hasTrustDialogAccepted": true,
-      "hasCompletedProjectOnboarding": true
-    }
-  }
-}
-EOF
-  cat > "$CLAUDE_INTERNAL_JSON" <<'EOF'
-{
-  "hasTrustDialogHooksAccepted": true,
-  "hasCompletedOnboarding": true
-}
-EOF
-  # Pre-approve the supplied API key so claude doesn't show the
-  # "approve this API key" prompt on first run. The marker is the
-  # last 20 chars (matches what claude stores). Skip silently when
-  # ANTHROPIC_API_KEY isn't set — OAuth path or no-auth flows.
-  if [ -n "${ANTHROPIC_API_KEY:-}" ] && command -v jq >/dev/null 2>&1; then
-    KEY_TAIL="${ANTHROPIC_API_KEY: -20}"
-    tmp="$(mktemp)"
-    jq --arg ak "$KEY_TAIL" '.customApiKeyResponses = {approved:[$ak], rejected:[]}' \
-      "$CLAUDE_JSON" > "$tmp" && mv "$tmp" "$CLAUDE_JSON"
-  fi
+# Marker files written so the interactive `claude` TUI doesn't walk
+# through onboarding + trust + API-key approval on every fresh
+# container. Lives in scripts/claude-onboarding.sh + sourced from
+# both this entrypoint and the researcher's so both code paths
+# behave identically. Idempotent — skipped when host-mounted
+# ~/.claude is present.
+if [ -x /usr/local/bin/claude-onboarding.sh ]; then
+  . /usr/local/bin/claude-onboarding.sh
 fi
 
 # ----- credentials -----

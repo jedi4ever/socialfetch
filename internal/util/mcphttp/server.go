@@ -48,6 +48,17 @@ type Options struct {
 	// go to stderr prefixed with the Service name. Pass a no-op
 	// to silence; pass a tee to fan out to audit logs.
 	Logger func(line string)
+
+	// ExtraHandlers registers additional path patterns alongside
+	// the standard / + /health + /mcp tree. Use this to bolt on
+	// auxiliary endpoints — file-serving sidecars, debug probes,
+	// etc. Each handler is wrapped by the same bearer-token gate
+	// as /mcp when Token is set, so callers present the same
+	// `Authorization: Bearer <token>` header. Path patterns
+	// follow http.ServeMux rules (a trailing slash means subtree
+	// match). Status routes (/ + /health) stay unauthenticated;
+	// don't register patterns that overlap them.
+	ExtraHandlers map[string]http.Handler
 }
 
 // Serve binds addr and runs the Streamable HTTP MCP server with
@@ -85,16 +96,24 @@ func NewMux(srv *server.MCPServer, opts Options) http.Handler {
 		writeStatusJSON(w, opts)
 	})
 
-	mcpHandler := http.Handler(streamable)
-	if opts.Token != "" {
-		realm := opts.Service
-		if realm == "" {
-			realm = "mcp"
-		}
-		mcpHandler = bearerAuth(opts.Token, realm, mcpHandler)
+	realm := opts.Service
+	if realm == "" {
+		realm = "mcp"
 	}
+	gate := func(h http.Handler) http.Handler {
+		if opts.Token == "" {
+			return h
+		}
+		return bearerAuth(opts.Token, realm, h)
+	}
+
+	mcpHandler := gate(http.Handler(streamable))
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
+
+	for pattern, h := range opts.ExtraHandlers {
+		mux.Handle(pattern, gate(h))
+	}
 
 	return wrapRequestLog(opts, mux)
 }

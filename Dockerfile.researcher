@@ -31,6 +31,16 @@
 ARG BASE_TAG=latest
 FROM social-skills-agent:${BASE_TAG}
 
+# Operator's own shell — install a real editor so `vi` / `vim` work
+# without the operator having to apt-install one mid-session. The
+# agent image deliberately doesn't ship an editor (sandboxed
+# one-shot runs don't need one), so this is researcher-only.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends vim \
+ && rm -rf /var/lib/apt/lists/*
+USER agent
+
 # Tailscale binaries are inherited from the agent image. The shared
 # tailscale-up.sh handles the bring-up logic; researcher-entrypoint
 # wraps it + exec's the operator's command (bash or claude). Both
@@ -41,6 +51,8 @@ FROM social-skills-agent:${BASE_TAG}
 # scripts/".
 COPY --chmod=0755 scripts/tailscale-up.sh \
      /usr/local/bin/tailscale-up.sh
+COPY --chmod=0755 scripts/claude-onboarding.sh \
+     /usr/local/bin/claude-onboarding.sh
 COPY --chmod=0755 scripts/researcher-entrypoint.sh \
      /usr/local/bin/researcher-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/researcher-entrypoint.sh"]

@@ -119,8 +119,10 @@ COPY dist/linux-${TARGETARCH}/social-ledger  /usr/local/bin/social-ledger
 COPY dist/linux-${TARGETARCH}/social-browser /usr/local/bin/social-browser
 COPY dist/linux-${TARGETARCH}/social-agent   /usr/local/bin/social-agent
 COPY scripts/tailscale-up.sh /usr/local/bin/tailscale-up.sh
+COPY scripts/claude-onboarding.sh /usr/local/bin/claude-onboarding.sh
 COPY docker-agent-entrypoint.sh /usr/local/bin/docker-agent-entrypoint.sh
-RUN chmod +x /usr/local/bin/tailscale-up.sh
+RUN chmod +x /usr/local/bin/tailscale-up.sh \
+              /usr/local/bin/claude-onboarding.sh
 RUN chmod +x /usr/local/bin/docker-agent-entrypoint.sh \
               /usr/local/bin/social-fetch \
               /usr/local/bin/social-ledger \

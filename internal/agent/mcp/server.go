@@ -16,22 +16,24 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/jedi4ever/social-skills/internal/agent"
 	"github.com/jedi4ever/social-skills/internal/agent/artifacts"
-	"github.com/jedi4ever/social-skills/internal/agent/elicitcb"
 	"github.com/jedi4ever/social-skills/internal/agent/harness"
 	dockerprov "github.com/jedi4ever/social-skills/internal/agent/providers/docker"
 	"github.com/jedi4ever/social-skills/internal/agent/streaming"
@@ -83,15 +85,9 @@ func progressSummary(e streaming.Event) string {
 
 // newSessionDir creates a per-run session root under
 // $TMPDIR/social-agent/<id>/ with `artifacts/` and `inputs/`
-// subdirs. The session root parallels the in-container
-// session-scoped state: artifacts/ mirrors /artifacts/ (outbound),
-// inputs/ mirrors /inputs/ (inbound, read-only in the container),
-// leaving room for future per-run material (logs, transcripts,
-// an isolated .claude/ homedir).
-//
-// Without this, streaming one-shot runs lose their artifacts at
-// teardown — the in-container artifacts HTTP server dies with the
-// container, and a buffered post-run pull has nowhere to reach.
+// subdirs. Used by the legacy session-keyed code paths
+// (addUpTool / addRunTool's pre-workspace flow). Kept for the
+// streaming run path that still wants per-call isolation.
 //
 // Name format: <RFC3339-compact>-<8-hex>. Time-prefix sorts
 // naturally in `ls`; hex suffix prevents collisions when two runs
@@ -113,6 +109,192 @@ func newSessionDir() (root, artifactsDir, inputsDir string, err error) {
 		}
 	}
 	return root, artifactsDir, inputsDir, nil
+}
+
+// sessionsRoot returns the parent dir holding every session's
+// workspace. Lives at $TMPDIR/social-agent/sessions/. Each
+// session's id is a 64-char hex string and its dir layout is
+// <session_id>/{inputs,artifacts}/. The id is the access-control
+// capability — whoever holds it can read/write that session's
+// files. State on disk persists across server restarts so a
+// caller who held a session_id before the restart can resume.
+func sessionsRoot() string {
+	return filepath.Join(os.TempDir(), "social-agent", "sessions")
+}
+
+// ArtifactsURLPrefix is the URL path prefix the artifacts file
+// server lives at. Exported because the URL is part of the
+// public MCP contract: `social_agent_list_artifacts` returns
+// `<prefix>/<session_id>/<path>` per entry, and the operator
+// hosting the MCP server registers the same prefix on their HTTP
+// router (see cmd/social-agent/cmd_mcp.go's wiring of
+// NewArtifactsHandler under mcphttp.Options.ExtraHandlers).
+const ArtifactsURLPrefix = "/artifacts/"
+
+// NewArtifactsHandler returns an http.Handler that serves
+// $TMPDIR/social-agent/sessions/<session_id>/artifacts/<path> in
+// response to GET <ArtifactsURLPrefix><session_id>/<path>. Used as
+// a sidecar to the MCP server so callers can pull files via plain
+// HTTP — saves round-trips vs. a per-file MCP `download` and
+// dodges the protocol's message-size budget.
+//
+// Auth: the handler itself is unauthenticated; cmd_mcp.go wraps
+// it in the same bearer-token gate the /mcp endpoint uses, so
+// callers present `Authorization: Bearer $MCP_AUTH_TOKEN` exactly
+// as for MCP. Together with the 256-bit unguessable session_id,
+// that's two factors a remote attacker has to bypass: knowing the
+// shared MCP token AND knowing a session_id that was never
+// transmitted to them.
+//
+// Path validation: validSessionID rejects anything but 64-char
+// hex (no path traversal); the rest of the path is resolved
+// against the session's artifacts dir via safeWorkspacePath which
+// rejects `..` and absolute paths. ServeFile follows symlinks —
+// we don't create any inside the workspace, but a hostile agent
+// could; followed symlinks must still resolve under the
+// artifactsDir or http.ServeFile rejects them as forbidden.
+func NewArtifactsHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Strip the prefix; expect <session_id>/<rel_path>
+		rest := strings.TrimPrefix(r.URL.Path, ArtifactsURLPrefix)
+		if rest == r.URL.Path { // no prefix → not our path
+			http.NotFound(w, r)
+			return
+		}
+		i := strings.IndexByte(rest, '/')
+		if i <= 0 {
+			http.Error(w, "expected /artifacts/<session_id>/<path>", http.StatusBadRequest)
+			return
+		}
+		sessionID, rel := rest[:i], rest[i+1:]
+		if !validSessionID(sessionID) {
+			http.Error(w, "invalid session_id", http.StatusBadRequest)
+			return
+		}
+		if rel == "" {
+			http.Error(w, "missing artifact path", http.StatusBadRequest)
+			return
+		}
+		_, artifactsDir, err := sessionDirs(sessionID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		abs, err := safeWorkspacePath(artifactsDir, rel)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		// Final containment check after symlink resolution —
+		// belt-and-suspenders against a malicious agent dropping
+		// a symlink to /etc/passwd in /artifacts.
+		realArtifactsDir, _ := filepath.EvalSymlinks(artifactsDir)
+		realAbs, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if realArtifactsDir != "" && !strings.HasPrefix(realAbs, realArtifactsDir+string(filepath.Separator)) && realAbs != realArtifactsDir {
+			http.Error(w, "path escapes session", http.StatusForbidden)
+			return
+		}
+		http.ServeFile(w, r, abs)
+	})
+}
+
+// artifactURL builds the relative URL for one artifact, suitable
+// for embedding in an MCP response. Caller appends to whatever
+// base URL they're using to reach the MCP server.
+func artifactURL(sessionID, relPath string) string {
+	return ArtifactsURLPrefix + sessionID + "/" + filepath.ToSlash(relPath)
+}
+
+// newSessionID returns a 64-char hex (256 bits of randomness) id
+// suitable as a capability token. No timestamp prefix — sessions
+// can outlive the server, and a stale timestamp would be
+// misleading rather than helpful.
+func newSessionID() string {
+	var rand32 [32]byte
+	_, _ = rand.Read(rand32[:])
+	return hex.EncodeToString(rand32[:])
+}
+
+// validSessionID rejects anything that isn't a 64-char hex string.
+// Belt-and-suspenders defence against path traversal — if the
+// session_id reaches filepath.Join, we want to be certain it can't
+// contain `..`, slashes, or anything else that escapes
+// sessionsRoot.
+func validSessionID(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// sessionDirs returns the inputs+artifacts paths for an existing
+// session. Returns an error if session_id is malformed or the dir
+// doesn't exist (caller didn't run session_create, OR the id is
+// guessed/leaked from another tenant).
+func sessionDirs(sessionID string) (inputs, artifacts string, err error) {
+	if !validSessionID(sessionID) {
+		return "", "", fmt.Errorf("invalid session_id")
+	}
+	root := filepath.Join(sessionsRoot(), sessionID)
+	if st, err := os.Stat(root); err != nil || !st.IsDir() {
+		return "", "", fmt.Errorf("no such session")
+	}
+	return filepath.Join(root, "inputs"), filepath.Join(root, "artifacts"), nil
+}
+
+// createSessionDirs creates a fresh per-session workspace.
+// session_create is the only caller — every other tool uses
+// sessionDirs which requires an existing dir.
+func createSessionDirs(sessionID string) (inputs, artifacts string, err error) {
+	root := filepath.Join(sessionsRoot(), sessionID)
+	inputs = filepath.Join(root, "inputs")
+	artifacts = filepath.Join(root, "artifacts")
+	for _, d := range []string{inputs, artifacts} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return "", "", fmt.Errorf("mkdir %s: %w", d, err)
+		}
+	}
+	return inputs, artifacts, nil
+}
+
+// ensureFreshArtifacts wipes the contents of the workspace
+// artifacts dir (preserving the dir itself). Called before each
+// `run` so claude's container starts with an empty /artifacts and
+// the caller's `list_artifacts` after the run reflects only what
+// THIS run produced. Errors are returned but non-fatal upstream —
+// run will surface them as a tool error rather than proceeding
+// with stale state.
+func ensureFreshArtifacts(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Dir doesn't exist → nothing to wipe; mkdir handled by
+		// workspaceDirs.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // stageInputs copies operator-supplied host files into the
@@ -175,6 +357,25 @@ type Config struct {
 	// operators running multiple agent images to pick one for
 	// MCP-driven sessions.
 	DefaultImage string
+
+	// HTTPMode toggles which read-handle `list_artifacts` returns
+	// per entry:
+	//
+	//   true  (HTTP transport)  → `url` field, a relative path
+	//                             on the same host as /mcp; caller
+	//                             fetches with HTTP + the same
+	//                             Bearer token.
+	//   false (stdio transport) → `host_path` field, the absolute
+	//                             host filesystem path; caller is
+	//                             on the same host so reads
+	//                             directly with built-in file
+	//                             tools.
+	//
+	// Set by the launcher in cmd/social-agent/cmd_mcp.go: HTTP mode
+	// (--http <addr>) sets it true, stdio mode leaves it false.
+	// The two modes never share a process, so callers don't have
+	// to handle both shapes in one client.
+	HTTPMode bool
 }
 
 // NewServer builds an MCP server with all social-agent tools
@@ -202,17 +403,51 @@ func NewServer(cfg Config) *server.MCPServer {
 	return s
 }
 
+// registerTools wires up the public MCP surface. Seven primitives,
+// all keyed off a `session_id` the caller obtains from
+// `session_create` and holds onto for the rest of their work:
+//
+//	social_agent_session_create      — open a fresh workspace, returns session_id
+//	social_agent_session_close       — discard a workspace + its files
+//	social_agent_run                 — start a prompt in a session (async, returns run_id)
+//	social_agent_run_status          — poll a run by id
+//	social_agent_upload_artifacts    — provide files to the agent (per session)
+//	social_agent_download_artifacts  — read a file the agent produced (per session)
+//	social_agent_list_artifacts      — see what's available to download (per session)
+//
+// Multi-tenant by design — concurrent callers each create their
+// own session, get their own files dir, and run their own
+// prompts in parallel. session_id is a 256-bit random capability:
+// a caller without it can't see another caller's data, even if
+// they connect to the same MCP server.
+//
+// State persists on disk under $TMPDIR/social-agent/sessions/<id>/
+// so a caller who held a session_id before a server restart can
+// resume — uploads + previous artifacts are still there. Only
+// in-flight run state (the goroutine) is lost on restart.
+//
+// `run` is async because complex prompts can take many minutes,
+// well past most MCP clients' default tool-call timeout (~60s in
+// Claude Code). `run` returns immediately with a run_id and the
+// caller polls `run_status` — every poll is a sub-second call so
+// no timeout fires regardless of total wall-time. Each session
+// has at most one run in flight; a second `run(session_id)` while
+// the previous is still running returns `{busy: true}`. Different
+// sessions run in parallel.
+//
+// Deliberately abstract — descriptions and response shapes hide
+// containers, harnesses, host paths, and every other
+// implementation detail. Operator-facing controls (image
+// override, env-var injection, host workdir mounts, debug probes)
+// live on the host CLI, not on MCP.
 func registerTools(s *server.MCPServer, cfg Config) {
+	addSessionCreateTool(s, cfg)
+	addSessionCloseTool(s, cfg)
 	addRunTool(s, cfg)
-	addUpTool(s, cfg)
-	addExecTool(s, cfg)
-	addLsTool(s, cfg)
-	addDownTool(s, cfg)
-	addPullTool(s, cfg)
+	addRunStatusTool(s, cfg)
 	addUploadTool(s, cfg)
-	addRmFileTool(s, cfg)
-	addHarnessListTool(s, cfg)
-	addProbeClientTool(s, cfg)
+	addDownloadTool(s, cfg)
+	addLsArtifactsTool(s, cfg)
 }
 
 // clientCaps is a single-slot cache of the client's declared
@@ -255,322 +490,357 @@ func resolveImage(cfg Config) string {
 	return "social-skills-agent:" + cfg.Version
 }
 
-// ---- run -------------------------------------------------------
+// ---- session_create / session_close ---------------------------
 
-type runArgs struct {
-	Prompt  string            `json:"prompt"`
-	Harness string            `json:"harness,omitempty"`
-	Workdir string            `json:"workdir,omitempty"`
-	Output  string            `json:"output,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	Image   string            `json:"image,omitempty"`
-	// Inputs is a list of host paths to stage into the
-	// session's /inputs/ directory before exec. Files are copied
-	// into <session-dir>/inputs/<basename> and bind-mounted
-	// read-only at /inputs in the container. Lets the operator
-	// hand the agent files (PDF, notes, screenshots) without
-	// exposing the rest of the filesystem.
-	Inputs []string `json:"inputs,omitempty"`
-	// Stream is a *bool so omitted-from-JSON (nil) is
-	// distinguishable from explicit-false. nil = stream when a
-	// progressToken is available (the default); *false = always
-	// buffer-and-return, useful for tests that want a single
-	// envelope back regardless of the client's progressToken.
-	Stream *bool `json:"stream,omitempty"`
+// session_create has no args. session_close takes the session_id
+// the caller wants to discard.
+type sessionCloseArgs struct {
+	SessionID string `json:"session_id"`
 }
 
-func addRunTool(s *server.MCPServer, cfg Config) {
-	tool := mcpgo.NewTool("social_agent_run",
-		mcpgo.WithDescription("Run a one-shot prompt inside a sandboxed claude-code container, return claude's response on stdout. The container is created, prompt executed, container removed — single round trip. Use `output` to also pull files claude wrote to /artifacts/ to a host directory. Use `workdir` to bind-mount the host repo so claude can read existing files; otherwise the container has no host filesystem access. `env` is a map of additional env vars (e.g. SOCIAL_FETCH_HEADLESS_DAEMON_URL) to inject into the container — loopback URLs auto-rewrite to host.docker.internal so the container can reach host services. `harness` defaults to claude-code; pass `echo` for an auth-free smoke test. Streaming is on by default: when the client sends a `_meta.progressToken`, this tool emits one `notifications/progress` event per session-up / text / artifact / session-down / done event; the final tool result still carries the aggregated text + artifact list. Set `stream: false` to force buffer-and-return regardless of the progressToken — useful for tests."),
-		mcpgo.WithString("prompt", mcpgo.Required(), mcpgo.Description("The prompt to run. Plain English; the harness's CLI flags are added automatically.")),
-		mcpgo.WithString("harness", mcpgo.Description("Coding-agent CLI to run inside (claude-code | echo). Default: claude-code.")),
-		mcpgo.WithString("workdir", mcpgo.Description("Host path bind-mounted at /workspace. Default: no mount (sandboxed).")),
-		mcpgo.WithString("output", mcpgo.Description("Host directory to pull /artifacts to after the run. Default: skip pull.")),
-		mcpgo.WithObject("env", mcpgo.Description("Additional env vars to set inside the container. Loopback URLs are auto-rewritten so the container can reach host services.")),
-		mcpgo.WithString("image", mcpgo.Description("Override the docker image:tag. Default: social-skills-agent:<Version>.")),
-		mcpgo.WithArray("inputs", mcpgo.Description("List of host file paths to copy into the session's inputs/ dir, bind-mounted read-only at /inputs in the container. Lets the operator hand the agent files to work on without exposing the rest of the filesystem. Files only — directories are rejected. Items: type=string.")),
-		mcpgo.WithBoolean("stream", mcpgo.Description("Force streaming on/off. Omit (default) = stream when the client sent a progressToken. false = buffer-and-return regardless. true is equivalent to omitting it.")),
+func addSessionCreateTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_session_create",
+		mcpgo.WithDescription("Open a new agent session. Returns `{session_id}` — a 256-bit capability token the caller stores and passes to every subsequent tool call (run, upload_artifacts, download_artifacts, list_artifacts, session_close). Sessions are isolated workspaces: only a caller holding the session_id can read or write that session's files. State persists on disk across server restarts so a caller who saved their session_id can resume after a restart. Call `social_agent_session_close` when done to free the workspace; otherwise it's left in place until the operator GCs it manually."),
 	)
-	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, req mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
-		if strings.TrimSpace(args.Prompt) == "" {
-			return mcpgo.NewToolResultError("prompt is required"), nil
-		}
-		prov := buildProvider()
-		image := args.Image
-		if image == "" {
-			image = resolveImage(cfg)
-		}
-		hName := args.Harness
-		if hName == "" {
-			hName = "claude-code"
-		}
-
-		// Streaming default: on when the client sent a progress
-		// token. Explicit `stream: false` forces the buffered
-		// path even when a token exists (test escape hatch).
-		// Buffered path also runs when there's no token at all —
-		// streaming requires somewhere to send notifications.
-		var progressToken any
-		if req.Params.Meta != nil {
-			progressToken = req.Params.Meta.ProgressToken
-		}
-		streamRequested := args.Stream == nil || *args.Stream
-		if streamRequested && progressToken != nil {
-			return runStreaming(ctx, s, prov, progressToken, args, image, hName)
-		}
-
-		h, err := harness.Get(hName)
-		if err != nil {
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, _ struct{}) (*mcpgo.CallToolResult, error) {
+		id := newSessionID()
+		if _, _, err := createSessionDirs(id); err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
-
-		// Always allocate a session root up-front so /inputs/ can
-		// be bind-mounted at create time (you can't add a docker
-		// bind-mount to a running container). args.Output, when
-		// set, overrides where artifacts get pulled but doesn't
-		// replace the session root — the session dir still exists
-		// for inputs and any future per-session state.
-		sessionRoot, artifactsDir, inputsDir, dirErr := newSessionDir()
-		if dirErr != nil {
-			return mcpgo.NewToolResultError("session dir: " + dirErr.Error()), nil
-		}
-		if _, err := stageInputs(args.Inputs, inputsDir); err != nil {
-			return mcpgo.NewToolResultError("stage inputs: " + err.Error()), nil
-		}
-		outDir := args.Output
-		if outDir == "" {
-			outDir = artifactsDir
-		}
-
-		sess, err := prov.Up(ctx, agent.UpOpts{
-			Image:     image,
-			Harness:   hName,
-			Workdir:   args.Workdir,
-			Env:       args.Env,
-			InputsDir: inputsDir,
-		})
-		if err != nil {
-			return mcpgo.NewToolResultError(err.Error()), nil
-		}
-		// Best-effort teardown.
-		defer func() {
-			downCtx := context.Background()
-			_ = prov.Down(downCtx, sess.ID)
-		}()
-
-		var stdout, stderr bytes.Buffer
-		if err := prov.Exec(ctx, sess.ID, agent.ExecOpts{
-			Cmd:    h.InvokePrompt(args.Prompt),
-			Stdout: &stdout,
-			Stderr: &stderr,
-		}); err != nil {
-			// Include any partial stdout/stderr in the error so
-			// the agent has signal even when the run itself
-			// failed.
-			msg := fmt.Sprintf("exec: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
-			return mcpgo.NewToolResultError(msg), nil
-		}
-
-		var pulledFiles []string
-		if outDir != "" && sess.ArtifactsURL != "" {
-			c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
-			entries, err := c.List(ctx)
-			if err == nil {
-				for _, e := range entries {
-					dst := filepath.Join(outDir, e.Path)
-					if err := c.GetTo(ctx, e.Path, dst); err != nil {
-						continue
-					}
-					pulledFiles = append(pulledFiles, dst)
-				}
-			}
-		}
-
-		envelope := map[string]any{
-			"text":          stdout.String(),
-			"artifacts":     pulledFiles,
-			"artifacts_dir": outDir,
-			"inputs_dir":    inputsDir,
-			"session_dir":   sessionRoot,
-		}
-		body, _ := json.Marshal(envelope)
+		body, _ := json.Marshal(map[string]any{"session_id": id})
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
 }
 
-// runStreaming drives Provider.Run with Stream=true and a
-// handler that converts each streaming.Event into a
-// notifications/progress notification on the supplied
-// progressToken. Text events accumulate into the final tool
-// result so callers that ignore progress notifications still get
-// the full output. Artifact events are recorded by path in the
-// response — bodies aren't fetched here (the run-time pull would
-// race against in-progress writes); callers grab them with
-// social_agent_pull post-run.
-//
-// progress is monotonic-increasing across events (1, 2, 3, …) so
-// clients that bucket-by-progress get strict ordering. message is
-// a short human-readable summary; data is the full Event JSON
-// for clients that want to drive UI off it.
-func runStreaming(ctx context.Context, srv *server.MCPServer, prov agent.Provider, token any, args runArgs, image, hName string) (*mcpgo.CallToolResult, error) {
-	var (
-		mu          sync.Mutex
-		textLines   []string
-		artifactLst []map[string]any
-		progress    float64
-		exitCode    int
-		runErr      string
+func addSessionCloseTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_session_close",
+		mcpgo.WithDescription("Discard a session's workspace and any uploaded files / artifacts in it. Refused if a run is still in flight in this session — wait for the run to finish (poll its run_id) and try again. The session_id becomes invalid after a successful close."),
+		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id to close.")),
 	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args sessionCloseArgs) (*mcpgo.CallToolResult, error) {
+		if !validSessionID(args.SessionID) {
+			return mcpgo.NewToolResultError("invalid session_id"), nil
+		}
+		registryMu.Lock()
+		_, busy := currentBySession[args.SessionID]
+		registryMu.Unlock()
+		if busy {
+			body, _ := json.Marshal(map[string]any{
+				"error": "session has a run in flight; wait for it to finish before closing",
+				"busy":  true,
+			})
+			return mcpgo.NewToolResultError(string(body)), nil
+		}
+		root := filepath.Join(sessionsRoot(), args.SessionID)
+		// rm -rf the session's tree. validSessionID guarantees
+		// the path is a 64-char hex segment under sessionsRoot —
+		// no path-traversal risk.
+		if err := os.RemoveAll(root); err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		body, _ := json.Marshal(map[string]any{"closed": args.SessionID})
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
 
-	// Start the elicitation callback server. The inner claude's
-	// ask_user tool calls back to this URL when it wants the
-	// outer Claude Code's user to answer a question. Loopback-
-	// only + bearer-token-gated; lifetime = this run.
-	//
-	// Important: RequestElicitation looks up the active client
-	// session via ClientSessionFromContext, so we must use the
-	// outer tool-call ctx (which carries the session) rather than
-	// the elicitcb HTTP handler's request ctx (which doesn't).
-	cb, err := elicitcb.Start(func(elicitCtx context.Context, question string) (string, bool, error) {
-		req := mcpgo.ElicitationRequest{
-			Request: mcpgo.Request{Method: string(mcpgo.MethodElicitationCreate)},
-			Params: mcpgo.ElicitationParams{
-				Message: question,
-				RequestedSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"answer": map[string]any{
-							"type":        "string",
-							"description": "Your reply to the inner agent's question.",
-						},
-					},
-					"required": []string{"answer"},
-				},
-			},
+// ---- run (async) -----------------------------------------------
+//
+// The run pipeline is async to dodge MCP-client tool-call timeouts:
+// `run` registers a runRecord, kicks the work off in a goroutine,
+// and returns the run_id immediately. The caller polls
+// `run_status` until status flips to "done" or "error" and reads
+// the response/artifacts from there.
+//
+// One run executes at a time. A second `run` while the first is
+// in-flight returns an error pointing at the existing run_id.
+// Workspace state is shared (inputs/ + artifacts/), so concurrent
+// runs would clobber each other — serialization keeps the model
+// predictable.
+//
+// runRecord is in-memory only; restarting the MCP server forgets
+// every record. Acceptable for single-process v1; revisit when we
+// add persistence for crash recovery.
+
+const (
+	runStatusRunning = "running"
+	runStatusDone    = "done"
+	runStatusError   = "error"
+)
+
+// runRecord is the per-run state surfaced via run_status. Every
+// access goes through registryMu — including reads — so the
+// goroutine writing the final result can't race against a
+// concurrent poll. SessionID is the workspace this run wrote to;
+// the caller's `list_artifacts(session_id)` after the run reads
+// from there.
+type runRecord struct {
+	ID         string
+	SessionID  string
+	Status     string
+	Prompt     string
+	StartedAt  time.Time
+	FinishedAt time.Time
+	Response   string
+	Artifacts  []string
+	Error      string
+	ExitCode   int
+	done       chan struct{} // closed when status flips to done|error
+}
+
+// snapshot copies the public fields into a JSON-shaped map for the
+// MCP response. Caller must hold registryMu.
+func (r *runRecord) snapshot() map[string]any {
+	out := map[string]any{
+		"run_id":     r.ID,
+		"status":     r.Status,
+		"started_at": r.StartedAt.Format(time.RFC3339Nano),
+	}
+	if !r.FinishedAt.IsZero() {
+		out["finished_at"] = r.FinishedAt.Format(time.RFC3339Nano)
+		out["duration_seconds"] = r.FinishedAt.Sub(r.StartedAt).Seconds()
+	}
+	switch r.Status {
+	case runStatusDone:
+		out["response"] = r.Response
+		out["artifacts"] = r.Artifacts
+		out["exit_code"] = r.ExitCode
+	case runStatusError:
+		out["error"] = r.Error
+		// Include partial response/artifacts if we got that far —
+		// helpful for debugging, no harm if both are zero.
+		if r.Response != "" {
+			out["response"] = r.Response
 		}
-		result, err := srv.RequestElicitation(ctx, req)
-		if err != nil {
-			return "", false, err
+		if len(r.Artifacts) > 0 {
+			out["artifacts"] = r.Artifacts
 		}
-		if result.Action != "accept" {
-			return "", false, nil
+	}
+	return out
+}
+
+// Registry: every active run keyed by run_id, plus the current
+// in-flight run per session_id. registryMu serializes all reads
+// and writes — both the map and the runRecord fields. Per-session
+// in-flight tracking gates concurrent runs in the same session
+// without blocking different sessions from running in parallel.
+var (
+	registryMu       sync.Mutex
+	runs             = map[string]*runRecord{}
+	currentBySession = map[string]*runRecord{}
+)
+
+// newRunID returns an unguessable run identifier — 256 bits of
+// randomness (64 hex chars) prefixed by a sortable timestamp for
+// human debugging. The timestamp isn't secret; the random tail is
+// what stops brute-force.
+//
+// run_id is a *capability token*: any caller holding it can poll
+// `run_status` and read the agent's prompt + response + artifacts.
+// run_id is returned only to the caller who invoked `run`. The
+// "busy" error from a concurrent `run` in the same session
+// deliberately does NOT include the in-flight run_id (that would
+// hand one caller access to another's run).
+func newRunID() string {
+	var rand32 [32]byte // 256 bits
+	_, _ = rand.Read(rand32[:])
+	return time.Now().UTC().Format("20060102T150405") + "-" + hex.EncodeToString(rand32[:])
+}
+
+type runArgs struct {
+	SessionID string `json:"session_id"`
+	Prompt    string `json:"prompt"`
+}
+
+func addRunTool(s *server.MCPServer, cfg Config) {
+	tool := mcpgo.NewTool("social_agent_run",
+		mcpgo.WithDescription("Start the agent on a prompt within a session. Returns immediately with a `run_id` — poll `social_agent_run_status` with that id until `status` is `done` or `error` to get the agent's response. The `run_id` is the only way to reach this run's status, prompt, or output, so keep it; treat it like a password. Files the agent produces are recorded as artifacts inside the session; use `social_agent_list_artifacts` and `social_agent_download_artifacts` to read them. Files staged via `social_agent_upload_artifacts` are available to the agent during its run. Each session has at most one run in flight; a second `run` in the same session returns `{busy: true}`. Different sessions run in parallel."),
+		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_session_create`.")),
+		mcpgo.WithString("prompt", mcpgo.Required(), mcpgo.Description("The prompt for the agent. Plain English.")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args runArgs) (*mcpgo.CallToolResult, error) {
+		prompt := strings.TrimSpace(args.Prompt)
+		if prompt == "" {
+			return mcpgo.NewToolResultError("prompt is required"), nil
 		}
-		// Content is map[string]any; extract the answer field.
-		if cm, ok := result.Content.(map[string]any); ok {
-			if v, ok := cm["answer"].(string); ok {
-				return v, true, nil
+		// Validate the session exists on disk before claiming a
+		// per-session run slot. Cheap fail-fast for the common
+		// "wrong session_id" mistake.
+		if _, _, err := sessionDirs(args.SessionID); err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+
+		registryMu.Lock()
+		if _, busy := currentBySession[args.SessionID]; busy {
+			// Don't include the in-flight run_id in the response
+			// — run_id is a capability and leaking it would hand
+			// access to another caller. The legitimate caller who
+			// started that run already has its run_id; they
+			// should poll that. A different caller hitting the
+			// same session_id (rare; that means the session_id
+			// itself leaked) just sees "busy".
+			registryMu.Unlock()
+			body, _ := json.Marshal(map[string]any{
+				"error": "session has another run in flight; retry shortly",
+				"busy":  true,
+			})
+			return mcpgo.NewToolResultError(string(body)), nil
+		}
+		rec := &runRecord{
+			ID:        newRunID(),
+			SessionID: args.SessionID,
+			Status:    runStatusRunning,
+			Prompt:    prompt,
+			StartedAt: time.Now().UTC(),
+			done:      make(chan struct{}),
+		}
+		runs[rec.ID] = rec
+		currentBySession[args.SessionID] = rec
+		registryMu.Unlock()
+
+		// Background ctx — the MCP request ctx ends when this
+		// handler returns, but the run lives on. The container's
+		// own runtime is the only effective timeout; if the
+		// operator wants to abort, kill the docker container by
+		// hand from the host CLI.
+		go executeRun(context.Background(), cfg, rec)
+
+		body, _ := json.Marshal(map[string]any{
+			"run_id": rec.ID,
+			"status": rec.Status,
+		})
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
+
+// executeRun is the goroutine body that does the actual work. On
+// completion it transitions the runRecord to done|error and frees
+// the session's in-flight slot so a follow-up `run` in the same
+// session can proceed. Always closes rec.done so any future
+// long-poll variant can wait on it cheaply.
+func executeRun(ctx context.Context, cfg Config, rec *runRecord) {
+	defer func() {
+		registryMu.Lock()
+		if rec.Status == runStatusRunning {
+			// Defensive: should be set explicitly below. Mark as
+			// error to avoid leaving a record stuck "running".
+			rec.Status = runStatusError
+			if rec.Error == "" {
+				rec.Error = "internal: run finished without setting terminal status"
 			}
 		}
-		return "", true, nil // accepted but blank
+		if rec.FinishedAt.IsZero() {
+			rec.FinishedAt = time.Now().UTC()
+		}
+		if cur := currentBySession[rec.SessionID]; cur == rec {
+			delete(currentBySession, rec.SessionID)
+		}
+		close(rec.done)
+		registryMu.Unlock()
+	}()
+
+	finalize := func(status, errMsg, response string, artifacts []string, exitCode int) {
+		registryMu.Lock()
+		rec.Status = status
+		rec.Error = errMsg
+		rec.Response = response
+		rec.Artifacts = artifacts
+		rec.ExitCode = exitCode
+		rec.FinishedAt = time.Now().UTC()
+		registryMu.Unlock()
+	}
+
+	prov := buildProvider()
+	image := resolveImage(cfg)
+	hName := "claude-code"
+	h, err := harness.Get(hName)
+	if err != nil {
+		finalize(runStatusError, err.Error(), "", nil, 0)
+		return
+	}
+
+	inputsDir, artifactsDir, err := sessionDirs(rec.SessionID)
+	if err != nil {
+		finalize(runStatusError, "session: "+err.Error(), "", nil, 0)
+		return
+	}
+	if err := ensureFreshArtifacts(artifactsDir); err != nil {
+		finalize(runStatusError, "clear artifacts: "+err.Error(), "", nil, 0)
+		return
+	}
+
+	sess, err := prov.Up(ctx, agent.UpOpts{
+		Image:     image,
+		Harness:   hName,
+		InputsDir: inputsDir,
 	})
 	if err != nil {
-		return mcpgo.NewToolResultError("elicitcb start: " + err.Error()), nil
+		finalize(runStatusError, err.Error(), "", nil, 0)
+		return
 	}
-	defer func() { _ = cb.Close() }()
+	defer func() {
+		_ = prov.Down(context.Background(), sess.ID)
+	}()
 
-	// Merge the callback URL + token into the env passed to the
-	// container. The docker provider's rewriteLoopbackURL turns
-	// 127.0.0.1 into host.docker.internal so the container can
-	// reach back; the token is opaque and travels verbatim.
-	envWithCb := map[string]string{}
-	for k, v := range args.Env {
-		envWithCb[k] = v
-	}
-	envWithCb["SOCIAL_AGENT_CALLBACK_URL"] = cb.URL()
-	envWithCb["SOCIAL_AGENT_CALLBACK_TOKEN"] = cb.Token()
+	var stdout, stderr bytes.Buffer
+	execErr := prov.Exec(ctx, sess.ID, agent.ExecOpts{
+		Cmd:    h.InvokePrompt(rec.Prompt),
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
 
-	handler := func(e streaming.Event) {
-		mu.Lock()
-		progress++
-		seq := progress
-		switch e.Kind {
-		case "text":
-			textLines = append(textLines, e.Content)
-		case "artifact":
-			artifactLst = append(artifactLst, map[string]any{
-				"path":   e.Path,
-				"size":   e.Size,
-				"sha256": e.SHA256,
-				"mime":   e.Mime,
-			})
-		case "done":
-			exitCode = e.ExitCode
-			if e.Error != "" {
-				runErr = e.Error
+	// Pull artifacts whether or not exec succeeded — claude may have
+	// written partial output before the failure, useful for debugging.
+	var relArtifacts []string
+	if sess.ArtifactsURL != "" {
+		c := &artifacts.Client{BaseURL: sess.ArtifactsURL}
+		if entries, err := c.List(ctx); err == nil {
+			for _, e := range entries {
+				dst := filepath.Join(artifactsDir, e.Path)
+				if err := c.GetTo(ctx, e.Path, dst); err != nil {
+					continue
+				}
+				relArtifacts = append(relArtifacts, e.Path)
 			}
 		}
-		mu.Unlock()
+	}
 
-		// Send progress notification with a human-readable summary
-		// so MCP clients (Claude Code etc) render it inline. Per
-		// MCP spec the `message` field is meant for short scannable
-		// status strings; previously we stuffed the full Event JSON
-		// in there, which clients couldn't display nicely. Skip
-		// events with no useful summary (e.g. claude_event, which
-		// duplicates the text events we already emit).
-		summary := progressSummary(e)
-		if summary == "" {
-			return
+	if execErr != nil {
+		errMsg := fmt.Sprintf("exec: %v\nstderr: %s", execErr, strings.TrimSpace(stderr.String()))
+		finalize(runStatusError, errMsg, stdout.String(), relArtifacts, 0)
+		return
+	}
+	finalize(runStatusDone, "", stdout.String(), relArtifacts, 0)
+}
+
+// ---- run_status -------------------------------------------------
+
+type runStatusArgs struct {
+	RunID string `json:"run_id"`
+}
+
+func addRunStatusTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_run_status",
+		mcpgo.WithDescription("Check on a run started by `social_agent_run`. Returns `{run_id, status, started_at, finished_at?, duration_seconds?, response?, artifacts?, error?, exit_code?}` where status is one of `running`, `done`, `error`. When status is `done` the response and artifacts list are populated; when `error` the error field describes what went wrong (along with any partial response/artifacts). Poll this tool until status is no longer `running`."),
+		mcpgo.WithString("run_id", mcpgo.Required(), mcpgo.Description("The run_id returned by `social_agent_run`.")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args runStatusArgs) (*mcpgo.CallToolResult, error) {
+		id := strings.TrimSpace(args.RunID)
+		if id == "" {
+			return mcpgo.NewToolResultError("run_id is required"), nil
 		}
-		_ = srv.SendNotificationToClient(ctx, "notifications/progress", map[string]any{
-			"progressToken": token,
-			"progress":      seq,
-			"message":       summary,
-		})
-	}
-
-	// Always allocate a session root so artifacts survive teardown
-	// AND /inputs/ can be bind-mounted (set at container create
-	// time, can't be added to a running container). args.Output
-	// overrides only where artifacts get pulled, not the session
-	// root — inputs/ still lives under sessionRoot/.
-	sessionRoot, artifactsDir, inputsDir, derr := newSessionDir()
-	if derr != nil {
-		return mcpgo.NewToolResultError("session dir: " + derr.Error()), nil
-	}
-	if _, err := stageInputs(args.Inputs, inputsDir); err != nil {
-		return mcpgo.NewToolResultError("stage inputs: " + err.Error()), nil
-	}
-	outDir := args.Output
-	if outDir == "" {
-		outDir = artifactsDir
-	}
-
-	if err := prov.Run(ctx, agent.UpOpts{
-		Image:         image,
-		Harness:       hName,
-		Workdir:       args.Workdir,
-		Env:           envWithCb,
-		Stream:        true,
-		StreamHandler: handler,
-		OutputDir:     outDir,
-		InputsDir:     inputsDir,
-	}, args.Prompt); err != nil {
-		return mcpgo.NewToolResultError(err.Error()), nil
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	// Resolve each streamed artifact event to its host path so the
-	// caller can Read it directly, not just see its metadata.
-	for _, a := range artifactLst {
-		if path, ok := a["path"].(string); ok {
-			a["host_path"] = filepath.Join(outDir, path)
+		registryMu.Lock()
+		rec, ok := runs[id]
+		var snap map[string]any
+		if ok {
+			snap = rec.snapshot()
 		}
-	}
-	envelope := map[string]any{
-		"text":          strings.Join(textLines, "\n"),
-		"artifacts":     artifactLst,
-		"exit_code":     exitCode,
-		"artifacts_dir": outDir,
-		"inputs_dir":    inputsDir,
-		"session_dir":   sessionRoot,
-	}
-	if runErr != "" {
-		envelope["error"] = runErr
-	}
-	body, _ := json.Marshal(envelope)
-	return mcpgo.NewToolResultText(string(body)), nil
+		registryMu.Unlock()
+		if !ok {
+			return mcpgo.NewToolResultError(fmt.Sprintf("no run with id %q", id)), nil
+		}
+		body, _ := json.Marshal(snap)
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
 }
 
 // ---- up --------------------------------------------------------
@@ -744,7 +1014,7 @@ type pullArgs struct {
 
 func addPullTool(s *server.MCPServer, cfg Config) {
 	tool := mcpgo.NewTool("social_agent_pull",
-		mcpgo.WithDescription("Pull files from a session's /artifacts to the host. Empty `path` pulls the whole tree to `to` (or cwd). Non-empty `path` pulls one file. The agent inside the session writes returnable files to /artifacts/<name>; this tool downloads them."),
+		mcpgo.WithDescription("Pull files from a session's /artifacts to the host filesystem (the host running this MCP server). Empty `path` pulls the whole tree to `to` (or cwd). Non-empty `path` pulls one file. NOTE: writes land on the MCP server's host — if you're calling from a different container or machine you can't see the result; use `social_agent_read` instead, which returns content directly in the MCP response."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Session id.")),
 		mcpgo.WithString("path", mcpgo.Description("Single-file path relative to /artifacts. Empty = whole tree.")),
 		mcpgo.WithString("to", mcpgo.Description("Destination dir (whole tree) or file (single path). Default: cwd.")),
@@ -797,50 +1067,285 @@ func addPullTool(s *server.MCPServer, cfg Config) {
 	}))
 }
 
-// ---- upload ----------------------------------------------------
+// ---- download -------------------------------------------------
+//
+// addDownloadTool / addUploadTool / addLsArtifactsTool form the
+// public artifact surface — upload some files for the agent,
+// run a prompt, list what came out, download what's interesting.
+// All three operate on the persistent host workspace populated by
+// `run`, so they keep working after the container behind a run is
+// torn down. The tool descriptions deliberately avoid container /
+// docker / filesystem-path vocabulary: a caller should be able to
+// use this MCP without knowing there's a container behind the
+// agent at all.
+//
+// Naming: upload_artifacts / download_artifacts are the symmetric
+// pair, list_artifacts shows what's available. The internal split
+// (uploads land in `inputs/`, downloads come from `artifacts/`) is
+// hidden — callers see one bag of artifacts.
+//
+// Encoding: MCP text content can't carry arbitrary bytes (NULs,
+// invalid UTF-8). isPrintableUTF8 sniffs the chunk; valid text
+// goes back as `content`, anything else as `content_b64` (base64).
+//
+// Size cap: response is bounded at `max_bytes` (default 256 KB,
+// hard cap 4 MB) so a giant artifact can't stuff the transcript or
+// blow past the client's context budget. Pagination via
+// `start_byte` + the returned `next_start` for files larger than
+// the cap.
 
-type uploadArgs struct {
-	ID     string   `json:"id"`
-	Inputs []string `json:"inputs"`
+type downloadArgs struct {
+	SessionID string `json:"session_id"`
+	Path      string `json:"path"`
+	Start     int64  `json:"start_byte,omitempty"`
+	MaxBytes  int64  `json:"max_bytes,omitempty"`
 }
 
-func addUploadTool(s *server.MCPServer, _ Config) {
-	tool := mcpgo.NewTool("social_agent_upload",
-		mcpgo.WithDescription("Copy host files into a running session's /inputs/ dir. Mid-session counterpart to social_agent_pull: pre-stage files at session creation via social_agent_up({inputs:[…]}), or drop more in later via this tool. Files appear inside the container at /inputs/<basename> immediately (the dir is bind-mounted, so a host write is visible without a docker round-trip). Files only — directories rejected. Useful when the operator gathers more material partway through a multi-step session."),
-		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_up`. Prefix match works.")),
-		mcpgo.WithArray("inputs", mcpgo.Description("Host file paths to copy into /inputs/. Items: type=string. Each lands at /inputs/<basename>.")),
+func addDownloadTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_download_artifacts",
+		mcpgo.WithDescription("Read one artifact the agent has produced in the given session. Returns the file's content as text (`content`) or, if the data isn't valid UTF-8, as base64 (`content_b64`). Paginated for large files — up to `max_bytes` per call; resume with `start_byte` from the previous response's `next_start`. Call `social_agent_list_artifacts` first to see what's available."),
+		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_session_create`.")),
+		mcpgo.WithString("path", mcpgo.Required(), mcpgo.Description("Artifact name (as returned by `social_agent_list_artifacts`).")),
+		mcpgo.WithNumber("start_byte", mcpgo.Description("Byte offset to start at (default 0). Use the previous response's `next_start` to page through.")),
+		mcpgo.WithNumber("max_bytes", mcpgo.Description("Max bytes to return (default 262144, hard cap 4194304).")),
 	)
-	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args uploadArgs) (*mcpgo.CallToolResult, error) {
-		if strings.TrimSpace(args.ID) == "" {
-			return mcpgo.NewToolResultError("id is required"), nil
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(ctx context.Context, _ mcpgo.CallToolRequest, args downloadArgs) (*mcpgo.CallToolResult, error) {
+		if strings.TrimSpace(args.Path) == "" {
+			return mcpgo.NewToolResultError("path is required"), nil
 		}
-		if len(args.Inputs) == 0 {
-			return mcpgo.NewToolResultError("inputs is required (list of host file paths)"), nil
-		}
-		// Resolve session id (prefix match) to its host inputs dir.
-		var inputsDir string
-		sessionInputs.Range(func(k, v any) bool {
-			id, _ := k.(string)
-			dir, _ := v.(string)
-			if id == args.ID || hasIDPrefix(id, args.ID) || hasIDPrefix(args.ID, id) {
-				inputsDir = dir
-				return false
-			}
-			return true
-		})
-		if inputsDir == "" {
-			return mcpgo.NewToolResultError(fmt.Sprintf("no inputs dir tracked for session %q (was the session created with social_agent_up after the upload feature shipped?)", args.ID)), nil
-		}
-		staged, err := stageInputs(args.Inputs, inputsDir)
+		_, artifactsDir, err := sessionDirs(args.SessionID)
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
+		abs, err := safeWorkspacePath(artifactsDir, args.Path)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		f, err := os.Open(abs)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		total := info.Size()
+		start := args.Start
+		if start < 0 {
+			start = 0
+		}
+		if start > total {
+			start = total
+		}
+		max := args.MaxBytes
+		const defaultMax = int64(256 * 1024)
+		const hardMax = int64(4 * 1024 * 1024)
+		switch {
+		case max <= 0:
+			max = defaultMax
+		case max > hardMax:
+			max = hardMax
+		}
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		buf := make([]byte, max)
+		n, err := io.ReadFull(f, buf)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		chunk := buf[:n]
+		nextStart := start + int64(n)
+		out := map[string]any{
+			"path":       args.Path,
+			"size":       total,
+			"start":      start,
+			"bytes":      n,
+			"next_start": nextStart,
+			"eof":        nextStart >= total,
+		}
+		if isPrintableUTF8(chunk) {
+			out["content"] = string(chunk)
+			out["encoding"] = "utf8"
+		} else {
+			out["content_b64"] = base64StdEncode(chunk)
+			out["encoding"] = "base64"
+		}
+		body, _ := json.Marshal(out)
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
+
+// ---- upload ----------------------------------------------------
+
+type uploadArgs struct {
+	// SessionID names the workspace to drop the files into. Each
+	// session has its own bag of inputs/artifacts.
+	SessionID string `json:"session_id"`
+	// Files is a list of host file paths the operator wants to
+	// make available to the agent. The caller-visible field name
+	// is `files` to match the tool's description vocabulary —
+	// "upload these files" reads cleaner than "upload these
+	// inputs", and the inputs/artifacts split is internal detail
+	// the MCP surface deliberately doesn't expose.
+	Files []string `json:"files"`
+}
+
+func addUploadTool(s *server.MCPServer, _ Config) {
+	tool := mcpgo.NewTool("social_agent_upload_artifacts",
+		mcpgo.WithDescription("Make files available to the agent in the given session. Each file is registered under its basename and stays available for subsequent runs in that session — upload once, run many prompts. Files only; directories are rejected. Returns the list of registered names."),
+		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_session_create`.")),
+		mcpgo.WithArray("files", mcpgo.Description("Host file paths to make available to the agent. Items: type=string. Each is registered under its basename; collisions overwrite.")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args uploadArgs) (*mcpgo.CallToolResult, error) {
+		if len(args.Files) == 0 {
+			return mcpgo.NewToolResultError("files is required (list of host file paths)"), nil
+		}
+		inputsDir, _, err := sessionDirs(args.SessionID)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		staged, err := stageInputs(args.Files, inputsDir)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		// Strip the host inputs-dir prefix from each staged path
+		// so the response shows only the basenames the caller can
+		// reference — never the MCP server's filesystem layout.
+		names := make([]string, 0, len(staged))
+		for _, p := range staged {
+			names = append(names, filepath.Base(p))
+		}
 		body, _ := json.Marshal(map[string]any{
-			"uploaded":   staged,
-			"inputs_dir": inputsDir,
+			"uploaded": names,
 		})
 		return mcpgo.NewToolResultText(string(body)), nil
 	}))
+}
+
+// ---- list_artifacts -------------------------------------------
+
+type listArtifactsArgs struct {
+	SessionID string `json:"session_id"`
+}
+
+// listEntry is the wire shape for list_artifacts entries. `path`
+// is always the artifact's name relative to the session's artifacts
+// dir; one of `url`/`host_path` is set depending on transport so
+// the caller knows how to actually read the bytes.
+//
+// HTTP transport → `url`: relative path on the same host as /mcp;
+// fetch with HTTP + the same Bearer token. URL field omitted in
+// stdio mode (no HTTP server is listening).
+//
+// stdio transport → `host_path`: absolute host filesystem path;
+// caller is the parent process, on the same host, so it can read
+// the file directly with built-in file tools. host_path omitted in
+// HTTP mode (caller may be remote and shouldn't see host paths).
+type listEntry struct {
+	Path     string `json:"path"`
+	Size     int64  `json:"size"`
+	URL      string `json:"url,omitempty"`
+	HostPath string `json:"host_path,omitempty"`
+}
+
+func addLsArtifactsTool(s *server.MCPServer, cfg Config) {
+	desc := "List artifacts the agent has produced in the given session. Each entry returns `{path, size, host_path}` — `host_path` is the absolute host filesystem path; read files directly with your built-in file tools. Falls back to `social_agent_download_artifacts` if you'd rather pull bytes through MCP."
+	if cfg.HTTPMode {
+		desc = "List artifacts the agent has produced in the given session. Each entry returns `{path, size, url}` — `url` is a relative path on the same host as this MCP endpoint that serves the file's bytes (with the same Authorization: Bearer token /mcp uses). Fetch URLs directly with HTTP for bulk/parallel downloads, or call `social_agent_download_artifacts` if your client can't make HTTP requests."
+	}
+	tool := mcpgo.NewTool("social_agent_list_artifacts",
+		mcpgo.WithDescription(desc),
+		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_session_create`.")),
+	)
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args listArtifactsArgs) (*mcpgo.CallToolResult, error) {
+		_, artifactsDir, err := sessionDirs(args.SessionID)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		raw, err := listArtifacts(artifactsDir)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
+		entries := make([]listEntry, 0, len(raw))
+		for _, e := range raw {
+			entry := listEntry{Path: e.Path, Size: e.Size}
+			if cfg.HTTPMode {
+				entry.URL = artifactURL(args.SessionID, e.Path)
+			} else {
+				entry.HostPath = filepath.Join(artifactsDir, filepath.FromSlash(e.Path))
+			}
+			entries = append(entries, entry)
+		}
+		body, _ := json.Marshal(map[string]any{
+			"entries": entries,
+		})
+		return mcpgo.NewToolResultText(string(body)), nil
+	}))
+}
+
+// artifactEntry mirrors what the in-container artifacts HTTP
+// server returns from GET /artifacts/, but populated by walking
+// the host workspace tree instead. Path is relative to the
+// workspace artifacts dir; Size is bytes.
+type artifactEntry struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+// listArtifacts walks `root`, returning every regular file as an
+// entry with a forward-slash relative path (filepath.ToSlash so
+// macOS / Linux output matches and the cross-platform consumer
+// doesn't see backslashes when we eventually run on Windows).
+func listArtifacts(root string) ([]artifactEntry, error) {
+	var out []artifactEntry
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		out = append(out, artifactEntry{
+			Path: filepath.ToSlash(rel),
+			Size: info.Size(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// safeWorkspacePath joins root + rel and verifies the result stays
+// inside root (defends against `../../etc/passwd`-style paths from
+// a hostile MCP caller). Returns the absolute path on success.
+func safeWorkspacePath(root, rel string) (string, error) {
+	clean := filepath.Clean(rel)
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
+		return "", fmt.Errorf("path %q escapes workspace", rel)
+	}
+	abs := filepath.Join(root, clean)
+	// Belt-and-suspenders: ensure abs is still under root after
+	// the join. Symlinks inside the workspace could redirect
+	// elsewhere; we don't follow them at the resolve step but
+	// open(2) will, so reject any abs that isn't a direct child.
+	rootAbs, _ := filepath.Abs(root)
+	absAbs, _ := filepath.Abs(abs)
+	if !strings.HasPrefix(absAbs, rootAbs+string(filepath.Separator)) && absAbs != rootAbs {
+		return "", fmt.Errorf("path %q escapes workspace", rel)
+	}
+	return abs, nil
 }
 
 // ---- rm-file ---------------------------------------------------
@@ -1004,4 +1509,28 @@ func hasIDPrefix(s, p string) bool {
 		return false
 	}
 	return s[:len(p)] == p
+}
+
+// isPrintableUTF8 reports whether b is valid UTF-8 with no NUL byte.
+// social_agent_read uses this to decide between returning content as
+// `content` (text) or `content_b64` (base64). NUL is technically
+// valid UTF-8 but breaks downstream consumers that treat it as a
+// string terminator, so we route NUL-bearing payloads through base64.
+func isPrintableUTF8(b []byte) bool {
+	if !utf8.Valid(b) {
+		return false
+	}
+	for _, c := range b {
+		if c == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// base64StdEncode is the trivial wrapper. Inline'd as a function
+// rather than calling base64.StdEncoding.EncodeToString at every
+// call site so the import surface stays explicit at this layer.
+func base64StdEncode(b []byte) string {
+	return base64.StdEncoding.EncodeToString(b)
 }

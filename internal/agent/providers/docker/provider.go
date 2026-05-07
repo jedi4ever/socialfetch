@@ -836,14 +836,58 @@ func humanBytes(n int64) string {
 // Stderr goes through to the caller's stderr so docker's progress
 // output (image pulls, etc) is visible. Used everywhere we need
 // to read docker's output (inspect, ps, run -d → container id).
+//
+// On failure, the error message includes a *redacted* argv —
+// `-e KEY=VAL` pairs become `-e KEY=<redacted>` so secrets in
+// passthrough env vars (ANTHROPIC_API_KEY, MCP_AUTH_TOKEN, etc.)
+// don't leak into error strings, MCP transcripts, or logs.
+// Non-secret flags stay readable for debugging.
 func dockerOutput(ctx context.Context, args []string) (string, error) {
 	c := exec.CommandContext(ctx, "docker", args...)
 	c.Stderr = os.Stderr
 	out, err := c.Output()
 	if err != nil {
-		return "", fmt.Errorf("docker %s: %w", strings.Join(args, " "), err)
+		return "", fmt.Errorf("docker %s: %w", redactDockerArgs(args), err)
 	}
 	return string(out), nil
+}
+
+// redactDockerArgs returns a single-line, space-joined argv string
+// with the value half of every `-e KEY=VAL` / `--env KEY=VAL` pair
+// replaced by `<redacted>`. Same for `--env-file` (path can leak
+// the operator's home layout but the values inside are worse — we
+// drop the path too, conservatively). Used only for error messages;
+// the unmodified argv is what we actually pass to exec.
+func redactDockerArgs(args []string) string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case (a == "-e" || a == "--env" || a == "--env-file") && i+1 < len(args):
+			out = append(out, a)
+			next := args[i+1]
+			if a == "--env-file" {
+				out = append(out, "<redacted>")
+			} else if eq := strings.IndexByte(next, '='); eq > 0 {
+				out = append(out, next[:eq]+"=<redacted>")
+			} else {
+				// Bare `-e FOO` (no `=`) means "pass through host's
+				// $FOO". Key alone is not sensitive; keep it.
+				out = append(out, next)
+			}
+			i++
+		case strings.HasPrefix(a, "--env="):
+			kv := a[len("--env="):]
+			if eq := strings.IndexByte(kv, '='); eq > 0 {
+				out = append(out, "--env="+kv[:eq]+"=<redacted>")
+			} else {
+				out = append(out, a)
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // parseEnviron converts an os.Environ()-shaped slice into the
