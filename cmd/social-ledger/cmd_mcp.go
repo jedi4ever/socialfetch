@@ -41,7 +41,7 @@ import (
 func cmdMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	readonly := fs.Bool("readonly", false, "set SOCIAL_LEDGER_READONLY=1 for this process so record/forget refuse")
-	httpAddr := fs.String("http", "", "if set, serve over Streamable HTTP on this bind addr (e.g. :5557 or 127.0.0.1:5557) instead of stdio. /mcp is the protocol endpoint; / and /health are unauthenticated status probes. MCP_AUTH_TOKEN env adds bearer auth.")
+	httpAddr := fs.String("http", "", "if set, serve over Streamable HTTP on this bind addr instead of stdio. Bare port (5557) and host-less colon-port (:5557) both bind on all interfaces — the form to use when a containerised inner claude on host.docker.internal needs to reach you. Pass an explicit host (127.0.0.1:5557) to lock to loopback. MCP_AUTH_TOKEN env adds bearer auth.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -69,7 +69,16 @@ func cmdMCP(args []string) error {
 	cfg := mcp.Config{Version: Version}
 	srv := mcp.NewLedgerOnlyServer(cfg)
 
-	if strings.TrimSpace(*httpAddr) != "" {
+	addr := strings.TrimSpace(*httpAddr)
+	if addr != "" {
+		// Bare port shortcut — `--http 5557` becomes `:5557`
+		// (all-interfaces bind), matching what's needed for a
+		// containerised inner claude on host.docker.internal to
+		// reach us. Explicit host:port (127.0.0.1:5557) passes
+		// through unchanged.
+		if !strings.Contains(addr, ":") {
+			addr = ":" + addr
+		}
 		token := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
 		if token == "" {
 			fmt.Fprintf(os.Stderr,
@@ -78,8 +87,8 @@ func cmdMCP(args []string) error {
 		} else {
 			fmt.Fprintf(os.Stderr, "social-ledger mcp: bearer-token auth enabled (MCP_AUTH_TOKEN env)\n")
 		}
-		fmt.Fprintf(os.Stderr, "social-ledger mcp: listening on %s (Streamable HTTP)\n", *httpAddr)
-		return mcphttp.Serve(*httpAddr, srv, mcphttp.Options{
+		fmt.Fprintf(os.Stderr, "social-ledger mcp: listening on %s (Streamable HTTP)\n", addr)
+		return mcphttp.Serve(addr, srv, mcphttp.Options{
 			Service: "social-ledger-mcp",
 			Version: Version,
 			Token:   token,
