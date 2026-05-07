@@ -17,6 +17,7 @@
 CLAUDE_JSON="$HOME/.claude.json"
 CLAUDE_DIR="$HOME/.claude"
 CLAUDE_INTERNAL_JSON="$CLAUDE_DIR/claude.json"
+CLAUDE_REMOTE_SETTINGS="$CLAUDE_DIR/remote-settings.json"
 
 if [ ! -e "$CLAUDE_JSON" ] && [ ! -d "$CLAUDE_DIR" ]; then
     mkdir -p "$CLAUDE_DIR"
@@ -38,6 +39,22 @@ EOF
 {
   "hasTrustDialogHooksAccepted": true,
   "hasCompletedOnboarding": true
+}
+EOF
+    # Disable interactive surveys + telemetry that are pointless
+    # inside an ephemeral container. claude-code reads remote-
+    # settings.json's `env` block at startup and exports each entry
+    # into its process env, so this is equivalent to
+    # `export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` etc. but
+    # persistent and visible in claude's own config view.
+    cat > "$CLAUDE_REMOTE_SETTINGS" <<'EOF'
+{
+  "channelsEnabled": true,
+  "env": {
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_TELEMETRY": "1"
+  }
 }
 EOF
     # Pre-approve the supplied API key so claude doesn't show the
