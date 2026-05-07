@@ -599,7 +599,17 @@ type runRecord struct {
 
 // snapshot copies the public fields into a JSON-shaped map for the
 // MCP response. Caller must hold registryMu.
-func (r *runRecord) snapshot() map[string]any {
+//
+// Artifact rendering depends on httpMode:
+//   - HTTP: each artifact becomes a fetchable URL on the same
+//     listener (artifactURL(sessionID, relPath)). The caller GETs
+//     it directly with the same bearer token, no MCP round-trip.
+//     Path is dropped from the response — URL is the operative
+//     identifier; clients don't need both.
+//   - stdio: each artifact stays as the relative path. The caller
+//     reads it via social_agent_download_artifacts (the only
+//     channel back when there's no listener).
+func (r *runRecord) snapshot(httpMode bool) map[string]any {
 	out := map[string]any{
 		"run_id":     r.ID,
 		"status":     r.Status,
@@ -612,7 +622,7 @@ func (r *runRecord) snapshot() map[string]any {
 	switch r.Status {
 	case runStatusDone:
 		out["response"] = r.Response
-		out["artifacts"] = r.Artifacts
+		out["artifacts"] = renderArtifacts(r.SessionID, r.Artifacts, httpMode)
 		out["exit_code"] = r.ExitCode
 	case runStatusError:
 		out["error"] = r.Error
@@ -622,8 +632,27 @@ func (r *runRecord) snapshot() map[string]any {
 			out["response"] = r.Response
 		}
 		if len(r.Artifacts) > 0 {
-			out["artifacts"] = r.Artifacts
+			out["artifacts"] = renderArtifacts(r.SessionID, r.Artifacts, httpMode)
 		}
+	}
+	return out
+}
+
+// renderArtifacts shapes the path list for the run_status / run
+// response based on the transport. HTTP returns just the URL
+// strings (clients GET them directly with the same bearer token);
+// stdio returns the relative paths (clients fetch them via
+// download_artifacts).
+func renderArtifacts(sessionID string, paths []string, httpMode bool) []string {
+	if !httpMode {
+		// Defensive copy so the caller can't mutate the runRecord.
+		out := make([]string, len(paths))
+		copy(out, paths)
+		return out
+	}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = artifactURL(sessionID, p)
 	}
 	return out
 }
@@ -828,9 +857,9 @@ type runStatusArgs struct {
 	RunID string `json:"run_id"`
 }
 
-func addRunStatusTool(s *server.MCPServer, _ Config) {
+func addRunStatusTool(s *server.MCPServer, cfg Config) {
 	tool := mcpgo.NewTool("social_agent_run_status",
-		mcpgo.WithDescription("Check on a run started by `social_agent_run`. Returns `{run_id, status, started_at, finished_at?, duration_seconds?, response?, artifacts?, error?, exit_code?}` where status is one of `running`, `done`, `error`. When status is `done` the response and artifacts list are populated; when `error` the error field describes what went wrong (along with any partial response/artifacts). Poll this tool until status is no longer `running`."),
+		mcpgo.WithDescription("Check on a run started by `social_agent_run`. Returns `{run_id, status, started_at, finished_at?, duration_seconds?, response?, artifacts?, error?, exit_code?}` where status is one of `running`, `done`, `error`. When status is `done` the response and artifacts list are populated; when `error` the error field describes what went wrong (along with any partial response/artifacts). In HTTP mode the artifacts list is fetchable URLs the client GETs directly with the same bearer token; in stdio mode it's relative paths read via social_agent_download_artifacts. Poll this tool until status is no longer `running`."),
 		mcpgo.WithString("run_id", mcpgo.Required(), mcpgo.Description("The run_id returned by `social_agent_run`.")),
 	)
 	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args runStatusArgs) (*mcpgo.CallToolResult, error) {
@@ -842,7 +871,7 @@ func addRunStatusTool(s *server.MCPServer, _ Config) {
 		rec, ok := runs[id]
 		var snap map[string]any
 		if ok {
-			snap = rec.snapshot()
+			snap = rec.snapshot(cfg.HTTPMode)
 		}
 		registryMu.Unlock()
 		if !ok {

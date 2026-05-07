@@ -1,7 +1,7 @@
 {
   "name": "social-skills",
   "description": "Social-web skills for AI agents. Wraps HackerNews / Reddit / GitHub / X / LinkedIn / YouTube / Bluesky / arXiv / Medium / Substack / RSS / generic article fetchers, plus search and grounded-answer engines (Perplexity, Grok, OpenAI, Anthropic, Gemini, Tavily, SerpAPI). Auto-caches every fetch in a local SQLite ledger so 'have we seen this URL?' is instant.",
-  "version": "0.25.3",
+  "version": "0.25.4",
   "author": {
     "name": "Patrick Debois"
   },
