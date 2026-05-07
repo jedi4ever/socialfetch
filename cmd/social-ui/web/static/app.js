@@ -131,6 +131,25 @@
         sendPrompt(tab.id);
       }
     });
+    // Events-sidebar collapse toggle. State is global (one
+    // preference for all tabs) so flipping it once sticks for
+    // every tab in this browser.
+    const sidebar = node.querySelector(".events-sidebar");
+    const toggle = node.querySelector(".toggle-events");
+    sidebar.dataset.collapsed = (localStorage.getItem("social-ui:events-collapsed") === "true") ? "true" : "false";
+    toggle.title = sidebar.dataset.collapsed === "true" ? "Show events" : "Hide events";
+    toggle.addEventListener("click", () => {
+      const next = sidebar.dataset.collapsed === "true" ? "false" : "true";
+      // Apply to every existing pane's sidebar so the choice is
+      // global-feeling.
+      panes.querySelectorAll(".events-sidebar").forEach(s => {
+        s.dataset.collapsed = next;
+      });
+      panes.querySelectorAll(".toggle-events").forEach(b => {
+        b.title = next === "true" ? "Show events" : "Hide events";
+      });
+      localStorage.setItem("social-ui:events-collapsed", next);
+    });
     panes.appendChild(node);
     return node;
   }
@@ -172,12 +191,20 @@
       promptInput.value = tab.prompt;
     }
 
-    // Events list.
+    // Events list. The server returns the runRecord.Events
+    // []json.RawMessage as already-decoded JSON objects (raw
+    // messages get re-emitted as JSON, not as quoted strings),
+    // so the client just consumes them. We still tolerate strings
+    // for forward-compat in case the wire shape changes.
     events.innerHTML = "";
     if (snap && Array.isArray(snap.events)) {
       snap.events.forEach(ev => {
         let parsed = null;
-        try { parsed = JSON.parse(ev); } catch { /* leave null */ }
+        if (ev && typeof ev === "object") {
+          parsed = ev;
+        } else if (typeof ev === "string") {
+          try { parsed = JSON.parse(ev); } catch { /* leave null */ }
+        }
         const li = document.createElement("li");
         const t = parsed?.type || "raw";
         li.className = t;

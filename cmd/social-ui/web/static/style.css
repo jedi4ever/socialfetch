@@ -90,11 +90,29 @@ body {
 
 main#panes {
   padding: 16px 24px 64px;
-  max-width: 980px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
+/* Pane layout: main column flexes, events sidebar pinned right.
+   When data-collapsed="true" on the sidebar, it shrinks to a thin
+   bar with just the toggle button so the operator can re-expand. */
+.pane {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 24px;
+  align-items: start;
+}
 .pane[hidden] { display: none; }
+.pane:has(.events-sidebar[data-collapsed="true"]) {
+  grid-template-columns: 1fr 32px;
+}
+@media (max-width: 800px) {
+  .pane { grid-template-columns: 1fr; }
+  .events-sidebar { order: 2; }
+}
+
+.main-col { min-width: 0; }     /* let flex/grid shrink children */
 
 .prompt-form {
   display: flex;
@@ -150,19 +168,86 @@ button.send:disabled {
   padding-bottom: 4px;
 }
 
+/* Events sidebar — right rail, sticky so it stays visible while
+   the operator scrolls long responses, collapsible via the
+   toggle in its header. */
+.events-sidebar {
+  position: sticky;
+  top: 60px;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--code-bg);
+  transition: max-width 120ms ease;
+}
+.events-sidebar[data-collapsed="true"] .events-list,
+.events-sidebar[data-collapsed="true"] .events-header h2 {
+  display: none;
+}
+.events-sidebar[data-collapsed="true"] .events-header {
+  padding: 6px 4px;
+  justify-content: center;
+  border-bottom: none;
+}
+.events-sidebar[data-collapsed="true"] .toggle-events {
+  transform: rotate(180deg);
+}
+
+.events-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--code-bg);
+  z-index: 1;
+}
+.events-header h2 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border: none;
+  padding: 0;
+}
+.toggle-events {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 120ms ease;
+}
+.toggle-events:hover { color: var(--fg); border-color: var(--fg); }
+
 .events-list {
   list-style: none;
-  padding-left: 0;
+  padding: 8px 12px;
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--fg);
+  overflow-y: auto;
+  flex: 1;
 }
 .events-list li {
-  padding: 2px 0;
+  padding: 3px 0 3px 8px;
   border-left: 2px solid var(--line);
-  padding-left: 10px;
   margin-bottom: 2px;
+  word-break: break-word;
 }
 .events-list li.assistant { border-left-color: var(--accent); }
 .events-list li.tool_use { border-left-color: #d97706; }

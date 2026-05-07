@@ -32,7 +32,7 @@ import (
 // Version is held in lockstep with the rest of the binaries +
 // the claude-desktop / claude-code / marketplace manifests.
 // See CLAUDE.md "Versioning".
-const Version = "0.27.0"
+const Version = "0.27.1"
 
 func main() {
 	dotenv.LoadAuto()
