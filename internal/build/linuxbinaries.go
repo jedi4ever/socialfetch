@@ -19,7 +19,7 @@ import (
 // session can shell out to any of them, and the browser image
 // can host social-agent itself if the operator ever wants the
 // agent and pool colocated.
-var Binaries = []string{"social-fetch", "social-ledger", "social-browser", "social-agent", "social-notifier"}
+var Binaries = []string{"social-fetch", "social-ledger", "social-browser", "social-agent", "social-notifier", "social-ui"}
 
 // LinuxBinaries cross-compiles every entry in Binaries for
 // linux/<arch> into dist/linux-<arch>/. Mirrors the Makefile

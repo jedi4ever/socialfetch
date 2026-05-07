@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>social-ui</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">social-ui</div>
+    <nav id="tabs" class="tabs">
+      <!-- tab buttons get injected here -->
+      <button id="newTabBtn" class="tab newTab" type="button">+ New</button>
+    </nav>
+  </header>
+
+  <main id="panes">
+    <!-- pane elements get injected here, one per tab; only the active one is visible -->
+  </main>
+
+  <template id="pane-template">
+    <section class="pane" hidden>
+      <form class="prompt-form">
+        <textarea class="prompt-input" rows="2" placeholder="Type a research prompt and hit Send (⌘/Ctrl+Enter)" required></textarea>
+        <button class="send" type="submit">Send</button>
+      </form>
+
+      <section class="status-line"></section>
+
+      <section class="block events">
+        <h2>Events</h2>
+        <ol class="events-list"></ol>
+      </section>
+
+      <section class="block response">
+        <h2>Response</h2>
+        <pre class="response-text"></pre>
+      </section>
+
+      <section class="block artifacts">
+        <h2>Artifacts</h2>
+        <ul class="artifacts-list"></ul>
+      </section>
+    </section>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

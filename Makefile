@@ -7,6 +7,7 @@ BROWSER_CMD_BIN         := ./dist/social-browser
 AGENT_CMD_BIN           := ./dist/social-agent
 RESEARCHER_CMD_BIN      := ./dist/social-researcher
 NOTIFIER_CMD_BIN        := ./dist/social-notifier
+UI_CMD_BIN              := ./dist/social-ui
 SKILL_BIN               := ./skills/social-fetch/scripts/social-fetch
 SKILL_LEDGER_BIN        := ./skills/social-fetch/scripts/social-ledger
 LEDGER_SKILL_DIR        := ./skills/social-ledger
@@ -71,6 +72,7 @@ $(SKILL_BIN): $(SKILL_DEPS)
 	go build $(GO_BUILD_FLAGS) -o $(AGENT_CMD_BIN) ./cmd/social-agent
 	go build $(GO_BUILD_FLAGS) -o $(RESEARCHER_CMD_BIN) ./cmd/social-researcher
 	go build $(GO_BUILD_FLAGS) -o $(NOTIFIER_CMD_BIN) ./cmd/social-notifier
+	go build $(GO_BUILD_FLAGS) -o $(UI_CMD_BIN) ./cmd/social-ui
 	cp $(BIN) $(SKILL_BIN)
 	cp $(LEDGER_CMD_BIN) $(SKILL_LEDGER_BIN)
 
@@ -188,7 +190,7 @@ DOCKER_LEDGER_VOL  = social-skills-ledger
 # (browser + agent) so the agent's claude-code can shell out to
 # social-fetch / social-ledger / social-browser without a second
 # install.
-LINUX_BINS              := social-fetch social-ledger social-browser social-agent social-researcher social-notifier
+LINUX_BINS              := social-fetch social-ledger social-browser social-agent social-researcher social-notifier social-ui
 LINUX_BIN_DIR_AMD64     := dist/linux-amd64
 LINUX_BIN_DIR_ARM64     := dist/linux-arm64
 LINUX_BINS_AMD64        := $(addprefix $(LINUX_BIN_DIR_AMD64)/,$(LINUX_BINS))

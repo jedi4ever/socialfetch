@@ -1,0 +1,195 @@
+/* social-ui — minimal local UI. Plain CSS, no preprocessor.
+   Dark/light via prefers-color-scheme. */
+
+:root {
+  --bg: #fff;
+  --fg: #1c1c1c;
+  --muted: #6b6b6b;
+  --line: #e3e3e3;
+  --accent: #2563eb;
+  --accent-fg: #fff;
+  --code-bg: #f6f6f6;
+  --tab-active-bg: #f3f4f6;
+  --error: #b91c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0e0e;
+    --fg: #e9e9e9;
+    --muted: #9b9b9b;
+    --line: #2a2a2a;
+    --accent: #60a5fa;
+    --accent-fg: #0e0e0e;
+    --code-bg: #161616;
+    --tab-active-bg: #1c1c1c;
+    --error: #f87171;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.4;
+}
+
+.topbar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.brand {
+  padding: 12px 16px;
+  font-weight: 600;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab:hover { background: var(--tab-active-bg); }
+.tab.active {
+  background: var(--tab-active-bg);
+  font-weight: 600;
+}
+.tab .close {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.tab .close:hover {
+  color: var(--error);
+  background: rgba(0,0,0,0.05);
+}
+.newTab { color: var(--muted); }
+
+main#panes {
+  padding: 16px 24px 64px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.pane[hidden] { display: none; }
+
+.prompt-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin: 16px 0 24px;
+}
+.prompt-input {
+  flex: 1;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}
+.prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+button.send {
+  padding: 10px 20px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.send:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.status-line {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.status-line.error { color: var(--error); }
+
+.block {
+  margin: 24px 0;
+}
+.block h2 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+
+.events-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.events-list li {
+  padding: 2px 0;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin-bottom: 2px;
+}
+.events-list li.assistant { border-left-color: var(--accent); }
+.events-list li.tool_use { border-left-color: #d97706; }
+.events-list li.tool_result { border-left-color: #059669; }
+.events-list li.system { color: var(--muted); }
+.events-list li.result { font-weight: 600; }
+
+.response-text {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+  font-size: 13px;
+}
+
+.artifacts-list { list-style: none; padding-left: 0; margin: 0; }
+.artifacts-list li {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.artifacts-list a { color: var(--accent); text-decoration: none; }
+.artifacts-list a:hover { text-decoration: underline; }
+.artifacts-list .size { color: var(--muted); font-variant-numeric: tabular-nums; }

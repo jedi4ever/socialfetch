@@ -41,7 +41,7 @@ import (
 // binaries ship as a pair — ingest writes from social-fetch must
 // match the schema social-ledger reads — so bumping one bumps
 // them all. See CLAUDE.md "Versioning" for the full lockstep set.
-const Version = "0.26.0"
+const Version = "0.27.0"
 
 func main() {
 	// Auto-load .env from the cwd / repo root so SOCIAL_LEDGER_*,
