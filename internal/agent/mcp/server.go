@@ -446,7 +446,17 @@ func registerTools(s *server.MCPServer, cfg Config) {
 	addRunTool(s, cfg)
 	addRunStatusTool(s, cfg)
 	addUploadTool(s, cfg)
-	addDownloadTool(s, cfg)
+	// download_artifacts is only useful in stdio mode, where the
+	// MCP transcript is the only channel back to the client. In
+	// HTTP mode the same listener serves /artifacts/<session>/<path>
+	// behind the bearer token, so list_artifacts returns a `url`
+	// the client GETs directly — bypassing the MCP message-size
+	// budget and parallelisable. Skip the tool to avoid offering
+	// two ways to do the same thing (and to discourage the slow
+	// path).
+	if !cfg.HTTPMode {
+		addDownloadTool(s, cfg)
+	}
 	addLsArtifactsTool(s, cfg)
 }
 
