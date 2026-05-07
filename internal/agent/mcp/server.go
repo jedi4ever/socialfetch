@@ -206,11 +206,58 @@ func NewArtifactsHandler() http.Handler {
 	})
 }
 
-// artifactURL builds the relative URL for one artifact, suitable
-// for embedding in an MCP response. Caller appends to whatever
-// base URL they're using to reach the MCP server.
-func artifactURL(sessionID, relPath string) string {
-	return ArtifactsURLPrefix + sessionID + "/" + filepath.ToSlash(relPath)
+// artifactURL builds the URL for one artifact, suitable for
+// embedding in an MCP response. baseURL is the public root the
+// caller used to reach this server — derived from the inbound
+// request's Host / X-Forwarded-{Host,Proto} headers via
+// publicBaseURL. Empty baseURL = fall back to a relative path
+// (the legacy shape; still works, client just has to prepend its
+// own base).
+//
+// Why request-derived: the server can be reached on multiple
+// hostnames (loopback, host.docker.internal, a tailnet name, a
+// reverse-proxy DNS name). Each client connects under one of
+// them. Returning the loopback URL to a tailnet client gives
+// the client an unreachable URL. Reflecting the inbound Host
+// guarantees the URL points back at whatever the client was
+// already talking to.
+func artifactURL(baseURL, sessionID, relPath string) string {
+	rel := ArtifactsURLPrefix + sessionID + "/" + filepath.ToSlash(relPath)
+	if baseURL == "" {
+		return rel
+	}
+	return strings.TrimRight(baseURL, "/") + rel
+}
+
+// publicBaseURL extracts the URL the client used to reach this
+// MCP, given the inbound request's headers. Reads
+// X-Forwarded-{Proto,Host} first (the convention for reverse
+// proxies that terminate TLS / rewrite the host), falling back
+// to the request's Host header.
+//
+// Empty return when Host is missing — typical for stdio runs
+// (no http.Request behind the call) — caller falls through to
+// relative URLs.
+func publicBaseURL(h http.Header) string {
+	if h == nil {
+		return ""
+	}
+	host := h.Get("X-Forwarded-Host")
+	if host == "" {
+		host = h.Get("Host")
+	}
+	if host == "" {
+		return ""
+	}
+	scheme := h.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		// We don't terminate TLS in this binary; the only way
+		// the inbound request is HTTPS is via a fronting proxy,
+		// in which case X-Forwarded-Proto would be set. Default
+		// http otherwise.
+		scheme = "http"
+	}
+	return scheme + "://" + host
 }
 
 // newSessionID returns a 64-char hex (256 bits of randomness) id
@@ -600,16 +647,17 @@ type runRecord struct {
 // snapshot copies the public fields into a JSON-shaped map for the
 // MCP response. Caller must hold registryMu.
 //
-// Artifact rendering depends on httpMode:
+// Artifact rendering depends on httpMode + baseURL:
 //   - HTTP: each artifact becomes a fetchable URL on the same
-//     listener (artifactURL(sessionID, relPath)). The caller GETs
-//     it directly with the same bearer token, no MCP round-trip.
-//     Path is dropped from the response — URL is the operative
-//     identifier; clients don't need both.
+//     listener. baseURL is the public root the caller used to
+//     reach this server (derived from the inbound request's
+//     Host / X-Forwarded-* headers); empty baseURL falls back to
+//     a relative path. Path is dropped from the response — URL
+//     is the operative identifier; clients don't need both.
 //   - stdio: each artifact stays as the relative path. The caller
 //     reads it via social_agent_download_artifacts (the only
 //     channel back when there's no listener).
-func (r *runRecord) snapshot(httpMode bool) map[string]any {
+func (r *runRecord) snapshot(httpMode bool, baseURL string) map[string]any {
 	out := map[string]any{
 		"run_id":     r.ID,
 		"status":     r.Status,
@@ -622,7 +670,7 @@ func (r *runRecord) snapshot(httpMode bool) map[string]any {
 	switch r.Status {
 	case runStatusDone:
 		out["response"] = r.Response
-		out["artifacts"] = renderArtifacts(r.SessionID, r.Artifacts, httpMode)
+		out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode)
 		out["exit_code"] = r.ExitCode
 	case runStatusError:
 		out["error"] = r.Error
@@ -632,18 +680,19 @@ func (r *runRecord) snapshot(httpMode bool) map[string]any {
 			out["response"] = r.Response
 		}
 		if len(r.Artifacts) > 0 {
-			out["artifacts"] = renderArtifacts(r.SessionID, r.Artifacts, httpMode)
+			out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode)
 		}
 	}
 	return out
 }
 
 // renderArtifacts shapes the path list for the run_status / run
-// response based on the transport. HTTP returns just the URL
-// strings (clients GET them directly with the same bearer token);
-// stdio returns the relative paths (clients fetch them via
+// response based on the transport. HTTP returns absolute URLs
+// rooted at baseURL (the inbound request's public origin), so
+// the client GETs whatever host:port it already reached us on.
+// stdio returns relative paths (clients fetch them via
 // download_artifacts).
-func renderArtifacts(sessionID string, paths []string, httpMode bool) []string {
+func renderArtifacts(baseURL, sessionID string, paths []string, httpMode bool) []string {
 	if !httpMode {
 		// Defensive copy so the caller can't mutate the runRecord.
 		out := make([]string, len(paths))
@@ -652,7 +701,7 @@ func renderArtifacts(sessionID string, paths []string, httpMode bool) []string {
 	}
 	out := make([]string, len(paths))
 	for i, p := range paths {
-		out[i] = artifactURL(sessionID, p)
+		out[i] = artifactURL(baseURL, sessionID, p)
 	}
 	return out
 }
@@ -862,16 +911,17 @@ func addRunStatusTool(s *server.MCPServer, cfg Config) {
 		mcpgo.WithDescription("Check on a run started by `social_agent_run`. Returns `{run_id, status, started_at, finished_at?, duration_seconds?, response?, artifacts?, error?, exit_code?}` where status is one of `running`, `done`, `error`. When status is `done` the response and artifacts list are populated; when `error` the error field describes what went wrong (along with any partial response/artifacts). In HTTP mode the artifacts list is fetchable URLs the client GETs directly with the same bearer token; in stdio mode it's relative paths read via social_agent_download_artifacts. Poll this tool until status is no longer `running`."),
 		mcpgo.WithString("run_id", mcpgo.Required(), mcpgo.Description("The run_id returned by `social_agent_run`.")),
 	)
-	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args runStatusArgs) (*mcpgo.CallToolResult, error) {
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, req mcpgo.CallToolRequest, args runStatusArgs) (*mcpgo.CallToolResult, error) {
 		id := strings.TrimSpace(args.RunID)
 		if id == "" {
 			return mcpgo.NewToolResultError("run_id is required"), nil
 		}
+		base := publicBaseURL(req.Header)
 		registryMu.Lock()
 		rec, ok := runs[id]
 		var snap map[string]any
 		if ok {
-			snap = rec.snapshot(cfg.HTTPMode)
+			snap = rec.snapshot(cfg.HTTPMode, base)
 		}
 		registryMu.Unlock()
 		if !ok {
@@ -1292,13 +1342,13 @@ type listEntry struct {
 func addLsArtifactsTool(s *server.MCPServer, cfg Config) {
 	desc := "List artifacts the agent has produced in the given session. Each entry returns `{path, size, host_path}` — `host_path` is the absolute host filesystem path; read files directly with your built-in file tools. Falls back to `social_agent_download_artifacts` if you'd rather pull bytes through MCP."
 	if cfg.HTTPMode {
-		desc = "List artifacts the agent has produced in the given session. Each entry returns `{path, size, url}` — `url` is a relative path on the same host as this MCP endpoint that serves the file's bytes (with the same Authorization: Bearer token /mcp uses). Fetch URLs directly with HTTP for bulk/parallel downloads, or call `social_agent_download_artifacts` if your client can't make HTTP requests."
+		desc = "List artifacts the agent has produced in the given session. Each entry returns `{path, size, url}` — `url` is a fetchable URL rooted at the same host:port the client used to call this MCP, serving the file's bytes (with the same Authorization: Bearer token /mcp uses). Fetch URLs directly with HTTP for bulk/parallel downloads, or call `social_agent_download_artifacts` if your client can't make HTTP requests."
 	}
 	tool := mcpgo.NewTool("social_agent_list_artifacts",
 		mcpgo.WithDescription(desc),
 		mcpgo.WithString("session_id", mcpgo.Required(), mcpgo.Description("Session id from `social_agent_session_create`.")),
 	)
-	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, _ mcpgo.CallToolRequest, args listArtifactsArgs) (*mcpgo.CallToolResult, error) {
+	s.AddTool(tool, mcpgo.NewTypedToolHandler(func(_ context.Context, req mcpgo.CallToolRequest, args listArtifactsArgs) (*mcpgo.CallToolResult, error) {
 		_, artifactsDir, err := sessionDirs(args.SessionID)
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
@@ -1307,11 +1357,12 @@ func addLsArtifactsTool(s *server.MCPServer, cfg Config) {
 		if err != nil {
 			return mcpgo.NewToolResultError(err.Error()), nil
 		}
+		base := publicBaseURL(req.Header)
 		entries := make([]listEntry, 0, len(raw))
 		for _, e := range raw {
 			entry := listEntry{Path: e.Path, Size: e.Size}
 			if cfg.HTTPMode {
-				entry.URL = artifactURL(args.SessionID, e.Path)
+				entry.URL = artifactURL(base, args.SessionID, e.Path)
 			} else {
 				entry.HostPath = filepath.Join(artifactsDir, filepath.FromSlash(e.Path))
 			}
