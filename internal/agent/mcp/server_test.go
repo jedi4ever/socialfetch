@@ -349,7 +349,11 @@ func TestArtifactsHandler(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	h := NewArtifactsHandler()
+	// No auth configured — mirrors mcphttp's "no token = no auth"
+	// convention so the file-serving + path-validation tests below
+	// don't have to thread bearer / signed-URL plumbing. Auth path
+	// has its own coverage.
+	h := NewArtifactsHandler("", nil)
 
 	// Happy path.
 	rec := httptestRecord(t, h, "GET", ArtifactsURLPrefix+sessionID+"/report.md")

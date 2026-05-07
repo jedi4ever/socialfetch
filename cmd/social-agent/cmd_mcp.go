@@ -51,15 +51,27 @@ func cmdMCP(args []string) error {
 	if httpMode && !strings.Contains(addr, ":") {
 		addr = ":" + addr
 	}
+	// In HTTP mode, derive an HMAC signing key from MCP_AUTH_TOKEN
+	// for self-authorising artifact URLs. Same token = same key,
+	// so signed URLs survive a daemon restart. No token = no
+	// signing → URLs only auth'd by the bearer header (operator
+	// curl flow).
+	token := ""
+	var signKey []byte
+	if httpMode {
+		token = strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+		signKey = agentmcp.DeriveArtifactSignKey(token)
+	}
+
 	cfg := agentmcp.Config{
-		Version:      Version,
-		DefaultImage: *image,
-		HTTPMode:     httpMode,
+		Version:         Version,
+		DefaultImage:    *image,
+		HTTPMode:        httpMode,
+		ArtifactSignKey: signKey,
 	}
 	srv := agentmcp.NewServer(cfg)
 
 	if httpMode {
-		token := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
 		if token == "" {
 			fmt.Fprintf(os.Stderr,
 				"social-agent mcp: WARNING — no MCP_AUTH_TOKEN set, every request accepted unauthenticated.\n"+
@@ -68,19 +80,20 @@ func cmdMCP(args []string) error {
 			fmt.Fprintf(os.Stderr, "social-agent mcp: bearer-token auth enabled (MCP_AUTH_TOKEN env)\n")
 		}
 		fmt.Fprintf(os.Stderr, "social-agent mcp: listening on %s (Streamable HTTP)\n", addr)
-		fmt.Fprintf(os.Stderr, "social-agent mcp: artifacts available at %s<session_id>/<path> (same bearer token)\n", agentmcp.ArtifactsURLPrefix)
+		fmt.Fprintf(os.Stderr, "social-agent mcp: artifacts available at %s<session_id>/<path> (HMAC-signed URLs OR same bearer token)\n", agentmcp.ArtifactsURLPrefix)
 		// Register the artifacts file-server alongside /mcp on
-		// the same listen addr. Callers fetching files via plain
-		// HTTP (the `url` field in social_agent_list_artifacts)
-		// avoid the MCP message-size budget and can pull in
-		// parallel — much cheaper than per-file MCP downloads
-		// when the agent produces many artifacts.
+		// the same listen addr. Goes via UnauthExtraHandlers
+		// (NOT bearer-wrapped) because the handler does its own
+		// dual auth — signed-URL OR bearer — to allow the
+		// list_artifacts response URLs to be fetched without
+		// header gymnastics while still rejecting unauthorised
+		// callers.
 		return mcphttp.Serve(addr, srv, mcphttp.Options{
 			Service: "social-agent-mcp",
 			Version: Version,
 			Token:   token,
-			ExtraHandlers: map[string]http.Handler{
-				agentmcp.ArtifactsURLPrefix: agentmcp.NewArtifactsHandler(),
+			UnauthExtraHandlers: map[string]http.Handler{
+				agentmcp.ArtifactsURLPrefix: agentmcp.NewArtifactsHandler(token, signKey),
 			},
 		})
 	}

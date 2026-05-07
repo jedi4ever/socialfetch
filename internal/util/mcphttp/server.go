@@ -59,6 +59,16 @@ type Options struct {
 	// match). Status routes (/ + /health) stay unauthenticated;
 	// don't register patterns that overlap them.
 	ExtraHandlers map[string]http.Handler
+
+	// UnauthExtraHandlers is the same as ExtraHandlers but the
+	// bearer-token gate is NOT applied. Use this when the handler
+	// owns its own auth scheme — e.g. signed-URL endpoints where
+	// the URL itself carries the proof of authorization
+	// (HMAC-signed query string), so wrapping with bearer auth
+	// would defeat the point. Caller is responsible for ensuring
+	// the handler rejects unauthenticated requests on every path
+	// it serves.
+	UnauthExtraHandlers map[string]http.Handler
 }
 
 // Serve binds addr and runs the Streamable HTTP MCP server with
@@ -113,6 +123,9 @@ func NewMux(srv *server.MCPServer, opts Options) http.Handler {
 
 	for pattern, h := range opts.ExtraHandlers {
 		mux.Handle(pattern, gate(h))
+	}
+	for pattern, h := range opts.UnauthExtraHandlers {
+		mux.Handle(pattern, h)
 	}
 
 	// Inject r.Host into r.Header so MCP tool handlers — which

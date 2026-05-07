@@ -15,7 +15,9 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -138,13 +141,28 @@ const ArtifactsURLPrefix = "/artifacts/"
 // HTTP — saves round-trips vs. a per-file MCP `download` and
 // dodges the protocol's message-size budget.
 //
-// Auth: the handler itself is unauthenticated; cmd_mcp.go wraps
-// it in the same bearer-token gate the /mcp endpoint uses, so
-// callers present `Authorization: Bearer $MCP_AUTH_TOKEN` exactly
-// as for MCP. Together with the 256-bit unguessable session_id,
-// that's two factors a remote attacker has to bypass: knowing the
-// shared MCP token AND knowing a session_id that was never
-// transmitted to them.
+// Auth (any one of these passes — first match wins):
+//
+//  1. **Signed URL** — `?exp=<unix>&sig=<hex>` query string. The
+//     sig is HMAC-SHA256("GET\n<path>\n<exp>", signKey). signKey
+//     is derived from MCP_AUTH_TOKEN at process start, so URLs
+//     survive a daemon restart. exp is the Unix timestamp after
+//     which the URL is invalid (default TTL one hour). This is
+//     what `social_agent_list_artifacts` and `run_status` hand
+//     back — clients GET them directly with no headers.
+//
+//  2. **Bearer token** — `Authorization: Bearer $MCP_AUTH_TOKEN`,
+//     same as /mcp. Lets an operator curl an artifact directly,
+//     and lets clients that prefer the header path skip the
+//     query-string sig.
+//
+// signKey or bearer must be non-empty for ANY request to succeed
+// in HTTP mode; the cmd_mcp wiring registers the handler via
+// mcphttp.UnauthExtraHandlers (the bearer wrapper is skipped at
+// that level so we can do dual auth here). When no MCP_AUTH_TOKEN
+// is set, signKey is empty and bearer is empty, so the handler
+// rejects everything — callers run with auth at the loopback
+// boundary today regardless.
 //
 // Path validation: validSessionID rejects anything but 64-char
 // hex (no path traversal); the rest of the path is resolved
@@ -153,7 +171,11 @@ const ArtifactsURLPrefix = "/artifacts/"
 // we don't create any inside the workspace, but a hostile agent
 // could; followed symlinks must still resolve under the
 // artifactsDir or http.ServeFile rejects them as forbidden.
-func NewArtifactsHandler() http.Handler {
+func NewArtifactsHandler(bearerToken string, signKey []byte) http.Handler {
+	expectedBearer := ""
+	if bearerToken != "" {
+		expectedBearer = "Bearer " + bearerToken
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -179,6 +201,34 @@ func NewArtifactsHandler() http.Handler {
 			http.Error(w, "missing artifact path", http.StatusBadRequest)
 			return
 		}
+
+		// AUTH — three modes, in order:
+		//   1. No auth configured (both bearerToken and signKey
+		//      empty): allow. Mirrors mcphttp's "no token = no
+		//      auth" convention; only safe on loopback.
+		//   2. Signed URL: ?exp=…&sig=… valid under signKey.
+		//   3. Bearer header: matches the configured bearer.
+		//
+		// If auth IS configured but neither presents valid creds,
+		// 401.
+		authConfigured := expectedBearer != "" || len(signKey) > 0
+		if authConfigured {
+			authed := false
+			if exp, sig := r.URL.Query().Get("exp"), r.URL.Query().Get("sig"); exp != "" && sig != "" {
+				if verifyArtifactSig(signKey, r.URL.Path, exp, sig) {
+					authed = true
+				}
+			}
+			if !authed && expectedBearer != "" && r.Header.Get("Authorization") == expectedBearer {
+				authed = true
+			}
+			if !authed {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="social-agent-artifacts"`)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+
 		_, artifactsDir, err := sessionDirs(sessionID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -206,6 +256,66 @@ func NewArtifactsHandler() http.Handler {
 	})
 }
 
+// DeriveArtifactSignKey derives the HMAC key for signed artifact
+// URLs from MCP_AUTH_TOKEN. Done this way (rather than a random
+// per-process key) so URLs handed out before a daemon restart
+// keep working across the restart — the operator's inner claude
+// has long-running runs whose URLs would otherwise become 401
+// after `pkill social-agent && social-agent mcp ...`.
+//
+// Returns nil when token is empty (no signing possible — caller
+// gates the no-token path elsewhere).
+func DeriveArtifactSignKey(token string) []byte {
+	if token == "" {
+		return nil
+	}
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("social-agent-artifact-sign-key-v1"))
+	return mac.Sum(nil)
+}
+
+// signArtifactPath returns the HMAC-SHA256 hex of "GET\n<path>\n<exp>"
+// keyed by signKey. Caller appends ?exp=<exp>&sig=<sig> to the URL.
+// Empty signKey returns "" — no signature, no URL auth.
+func signArtifactPath(signKey []byte, path, exp string) string {
+	if len(signKey) == 0 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, signKey)
+	mac.Write([]byte("GET\n"))
+	mac.Write([]byte(path))
+	mac.Write([]byte{'\n'})
+	mac.Write([]byte(exp))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// verifyArtifactSig is the symmetric check for a request: the
+// supplied (path, exp, sig) must HMAC-match under signKey AND exp
+// must be a future Unix timestamp. Constant-time compare so an
+// attacker can't time-side-channel out a valid sig.
+func verifyArtifactSig(signKey []byte, path, expStr, sigHex string) bool {
+	if len(signKey) == 0 {
+		return false
+	}
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	if time.Now().Unix() >= exp {
+		return false
+	}
+	expected := signArtifactPath(signKey, path, expStr)
+	gotBytes, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return false
+	}
+	expBytes, err := hex.DecodeString(expected)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(gotBytes, expBytes)
+}
+
 // artifactURL builds the URL for one artifact, suitable for
 // embedding in an MCP response. baseURL is the public root the
 // caller used to reach this server — derived from the inbound
@@ -214,20 +324,43 @@ func NewArtifactsHandler() http.Handler {
 // (the legacy shape; still works, client just has to prepend its
 // own base).
 //
-// Why request-derived: the server can be reached on multiple
-// hostnames (loopback, host.docker.internal, a tailnet name, a
-// reverse-proxy DNS name). Each client connects under one of
-// them. Returning the loopback URL to a tailnet client gives
-// the client an unreachable URL. Reflecting the inbound Host
-// guarantees the URL points back at whatever the client was
-// already talking to.
-func artifactURL(baseURL, sessionID, relPath string) string {
+// signKey, when non-nil, makes the URL self-authorising via an
+// HMAC-signed `?exp=<unix>&sig=<hex>` query string — the client
+// fetches with no headers, the artifact handler validates the
+// sig + exp on the way in. Empty signKey returns an unsigned
+// URL; the client then has to send `Authorization: Bearer ...`
+// to be served. Default TTL is one hour, plenty for a polling
+// run_status loop without exposing leaked URLs forever.
+//
+// ArtifactURLTTL is the lifetime of a signed URL from the moment
+// it's emitted. One hour balances "long enough that a slow
+// client can still fetch after a multi-minute run" against
+// "short enough that a leaked URL stops working before the
+// operator notices".
+//
+// Why request-derived host: the server can be reached on
+// multiple hostnames (loopback, host.docker.internal, a tailnet
+// name, a reverse-proxy DNS name). Each client connects under
+// one of them. Returning the loopback URL to a tailnet client
+// gives the client an unreachable URL. Reflecting the inbound
+// Host guarantees the URL points back at whatever the client
+// was already talking to.
+func artifactURL(baseURL, sessionID, relPath string, signKey []byte) string {
 	rel := ArtifactsURLPrefix + sessionID + "/" + filepath.ToSlash(relPath)
-	if baseURL == "" {
-		return rel
+	full := rel
+	if baseURL != "" {
+		full = strings.TrimRight(baseURL, "/") + rel
 	}
-	return strings.TrimRight(baseURL, "/") + rel
+	if len(signKey) > 0 {
+		exp := strconv.FormatInt(time.Now().Add(ArtifactURLTTL).Unix(), 10)
+		sig := signArtifactPath(signKey, rel, exp)
+		full += "?exp=" + exp + "&sig=" + sig
+	}
+	return full
 }
+
+// ArtifactURLTTL is the lifetime of a signed artifact URL.
+const ArtifactURLTTL = time.Hour
 
 // publicBaseURL extracts the URL the client used to reach this
 // MCP, given the inbound request's headers. Reads
@@ -423,6 +556,15 @@ type Config struct {
 	// The two modes never share a process, so callers don't have
 	// to handle both shapes in one client.
 	HTTPMode bool
+
+	// ArtifactSignKey is the HMAC key for signing artifact URLs in
+	// HTTP mode. Set by cmd_mcp.go via DeriveArtifactSignKey from
+	// MCP_AUTH_TOKEN. When non-nil, list_artifacts and run_status
+	// emit URLs with `?exp=…&sig=…` so clients can fetch directly
+	// with no headers; the artifact handler validates on the way
+	// in. nil = unsigned URLs (the operator must use the bearer
+	// header to fetch).
+	ArtifactSignKey []byte
 }
 
 // NewServer builds an MCP server with all social-agent tools
@@ -647,17 +789,20 @@ type runRecord struct {
 // snapshot copies the public fields into a JSON-shaped map for the
 // MCP response. Caller must hold registryMu.
 //
-// Artifact rendering depends on httpMode + baseURL:
+// Artifact rendering depends on httpMode + baseURL + signKey:
 //   - HTTP: each artifact becomes a fetchable URL on the same
 //     listener. baseURL is the public root the caller used to
 //     reach this server (derived from the inbound request's
 //     Host / X-Forwarded-* headers); empty baseURL falls back to
-//     a relative path. Path is dropped from the response — URL
-//     is the operative identifier; clients don't need both.
+//     a relative path. signKey, when non-nil, makes the URL
+//     self-authorising via `?exp=…&sig=…` so the client fetches
+//     directly with no headers. Path is dropped from the
+//     response — URL is the operative identifier; clients don't
+//     need both.
 //   - stdio: each artifact stays as the relative path. The caller
 //     reads it via social_agent_download_artifacts (the only
 //     channel back when there's no listener).
-func (r *runRecord) snapshot(httpMode bool, baseURL string) map[string]any {
+func (r *runRecord) snapshot(httpMode bool, baseURL string, signKey []byte) map[string]any {
 	out := map[string]any{
 		"run_id":     r.ID,
 		"status":     r.Status,
@@ -670,7 +815,7 @@ func (r *runRecord) snapshot(httpMode bool, baseURL string) map[string]any {
 	switch r.Status {
 	case runStatusDone:
 		out["response"] = r.Response
-		out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode)
+		out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode, signKey)
 		out["exit_code"] = r.ExitCode
 	case runStatusError:
 		out["error"] = r.Error
@@ -680,7 +825,7 @@ func (r *runRecord) snapshot(httpMode bool, baseURL string) map[string]any {
 			out["response"] = r.Response
 		}
 		if len(r.Artifacts) > 0 {
-			out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode)
+			out["artifacts"] = renderArtifacts(baseURL, r.SessionID, r.Artifacts, httpMode, signKey)
 		}
 	}
 	return out
@@ -688,11 +833,12 @@ func (r *runRecord) snapshot(httpMode bool, baseURL string) map[string]any {
 
 // renderArtifacts shapes the path list for the run_status / run
 // response based on the transport. HTTP returns absolute URLs
-// rooted at baseURL (the inbound request's public origin), so
-// the client GETs whatever host:port it already reached us on.
-// stdio returns relative paths (clients fetch them via
+// rooted at baseURL (the inbound request's public origin) with
+// `?exp=…&sig=…` appended when signKey is non-nil (so clients
+// fetch with no headers, sig validated on the way in). stdio
+// returns relative paths (clients fetch them via
 // download_artifacts).
-func renderArtifacts(baseURL, sessionID string, paths []string, httpMode bool) []string {
+func renderArtifacts(baseURL, sessionID string, paths []string, httpMode bool, signKey []byte) []string {
 	if !httpMode {
 		// Defensive copy so the caller can't mutate the runRecord.
 		out := make([]string, len(paths))
@@ -701,7 +847,7 @@ func renderArtifacts(baseURL, sessionID string, paths []string, httpMode bool) [
 	}
 	out := make([]string, len(paths))
 	for i, p := range paths {
-		out[i] = artifactURL(baseURL, sessionID, p)
+		out[i] = artifactURL(baseURL, sessionID, p, signKey)
 	}
 	return out
 }
@@ -921,7 +1067,7 @@ func addRunStatusTool(s *server.MCPServer, cfg Config) {
 		rec, ok := runs[id]
 		var snap map[string]any
 		if ok {
-			snap = rec.snapshot(cfg.HTTPMode, base)
+			snap = rec.snapshot(cfg.HTTPMode, base, cfg.ArtifactSignKey)
 		}
 		registryMu.Unlock()
 		if !ok {
@@ -1362,7 +1508,7 @@ func addLsArtifactsTool(s *server.MCPServer, cfg Config) {
 		for _, e := range raw {
 			entry := listEntry{Path: e.Path, Size: e.Size}
 			if cfg.HTTPMode {
-				entry.URL = artifactURL(base, args.SessionID, e.Path)
+				entry.URL = artifactURL(base, args.SessionID, e.Path, cfg.ArtifactSignKey)
 			} else {
 				entry.HostPath = filepath.Join(artifactsDir, filepath.FromSlash(e.Path))
 			}
