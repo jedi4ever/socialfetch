@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/jedi4ever/social-skills/internal/agent"
+	"github.com/jedi4ever/social-skills/internal/agent/claudecreds"
 )
 
 // envFlags is a flag.Value collecting --env KEY=VAL into a slice
@@ -44,6 +45,7 @@ func cmdRun(args []string) error {
 	agentMCPURL := fs.String("agent-mcp-url", "", "register the agent MCP via Streamable HTTP at this URL. Empty = layered default: $SOCIAL_AGENT_MCP_URL, then http://host.docker.internal:5562/mcp. Bearer auth via MCP_AUTH_TOKEN. Pass --stdio to bypass HTTP entirely.")
 	ledgerMCPURL := fs.String("ledger-mcp-url", "", "register the ledger MCP via Streamable HTTP at this URL. Empty = layered default: $SOCIAL_LEDGER_MCP_URL, then http://host.docker.internal:5557/mcp. Bearer auth via MCP_AUTH_TOKEN. Pass --stdio to bypass HTTP entirely.")
 	stdio := fs.Bool("stdio", false, "force stdio MCP for both servers — inner claude spawns /usr/local/bin/social-{agent,ledger} mcp inside the container instead of dialing host HTTP. Use when you don't have host MCP servers running. Implies the docker.sock mount unless --no-docker-sock.")
+	claudeCreds := fs.String("claude-creds", "env", "where to source the inner claude's auth from. `env` = pass through whatever ANTHROPIC_API_KEY / CLAUDE_OAUTH_CREDENTIALS the host already has (today's behavior). `auto` = also probe the macOS Keychain (and ~/.claude/.credentials.json fallback) for the host's logged-in claude OAuth blob and forward as CLAUDE_OAUTH_CREDENTIALS — lets the inner claude reuse your local /login session without copying anything. `none` = pass nothing claude-specific (for testing the unauth error path).")
 	name := fs.String("name", "", "explicit container name (default: auto-generated)")
 	var extraEnv envFlags
 	fs.Var(&extraEnv, "env", "add an env var (KEY=VAL). Repeatable. Merged on top of host PassthroughKeys.")
@@ -110,6 +112,37 @@ func cmdRun(args []string) error {
 			return fmt.Errorf("--env %q: expected KEY=VAL", kv)
 		}
 		envMap[k] = v
+	}
+
+	// Claude credentials sourcing. `env` = today's pass-through;
+	// `auto` = probe macOS Keychain / ~/.claude/.credentials.json
+	// and inject as CLAUDE_OAUTH_CREDENTIALS (base64); `none` =
+	// strip even what the host env had so the inner claude exits
+	// with a clear no-auth error (useful for testing).
+	switch strings.ToLower(strings.TrimSpace(*claudeCreds)) {
+	case "", "env":
+		// Nothing to do — env passthrough already covered
+		// CLAUDE_OAUTH_CREDENTIALS / ANTHROPIC_API_KEY via
+		// agent.BuildPassthroughEnv.
+	case "auto":
+		// Don't overwrite when the host already exported it
+		// explicitly — operator wins.
+		if _, set := envMap["CLAUDE_OAUTH_CREDENTIALS"]; !set {
+			b64, err := claudecreds.Extract()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "social-researcher: --claude-creds=auto: %v (proceeding without OAuth blob)\n", err)
+			} else if b64 != "" {
+				envMap["CLAUDE_OAUTH_CREDENTIALS"] = b64
+				fmt.Fprintf(os.Stderr, "social-researcher: forwarding host claude OAuth credentials to the container\n")
+			} else {
+				fmt.Fprintf(os.Stderr, "social-researcher: --claude-creds=auto: no Keychain entry / credentials.json found; falling back to ANTHROPIC_API_KEY if set\n")
+			}
+		}
+	case "none":
+		delete(envMap, "CLAUDE_OAUTH_CREDENTIALS")
+		delete(envMap, "ANTHROPIC_API_KEY")
+	default:
+		return fmt.Errorf("--claude-creds: unknown value %q (try: env | auto | none)", *claudeCreds)
 	}
 
 	// Resolve docker binary. We shell out (rather than dialing the
