@@ -188,7 +188,7 @@ DOCKER_LEDGER_VOL  = social-skills-ledger
 # (browser + agent) so the agent's claude-code can shell out to
 # social-fetch / social-ledger / social-browser without a second
 # install.
-LINUX_BINS              := social-fetch social-ledger social-browser social-agent social-researcher
+LINUX_BINS              := social-fetch social-ledger social-browser social-agent social-researcher social-notifier
 LINUX_BIN_DIR_AMD64     := dist/linux-amd64
 LINUX_BIN_DIR_ARM64     := dist/linux-arm64
 LINUX_BINS_AMD64        := $(addprefix $(LINUX_BIN_DIR_AMD64)/,$(LINUX_BINS))
