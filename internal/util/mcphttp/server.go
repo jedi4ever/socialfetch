@@ -115,7 +115,29 @@ func NewMux(srv *server.MCPServer, opts Options) http.Handler {
 		mux.Handle(pattern, gate(h))
 	}
 
-	return wrapRequestLog(opts, mux)
+	// Inject r.Host into r.Header so MCP tool handlers — which
+	// only see the Header map — can derive a public base URL
+	// from the inbound request. Go's stdlib stores the Host
+	// separately from Header (RFC-correct), but mcp-go
+	// (server/streamable_http.go) only forwards Header to tool
+	// handlers; without this middleware they'd see an empty
+	// Host and fall back to relative URLs. Outermost so it runs
+	// before /health, /mcp, and ExtraHandlers alike.
+	return wrapRequestLog(opts, injectHostHeader(mux))
+}
+
+// injectHostHeader copies r.Host into r.Header["Host"] so
+// downstream handlers reading the Header map (instead of the
+// http.Request fields) can see the host the client targeted.
+// Idempotent — if a fronting proxy already injected an explicit
+// Host header (rare), we leave it.
+func injectHostHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "" && r.Header.Get("Host") == "" {
+			r.Header.Set("Host", r.Host)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // writeStatusJSON answers / and /health with a small advert: who
