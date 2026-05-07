@@ -32,6 +32,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jedi4ever/social-skills/internal/util/dotenv"
 )
 
 // Version is kept in lockstep with social-fetch (and the
@@ -39,9 +41,14 @@ import (
 // binaries ship as a pair — ingest writes from social-fetch must
 // match the schema social-ledger reads — so bumping one bumps
 // them all. See CLAUDE.md "Versioning" for the full lockstep set.
-const Version = "0.25.2"
+const Version = "0.25.3"
 
 func main() {
+	// Auto-load .env from the cwd / repo root so SOCIAL_LEDGER_*,
+	// MCP_AUTH_TOKEN, etc. flow through to subcommands without
+	// the operator having to `source .env` first. Same shape
+	// social-agent / social-fetch already use.
+	dotenv.LoadAuto()
 	start := time.Now()
 	cmd := ""
 	if len(os.Args) > 1 {
